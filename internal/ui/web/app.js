@@ -382,6 +382,10 @@ function renderCounts() {
     pp.textContent = S.settings.publishing ? "Publishing…" : last ? (last.ok ? "Status page · " + short(Math.floor(new Date(last.at).getTime() / 1000)) : "Status page failed") : "Status page";
     pp.title = last ? last.summary : "Not published yet";
   } else pp.hidden = true;
+  const up = $("#update-pill"), u = st.update || {};
+  if (u.installed) { up.hidden = false; up.className = "update-pill ready"; up.textContent = `Lumpy ${u.installed} installed · ${native ? "relaunch" : "restart"} to finish`; }
+  else if (u.available) { up.hidden = false; up.className = "update-pill"; up.textContent = `Update to ${u.available}`; }
+  else up.hidden = true;
 }
 
 function render() {
@@ -1349,10 +1353,18 @@ function wireFile(driveId, path, m) {
 }
 
 // ---------- settings ----------
-async function openSettings() {
-  try { S.settings = await api("/api/settings"); } catch (e) { toast(e.message, true); return; }
+async function openSettings(focus) {
+  let u;
+  try { [S.settings, u] = await Promise.all([api("/api/settings"), api("/api/update")]); } catch (e) { toast(e.message, true); return; }
   const p = S.settings.publish, last = S.settings.last;
   S.detail = null; S.file = null;
+  const when2 = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
+  const updStatus = u.installed ? `<span class="badge ok">${ICON.check}Lumpy ${esc(u.installed)} installed</span> <span class="hint">${native ? "Relaunch to run it." : "Restart lumpy ui to run it."}</span>`
+    : u.installing ? `<span class="badge info">Installing…</span> <span class="hint">see Activity</span>`
+    : u.available ? `<span class="badge info">${ICON.up}Lumpy ${esc(u.latest.version)} available</span> <span class="hint">released ${when2(u.latest.publishedAt)} · you have ${esc(u.current)}</span>`
+    : u.error ? `<span class="badge warn">${ICON.warn}Couldn't check</span> <span class="hint">${esc(u.error)}</span>`
+    : u.latest ? `<span class="badge ok">${ICON.check}Up to date</span> <span class="hint">Lumpy ${esc(u.current)} is the latest, released ${when2(u.latest.publishedAt)}</span>`
+    : `<span class="hint">Not checked yet.</span>`;
   openSheet(`
     <div class="sheet-head">
       <span class="drive-ico file-ico">${ICON.gear}</span>
@@ -1360,6 +1372,17 @@ async function openSettings() {
       <div class="actions"><button class="icon-btn" id="close" title="Close">${ICON.x}</button></div>
     </div>
     <div class="sheet-body">
+      <div class="sec" id="sec-updates"><div class="sec-title">${ICON.up}Updates
+          <div class="right">${u.installed && native ? `<button class="btn small primary" id="upd-relaunch">Relaunch Lumpy</button>` : u.available && !u.installing ? `<button class="btn small primary" id="upd-install">Install ${esc(u.latest.version)}</button>` : ""}<button class="btn small" id="upd-check" ${u.checking ? "disabled" : ""}>${u.checking ? "Checking…" : "Check now"}</button></div></div>
+        <div class="box">
+          <div class="pub-last" style="margin:0 0 10px">${updStatus}</div>
+          ${u.available && u.latest.notes ? `<details class="notes"><summary>What's new in ${esc(u.latest.version)}</summary><pre>${esc(u.latest.notes)}</pre></details>` : ""}
+          <p class="hint" style="margin:0 0 10px">Updates replace ${esc(u.target || "the app")} in place; the library is untouched. ${native ? "" : "From Terminal: <code>lumpy update</code>."}</p>
+          <div class="fields">
+            <div class="field"><label>Check for updates</label><label class="switch" style="margin-top:7px">Twice a day while Lumpy is open <input type="checkbox" id="upd-auto" ${u.auto ? "checked" : ""}></label></div>
+            <div class="field"><label>GitHub token <span class="hint">· needed while the Lumpy repository is private</span></label><input id="upd-token" type="password" value="${u.hasToken ? "••••••••••••" : ""}" placeholder="github_pat_…" autocomplete="off"></div>
+          </div>
+        </div></div>
       <div class="sec"><div class="sec-title">${ICON.globe}Status page for coworkers
           <div class="right">${last && last.ok && native ? `<button class="btn small" id="pub-open">${ICON.reveal}Open page</button>` : ""}<button class="btn small primary" id="pub-now" ${S.settings.publishing ? "disabled" : ""}>${S.settings.publishing ? "Publishing…" : "Publish now"}</button></div></div>
         <p class="hint" style="margin:0 0 10px">A single web page with every drive, where it was last seen, each project's backup health and a file search, so the team can check without asking you. It's written whenever a job finishes, on the interval below while Lumpy is open, and once more when Lumpy quits. <code>lumpy publish</code> does the same from Terminal.</p>
@@ -1381,6 +1404,25 @@ async function openSettings() {
     <div class="sheet-foot"><button class="btn" id="settings-cancel">Cancel</button><button class="btn primary" id="settings-save">Save</button></div>`);
   $("#close").onclick = closeSheet;
   $("#settings-cancel").onclick = closeSheet;
+  $("#upd-auto").onchange = async (e) => { try { await api("/api/update/settings", { method: "PUT", body: { auto: e.target.checked } }); } catch (err) { toast(err.message, true); } };
+  $("#upd-token").onchange = async (e) => {
+    if (e.target.value.includes("•")) return;
+    try { await api("/api/update/settings", { method: "PUT", body: { token: e.target.value } }); toast(e.target.value ? "Token saved" : "Token removed"); } catch (err) { toast(err.message, true); }
+  };
+  $("#upd-check").onclick = async () => {
+    const b = $("#upd-check"); b.disabled = true; b.textContent = "Checking…";
+    try { const r = await api("/api/update/check", { method: "POST" }); loadState(); openSettings("updates"); if (r.error) toast(r.error, true); else toast(r.available ? `Lumpy ${r.latest.version} is available` : "Lumpy is up to date"); }
+    catch (err) { toast(err.message, true); b.disabled = false; b.textContent = "Check now"; }
+  };
+  const ui = $("#upd-install");
+  if (ui) ui.onclick = async () => {
+    ui.disabled = true; ui.textContent = "Installing…";
+    try { await api("/api/update/install", { method: "POST" }); toast("Installing the update… (see Activity)"); loadJobs(); closeSheet(); S.tab = "activity"; localSet("tab", S.tab); render(); }
+    catch (err) { toast(err.message, true); ui.disabled = false; ui.textContent = "Install"; }
+  };
+  const rl = $("#upd-relaunch");
+  if (rl) rl.onclick = () => nativeCall("relaunch");
+  if (focus === "updates") setTimeout(() => $("#sec-updates").scrollIntoView({ block: "start" }), 20);
   const read = () => ({ enabled: $("#pub-enabled").checked, title: $("#pub-title").value, interval: +$("#pub-interval").value, folder: $("#pub-folder").value.trim(),
     url: $("#pub-url").value.trim(), token: $("#pub-token").value, files: $("#pub-files").checked, command: $("#pub-command").value });
   const save = async () => { S.settings = await api("/api/settings", { method: "PUT", body: read() }); renderCounts(); };
@@ -1413,7 +1455,8 @@ $("#color-by").onchange = (e) => { S.colorBy = e.target.value; localSet("colorBy
 $("#sort-dir").onclick = () => { S.desc = !S.desc; localSet("desc", S.desc ? "1" : "0"); render(); };
 $("#refresh").innerHTML = ICON.refresh;
 $("#settings").innerHTML = ICON.gear;
-$("#settings").onclick = openSettings;
+$("#settings").onclick = () => openSettings();
+$("#update-pill").onclick = () => openSettings("updates");
 $("#refresh").onclick = () => { loadState(); loadJobs(); };
 $(".search-icon").innerHTML = ICON.search;
 $("#export").innerHTML = ICON.export + "Export CSV…";

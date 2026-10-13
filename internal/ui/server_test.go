@@ -1,8 +1,13 @@
 package ui
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +20,7 @@ import (
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/job"
+	"github.com/lumpysheppard/lumpy/internal/update"
 	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
@@ -333,4 +339,82 @@ func TestSettingsAndPublishThroughAPI(t *testing.T) {
 	if view.Last == nil || (*view.Last)["ok"] != true {
 		t.Fatalf("last result: %+v", view)
 	}
+}
+
+func TestUpdateThroughAPI(t *testing.T) {
+	s, ts, _ := setup(t)
+	s.meta.Version = "0.5.0"
+	// A fake GitHub with one newer release whose binary asset replaces a
+	// bare lumpy binary (this test process is not inside an app bundle).
+	var gh *httptest.Server
+	bin := zipBytes(map[string]string{"lumpy": "#!/bin/sh\necho lumpy 0.9.0\n"})
+	sums := sha256Hex(bin) + "  lumpy-macos-universal.zip\n"
+	gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(404)
+			return
+		}
+		switch r.URL.Path {
+		case "/repos/" + update.Repo + "/releases/latest":
+			fmt.Fprintf(w, `{"tag_name":"v0.9.0","body":"notes","html_url":"https://example/r","published_at":"2026-10-14T10:00:00Z","assets":[{"name":"lumpy-macos-universal.zip","url":"%s/a","size":%d},{"name":"SHA256SUMS","url":"%s/s","size":%d}]}`, gh.URL, len(bin), gh.URL, len(sums))
+		case "/a":
+			w.Write(bin)
+		case "/s":
+			w.Write([]byte(sums))
+		}
+	}))
+	defer gh.Close()
+	update.BaseURL = gh.URL
+	defer func() { update.BaseURL = "https://api.github.com" }()
+
+	var v UpdateView
+	call(t, s, ts, "GET", "/api/update", "", &v)
+	if v.Current != "0.5.0" || !v.Auto || v.HasToken || v.Latest != nil {
+		t.Fatalf("fresh: %+v", v)
+	}
+	// Without a token the private repository cannot be read, and the
+	// error says so instead of failing silently.
+	v = UpdateView{}
+	call(t, s, ts, "POST", "/api/update/check", "", &v)
+	if v.Error == "" || !strings.Contains(v.Error, "token") || v.Available {
+		t.Fatalf("no-token check: %+v", v)
+	}
+	if code := call(t, s, ts, "PUT", "/api/update/settings", `{"token":" tok ","auto":false}`, &v); code != 200 || !v.HasToken || v.Auto {
+		t.Fatalf("settings: %d %+v", code, v)
+	}
+	v = UpdateView{}
+	call(t, s, ts, "POST", "/api/update/check", "", &v)
+	if v.Error != "" || v.Latest == nil || v.Latest.Version != "0.9.0" || !v.Available {
+		t.Fatalf("check: %+v", v)
+	}
+	var st struct{ Update map[string]any }
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	if st.Update["available"] != "0.9.0" {
+		t.Fatalf("state: %+v", st.Update)
+	}
+
+	// Installing is not exercised here: it would replace this test binary.
+	// The job refuses when nothing newer is known.
+	s.meta.Version = "0.9.0"
+	if code := call(t, s, ts, "POST", "/api/update/install", "", nil); code != 400 {
+		t.Fatalf("install at latest: %d", code)
+	}
+}
+
+func zipBytes(files map[string]string) []byte {
+	var b bytes.Buffer
+	w := zip.NewWriter(&b)
+	for name, content := range files {
+		h := &zip.FileHeader{Name: name, Method: zip.Deflate}
+		h.SetMode(0o755)
+		f, _ := w.CreateHeader(h)
+		f.Write([]byte(content))
+	}
+	w.Close()
+	return b.Bytes()
+}
+
+func sha256Hex(b []byte) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
 }

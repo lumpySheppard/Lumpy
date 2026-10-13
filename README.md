@@ -296,6 +296,25 @@ destination. The exit status is 0 when everything matched, 1 when any file
 failed or isn't backed up enough, 2 for a usage or setup error, and 130 when interrupted, so Lumpy can
 be scripted.
 
+## Updating
+
+Lumpy checks GitHub Releases twice a day while it is open and shows an
+**Update to x.y.z** button in the top bar when there is one. Click it →
+**Install**: the new `Lumpy.app` is downloaded, checked against the
+release's published SHA-256, swapped into place, and **Relaunch Lumpy**
+finishes the job. The library is untouched, the `lumpy` command and the
+background agent follow the app automatically. `lumpy update` does the
+same from Terminal (`lumpy update check` only looks).
+
+While the repository is private, the check needs a GitHub token that can
+read it: Settings → **GitHub token** (or `lumpy update token TOKEN`). A
+fine-grained token with *Contents: read* on this repository is enough.
+
+To publish a version: `git tag v0.6.0 && git push origin v0.6.0`. The
+Release workflow builds the app, attaches `Lumpy-macOS.zip`,
+`lumpy-macos-universal.zip` and `SHA256SUMS`, and writes the notes from
+the merged pull requests.
+
 ## Testing with real drives
 
 See [docs/TESTING.md](docs/TESTING.md) for a step-by-step test with a card

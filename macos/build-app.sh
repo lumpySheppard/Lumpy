@@ -10,7 +10,7 @@ rm -rf "$APP" "$OUT/build"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$OUT/build"
 
 for arch in arm64 amd64; do
-  CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "$OUT/build/lumpy-$arch" ./cmd/lumpy
+  CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o "$OUT/build/lumpy-$arch" ./cmd/lumpy
 done
 lipo -create -output "$APP/Contents/Resources/lumpy" "$OUT/build/lumpy-arm64" "$OUT/build/lumpy-amd64"
 

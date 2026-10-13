@@ -70,6 +70,14 @@ Status page for coworkers (set up in the app under Settings):
   lumpy publish                   Write the status page now and send it
                                   wherever the settings say.
 
+Updates:
+  lumpy update                    Install the latest release over this copy
+                                  (Lumpy.app when run from the app). Quit and
+                                  reopen Lumpy afterwards.
+  lumpy update check              Only say whether a newer version exists.
+  lumpy update token TOKEN        Save a GitHub token for reading releases
+                                  while the repository is private.
+
 Background agent (logs every drive you plug in, runs queued checks):
   lumpy agent install | uninstall | status
 
@@ -166,6 +174,7 @@ var commands = map[string]command{
 	"project": {1, 2, true, projectCmd},
 	"ui":      {0, 0, true, uiCmd},
 	"publish": {0, 0, true, publishCmd},
+	"update":  {0, 2, true, updateCmd},
 }
 
 func run(args []string) int {

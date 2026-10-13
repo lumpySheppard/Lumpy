@@ -61,9 +61,16 @@ button { cursor: pointer; }
 .agent-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .agent-pill.on::before { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 .agent-pill.bad::before { background: var(--bad); }
+.update-pill { font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 99px; border: 1px solid transparent; background: var(--accent); color: #fff; box-shadow: 0 1px 6px rgba(179,108,255,.35); }
+.update-pill:hover { background: var(--accent-2); }
+.update-pill.ready { background: rgba(61,220,132,.16); color: var(--ok); box-shadow: none; border-color: rgba(61,220,132,.35); }
+details.notes { margin: 0 0 10px; }
+details.notes summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; }
+details.notes pre { white-space: pre-wrap; font: 12px/1.5 inherit; color: var(--text-2); margin: 6px 0 0; max-height: 200px; overflow: auto; }
 .pub-last { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
 .field code, .hint code { font-family: var(--mono); font-size: 11px; background: var(--bg-2); padding: 1px 5px; border-radius: 4px; }
 .field select.plain { width: 100%; }
+.field .switch input { width: 32px; flex: none; }
 
 /* Toolbar */
 .toolbar {

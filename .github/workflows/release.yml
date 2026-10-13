@@ -1,0 +1,38 @@
+name: Release
+
+# Tag a version to publish it: git tag v0.6.0 && git push origin v0.6.0
+# The app's "Install update" and `lumpy update` read these releases.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - name: Build Lumpy.app and the bare binary
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          macos/build-app.sh "$VERSION"
+          dist/Lumpy.app/Contents/Resources/lumpy version | grep -q "$VERSION"
+          ditto -c -k --keepParent dist/Lumpy.app Lumpy-macOS.zip
+          cp dist/Lumpy.app/Contents/Resources/lumpy lumpy
+          zip -q lumpy-macos-universal.zip lumpy
+          shasum -a 256 Lumpy-macOS.zip lumpy-macos-universal.zip > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Lumpy ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            Lumpy-macOS.zip
+            lumpy-macos-universal.zip
+            SHA256SUMS

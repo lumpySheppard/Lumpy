@@ -184,6 +184,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
             }
             resolve(id, true)
+        case "relaunch":
+            // After an update: quit, and have a detached shell reopen the
+            // (now replaced) bundle once this process has gone.
+            let app = Bundle.main.bundlePath
+            let sh = Process()
+            sh.executableURL = URL(fileURLWithPath: "/bin/sh")
+            sh.arguments = ["-c", "sleep 1.5; open -n \"$0\"", app]
+            try? sh.run()
+            resolve(id, true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
         default:
             resolve(id, nil)
         }

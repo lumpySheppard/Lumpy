@@ -42,6 +42,7 @@ type Server struct {
 
 	pub     publisher
 	pubDone chan struct{}
+	upd     updater
 
 	mu       sync.Mutex
 	vols     []*volume.Volume
@@ -87,6 +88,7 @@ func (s *Server) Listen(port int) (string, *http.Server, net.Listener, error) {
 // also keeps the status page published.
 func (s *Server) Watch(ctx context.Context) {
 	go s.publishLoop(ctx)
+	go s.updateLoop(ctx)
 	t := time.NewTicker(4 * time.Second)
 	defer t.Stop()
 	for {
@@ -174,6 +176,10 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/settings", s.getSettings)
 	api("PUT /api/settings", s.putSettings)
 	api("POST /api/publish", s.publishNow)
+	api("GET /api/update", s.getUpdate)
+	api("PUT /api/update/settings", s.putUpdateSettings)
+	api("POST /api/update/check", s.checkUpdateNow)
+	api("POST /api/update/install", s.installUpdate)
 	api("POST /api/catalog", s.catalogMount)
 	api("GET /api/search", s.search)
 	api("GET /api/export.csv", s.export)
@@ -396,6 +402,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	return map[string]any{
 		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects,
 		"agent": agent.Status(), "version": s.meta.Version, "home": filepath.Dir(s.lockPath),
+		"update": s.updateSummary(),
 	}, nil
 }
 

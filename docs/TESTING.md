@@ -207,7 +207,27 @@ reload once more: it updated again on the way out.
    URL and token; or put an `rsync`/`scp` line in the command field. The
    page is sent after each write.
 
-## 11. Logging without the app open
+## 11. Updating in place
+
+Needs a release to exist: `git tag v0.6.0 && git push origin v0.6.0`
+(CI publishes it in a few minutes). While the repository is private,
+paste a fine-grained GitHub token (Contents: read) under the gear →
+**GitHub token**.
+
+1. Gear → **Check now**.
+
+**Expect:** *Lumpy 0.6.0 available*, and an **Update to 0.6.0** button
+in the top bar.
+
+2. **Install 0.6.0**, then watch Activity.
+
+**Expect:** download with a progress line, *Checksum OK*, *Replacing
+/Applications/Lumpy.app*, then *installed*. The top bar says *relaunch
+to finish*; **Relaunch Lumpy** quits and reopens the app, which now
+reports the new version in Settings. Drives, labels, projects and clip
+metadata are all still there.
+
+## 12. Logging without the app open
 
 ```sh
 lumpy agent install
