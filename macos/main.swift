@@ -310,6 +310,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             panel.beginSheetModal(for: window) { response in
                 self.resolve(id, response == .OK ? panel.url?.path : nil, in: from)
             }
+        case "pickFiles":
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = false
+            panel.canChooseFiles = true
+            panel.allowsMultipleSelection = true
+            panel.prompt = "Choose"
+            panel.message = body["message"] as? String ?? "Choose one or more timeline exports: FCPXML, XML, EDL, or a list of clip names"
+            panel.beginSheetModal(for: window) { response in
+                self.resolve(id, response == .OK ? panel.urls.map { $0.path } : nil, in: from)
+            }
         case "saveFile":
             let panel = NSSavePanel()
             panel.nameFieldStringValue = body["name"] as? String ?? "lumpy.csv"

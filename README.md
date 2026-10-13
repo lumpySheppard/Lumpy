@@ -288,6 +288,29 @@ video with the same name, with or without a `_proxy`, `_prx`, `S03` or
 `_1` suffix, is anywhere in the Offline folder; RED clips count once,
 not per chunk.
 
+### Archive: what the edit didn't use
+
+When the cut is locked, open the project and, under **Archive**, choose
+the timeline export: FCPXML (Final Cut Pro, DaVinci Resolve), Premiere
+Pro or FCP 7 XML, a CMX 3600 EDL, or a plain list of clip names (one
+per line, or a CSV with a file-name column). Several at once is fine:
+the cut, the trailer, the socials. Lumpy matches the clips the edit
+refers to against every video, audio and still in the project's
+folders and shows what is used, what isn't (by folder, with sizes), and
+what the edit refers to that isn't in the project at all (stock, music,
+graphics). Matching is by clip name, so a name the edit uses anywhere
+keeps every clip with that name, and a RED clip's chunks count as one.
+
+Then either **Move … unused into the folder** (an `_Unused` folder,
+or any name you type, inside each project folder, keeping the clips'
+paths so they can be put back) or **Move … unused to the Trash**,
+which asks first. Every drive involved must be plugged in. Both run as
+jobs in Activity, and the library follows the files: moved clips keep
+their checksums and metadata at the new path, trashed ones are
+forgotten. The Trash is the Mac's own, so nothing is gone until you
+empty it. The first time, macOS may ask whether Lumpy may control the
+Finder, which is how files reach the Trash.
+
 ### Menu bar
 
 Lumpy.app also lives in the menu bar: the NAS glyph shows the running

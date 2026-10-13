@@ -830,6 +830,8 @@ function renderProjectPage() {
       ${data.sole.length ? `<section class="panel"><h2>Files with too few copies</h2><p class="hint">Where the ${bytes(bad)} that isn't backed up enough lives, by folder.</p>
         <table class="list compact grouped"><thead><tr><th colspan="2">Drive · folder</th><th class="num">Files</th><th class="num">Size</th></tr></thead><tbody>${groupRows(data.sole, "var(--bad)")}</tbody></table></section>` : ""}
 
+      ${archivePanel(p)}
+
       ${data.unknown.length ? `<section class="panel"><h2>Files with no checksum</h2><p class="hint">These can't be counted as copies of anything until they're checksummed. Plug the drive in and checksum its new files.</p>
         <table class="list compact grouped"><thead><tr><th colspan="2">Drive · folder</th><th class="num">Files</th><th class="num">Size</th><th></th></tr></thead><tbody>${groupRows(data.unknown, "var(--warn)", (src) => { const id = src.driveId; return `<td class="num">${connected(id) ? `<button class="btn small" data-hash="${esc(id)}" ${driveOf(id).busy ? "disabled" : ""}>Checksum now</button>` : `<span class="hint">not plugged in</span>`}</td>`; })}</tbody></table></section>` : ""}
     </div>
@@ -908,6 +910,78 @@ function wireProjectPage(p) {
     try { await api(`/api/drives/${encodeURIComponent(el.dataset.hash)}/hash`, { method: "POST" }); toast("Checksumming new files… (see Activity)"); loadJobs(); } catch (e) { toast(e.message, true); }
   };
   wireProxies(S.projectProxies || []);
+  wireArchive(p);
+}
+
+// ---------- archive ----------
+// When the cut is locked: the timeline export says which originals the
+// edit uses, and the rest of the project's footage can go aside or to
+// the Trash.
+function archivePanel(p) {
+  const a = S.archive && S.archive.project === p.id ? S.archive : null;
+  return `<section class="panel" id="archive-panel"><h2>Archive</h2>
+    <p class="hint">When the cut is locked, hand Lumpy the timeline export and it says which originals the edit uses and which it doesn't. FCPXML (Final Cut Pro, Resolve), Premiere Pro or FCP 7 XML, an EDL, or a plain list of clip names; several at once is fine (the cut, the trailer, the socials).</p>
+    <div class="step-run" style="margin-top:0;flex-wrap:wrap"><button class="btn ${a ? "" : "primary"}" id="arc-pick">${ICON.film}Choose timeline export…</button>${a ? a.files.map((f) => `<span class="chip">${esc(f)}</span>`).join("") : ""}</div>
+    <input type="file" id="arc-file" multiple hidden accept=".fcpxml,.xml,.edl,.txt,.csv">
+    ${a ? archiveResult(p, a) : ""}</section>`;
+}
+function archiveResult(p, a) {
+  const n = (v) => v.toLocaleString();
+  const unplugged = a.drives.filter((d) => d.unusedFiles && !d.connected).map((d) => driveTitle(d.id));
+  const rows = a.folders.map((f) => { const d = driveOf(f.driveId); return `<tr><td><div class="name" style="font-weight:500"><span class="dot" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(driveTitle(f.driveId))} <span class="hint">›</span> <span class="mono">${esc(f.source ? f.source + "/" : "")}${f.folder === "." ? "" : esc(f.folder)}</span></div></td><td class="num">${n(f.files)}</td><td class="num" style="color:${f.unusedFiles ? "var(--warn)" : "var(--muted)"};font-weight:${f.unusedFiles ? 600 : 400}">${n(f.unusedFiles)}</td><td class="num">${f.unusedBytes ? bytes(f.unusedBytes) : "—"}</td></tr>`; }).join("");
+  return `
+    <div class="stat-row" style="margin-top:14px">
+      <div class="stat ok"><div class="v">${n(a.usedFiles)}</div><div class="l">clips the edit uses (${bytes(a.usedBytes)})</div></div>
+      <div class="stat ${a.unusedFiles ? "warn" : "dim"}"><div class="v">${n(a.unusedFiles)}</div><div class="l">not used (${bytes(a.unusedBytes)})</div></div>
+      <div class="stat ${a.notFoundTotal ? "bad" : "dim"}"><div class="v">${n(a.notFoundTotal)}</div><div class="l">in the edit, not in this project (of ${n(a.refs)} referenced)</div></div>
+    </div>
+    ${a.notFoundTotal ? `<details class="notes" style="margin-top:10px"><summary>${n(a.notFoundTotal)} referenced clip${a.notFoundTotal === 1 ? "" : "s"} not in this project${a.notFound.length < a.notFoundTotal ? ` (first ${a.notFound.length})` : ""}</summary><div class="chips" style="margin-top:6px">${a.notFound.map((x) => `<span class="chip">${esc(x)}</span>`).join("")}</div><p class="hint" style="margin:6px 0 0">Stock, graphics, music, or footage in a folder outside this project. Nothing is done with these.</p></details>` : ""}
+    ${a.folders.length ? `<table class="list compact" style="margin-top:12px"><thead><tr><th>Drive · folder</th><th class="num">Clips</th><th class="num">Unused</th><th class="num">Unused size</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    ${a.unusedFiles ? `<details class="notes" style="margin-top:10px"><summary>${n(a.unusedFiles)} unused clip${a.unusedFiles === 1 ? "" : "s"}${a.unused.length < a.unusedFiles ? ` (first ${a.unused.length})` : ""}</summary><div class="chips" style="margin-top:6px">${a.unused.map((c) => `<span class="chip" title="${esc(driveTitle(c.driveId) + ": " + c.path)}">${esc(c.name)}<small>${bytes(c.bytes)}${c.files > 1 ? ` · ${c.files} parts` : ""}</small></span>`).join("")}</div></details>
+      <div class="step-run" style="margin-top:12px;flex-wrap:wrap"><span class="hint">Move the unused clips into a folder named</span><input class="path-input" id="arc-folder" value="_Unused" spellcheck="false" style="max-width:180px"><span class="hint">inside each project folder, keeping their paths, or to the Trash.</span></div>
+      <div class="confirm-actions" style="margin-top:10px;justify-content:flex-start">${unplugged.length ? `<span class="badge">${ICON.plug}Plug in ${esc(unplugged.join(" and "))}</span>` : `<button class="btn primary" id="arc-move">${ICON.folder}Move ${n(a.unusedFiles)} unused into the folder</button><button class="btn danger" id="arc-trash">${ICON.trash}Move ${n(a.unusedFiles)} unused to the Trash…</button>`}</div>
+      <p class="hint" style="margin:8px 0 0">Matching is by clip name, so a name the edit uses anywhere keeps every clip with that name. Clips in the Trash stay there until you empty it. The library follows the files either way.</p>`
+    : `<div class="alert ok" style="margin-top:12px"><b>Everything in this project is used by the edit.</b> Nothing to move.</div>`}`;
+}
+function wireArchive(p) {
+  const run = async (body) => {
+    const btn = $("#arc-pick");
+    btn.disabled = true;
+    try { const a = await api(`/api/projects/${p.id}/archive`, { method: "POST", body }); S.archive = { ...a, project: p.id }; renderProjectPage(); $("#archive-panel").scrollIntoView({ block: "nearest" }); }
+    catch (e) { toast(e.message, true); btn.disabled = false; }
+  };
+  $("#arc-pick").onclick = async () => {
+    if (native) { const paths = await nativeCall("pickFiles", {}); if (paths && paths.length) run({ paths }); }
+    else $("#arc-file").click();
+  };
+  $("#arc-file").onchange = async (e) => {
+    const files = [...e.target.files];
+    if (!files.length) return;
+    const uploads = await Promise.all(files.map((f) => f.text().then((text) => ({ name: f.name, text }))));
+    run({ uploads });
+  };
+  const a = S.archive && S.archive.project === p.id ? S.archive : null;
+  if (!a) return;
+  const apply = async (action) => {
+    try {
+      await api(`/api/projects/${p.id}/archive/apply`, { method: "POST", body: { token: a.token, action, folder: ($("#arc-folder") || {}).value || "_Unused" } });
+      S.archive = null;
+      toast(action === "trash" ? "Moving unused clips to the Trash… (see Activity)" : "Moving unused clips… (see Activity)");
+      await loadJobs();
+      loadProject(p.id);
+    } catch (e) { toast(e.message, true); }
+  };
+  const mv = $("#arc-move");
+  if (mv) mv.onclick = () => apply("move");
+  const tr = $("#arc-trash");
+  if (tr) tr.onclick = () => {
+    const box = document.createElement("div");
+    box.className = "confirm";
+    box.innerHTML = `<div><b>Move ${a.unusedFiles.toLocaleString()} clips (${bytes(a.unusedBytes)}) to the Trash?</b><br>They stay in the Trash until you empty it, and can be put back from there. Lumpy's library forgets them now.</div><div class="confirm-actions"><button class="btn" id="arc-no">Cancel</button><button class="btn danger-fill" id="arc-yes">Move to Trash</button></div>`;
+    $("#archive-panel h2").after(box);
+    $("#arc-no").onclick = () => box.remove();
+    $("#arc-yes").onclick = () => { box.remove(); apply("trash"); };
+  };
 }
 
 // ---------- proxies ----------

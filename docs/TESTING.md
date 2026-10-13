@@ -199,7 +199,26 @@ ready to send to post.
 3. Make a project of the drive. **Expect:** the same card on the project
    page under the plan.
 
-## 11. Status page for coworkers
+## 11. Archive: what the edit didn't use
+
+1. Make a project of DRIVE_1's test folder. Export the timeline from
+   Resolve or Premiere (File → Export → FCPXML or Final Cut Pro XML),
+   or write a text file with the names of two of the clips, one per
+   line.
+2. On the project page, **Archive** → **Choose timeline export…** and
+   pick it. **Expect:** the clips named are "used", every other clip in
+   the folder is "not used", sizes by folder, and a name that is not in
+   the folder appears under "not in this project".
+3. **Move … unused into the folder**. **Expect:** a job in Activity;
+   in Finder the unused clips are now under `_Unused` inside the
+   project folder, in their old sub-folders; the drive's file browser
+   in Lumpy shows them there with their checksums intact.
+4. Choose the export again (the moved clips are still in the project)
+   and **Move … unused to the Trash…**, then confirm. **Expect:** the
+   clips are in the Trash, gone from the library, and the project's
+   health no longer counts them.
+
+## 12. Status page for coworkers
 
 1. Click the gear (top right). Turn on **Publish the status page**,
    choose a folder in your Dropbox or iCloud Drive, click **Publish
@@ -219,7 +238,7 @@ reload once more: it updated again on the way out.
    URL and token; or put an `rsync`/`scp` line in the command field. The
    page is sent after each write.
 
-## 12. Updating in place
+## 13. Updating in place
 
 Needs a release to exist: GitHub → Actions → **Release** → *Run
 workflow* → `0.6.0` (published in a few minutes). The repository is
@@ -238,7 +257,7 @@ to finish*; **Relaunch Lumpy** quits and reopens the app, which now
 reports the new version in Settings. Drives, labels, projects and clip
 metadata are all still there.
 
-## 13. Light mode
+## 14. Light mode
 
 1. Gear → **General** → Appearance → **Light**. **Expect:** the whole
    window turns light at once, the title bar included; the terminal in
@@ -248,7 +267,7 @@ metadata are all still there.
    Appearance), including Auto switching at sunset. **Dark** is the
    default.
 
-## 14. Menu bar
+## 15. Menu bar
 
 1. Start an offload, then close the Lumpy window (not Quit).
 
@@ -259,7 +278,7 @@ Lumpy**, which brings the window back. The offload keeps running with
 the window closed. **Quit** in the panel (or ⌘Q) quits, with a warning
 if a job is running.
 
-## 15. Logging without the app open
+## 16. Logging without the app open
 
 ```sh
 lumpy agent install

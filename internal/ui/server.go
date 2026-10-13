@@ -50,6 +50,9 @@ type Server struct {
 	cacheKey string
 	summary  map[string]*driveExtra
 	states   map[string]map[string]catalog.FileState // backup state per drive, until the library changes
+
+	archMu   sync.Mutex
+	archives map[string]*archiveRun // archive analyses waiting to be applied
 }
 
 type driveExtra struct {
@@ -204,6 +207,8 @@ func (s *Server) Handler() http.Handler {
 	api("DELETE /api/projects/{id}", s.deleteProject)
 	api("POST /api/projects/{id}/transfer", s.runTransfer)
 	api("GET /api/projects/{id}/proxies", s.projectProxies)
+	api("POST /api/projects/{id}/archive", s.analyseArchive)
+	api("POST /api/projects/{id}/archive/apply", s.applyArchive)
 	api("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) (any, error) { return s.jobs.List(400), nil })
 	api("POST /api/jobs/{id}/cancel", s.cancelJob)
 
