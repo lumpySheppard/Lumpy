@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -124,12 +125,30 @@ func TestOffloadAndLibraryThroughAPI(t *testing.T) {
 	}
 
 	// A drive that is not plugged in gets its check queued.
-	os.Rename(filepath.Join(vols, "A001"), filepath.Join(t.TempDir(), "A001"))
+	shelf := filepath.Join(t.TempDir(), "A001")
+	os.Rename(filepath.Join(vols, "A001"), shelf)
 	s.volsAt = time.Time{}
 	var q struct{ Queued bool }
 	call(t, s, ts, "POST", "/api/drives/"+card.ID+"/verify", "", &q)
 	if !q.Queued {
 		t.Fatal("check of an unplugged drive was not queued")
+	}
+
+	// Plugging it back in while the app is open runs the queued check as
+	// a job that Activity shows.
+	os.Rename(filepath.Join(filepath.Dir(shelf), "A001"), filepath.Join(vols, "A001"))
+	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, s.startQueuedCheck)
+	var check JobView
+	for i := 0; i < 100; i++ {
+		call(t, s, ts, "GET", "/api/jobs", "", &jobs)
+		if jobs[0].Kind == "verify" && jobs[0].State != "running" {
+			check = jobs[0]
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if check.Title != "Queued check of Card A" || check.State != "ok" {
+		t.Fatalf("queued check job: %+v", check)
 	}
 
 	req, _ := http.NewRequest("GET", ts.URL+"/api/export.csv?t="+s.token, nil)

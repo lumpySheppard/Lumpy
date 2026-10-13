@@ -7,7 +7,9 @@ proving every copy is intact.
   single time and written to every destination in parallel.
 - **Verify** each copy by reading it back from the drive itself (macOS's file
   cache is bypassed, so the check really touches the disk) and comparing its
-  **xxHash64** checksum with the source's.
+  **xxHash64** checksum with the source's. The card is read a second time
+  alongside, so a faulty card or reader can't slip the same bad data into
+  every copy.
 - **Record** the result as an [ASC MHL](https://theasc.com/society/ascmitc/asc-media-hash-list)
   manifest (the industry-standard media hash list) in an `ascmhl` folder
   inside each copy. Lumpy's manifests are tested against the ASC's own XML
@@ -78,6 +80,23 @@ lumpy offload /Volumes/A001 /Volumes/SHUTTLE_1/Day_04 /Volumes/RAID/Day_04
 This creates `A001` in each destination (use `--name` to pick another name),
 copies everything, verifies every copy, and writes
 `A001/ascmhl/0001_A001_<date>Z.mhl` plus `ascmhl_chain.xml` in each one.
+Add `--verbose` for a line per file copied and verified (the app always
+shows these in its terminal view).
+
+How a copy is made safe, step by step:
+
+1. The card is read once; the data goes to every destination at the same
+   time and through an xxHash64 checksum.
+2. Each copy is written under a hidden temporary name, flushed to the drive
+   (`F_FULLFSYNC` on macOS, so the drive's own cache is flushed too), given
+   the source's modification date and extended attributes (Finder tags,
+   comments), and only then renamed to its real name.
+3. Every copy is read back from its drive with caching turned off and its
+   checksum compared with the card's. At the same time the card is read
+   again (`--no-source-check` skips this), and any file that reads
+   differently is treated as untrustworthy everywhere.
+4. Only files that passed are written into each copy's MHL manifest and the
+   drive library.
 
 - If the card already carries an MHL (from the camera or an earlier
   offload), its history is copied too, and each source file is checked
@@ -180,6 +199,11 @@ Problems are marked `FAIL`, and the run ends with `OK` or `BAD` per
 destination. The exit status is 0 when everything matched, 1 when any file
 failed or isn't backed up enough, 2 for a usage or setup error, and 130 when interrupted, so Lumpy can
 be scripted.
+
+## Testing with real drives
+
+See [docs/TESTING.md](docs/TESTING.md) for a step-by-step test with a card
+and two drives, including deliberately damaging a copy to see it caught.
 
 ## Build
 

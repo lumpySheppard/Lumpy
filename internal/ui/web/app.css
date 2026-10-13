@@ -293,6 +293,16 @@ td .bar { width: 90px; margin: 0; }
 
 /* Offload */
 .offload { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.offload.split { max-width: 1500px; display: grid; grid-template-columns: minmax(380px, 470px) minmax(0, 1fr); align-items: start; gap: 20px; }
+.offload.split > .panel { position: sticky; top: 0; }
+.offload.split .section-head { margin-top: 0; }
+.offload.split .term-body { height: 460px; }
+@media (max-width: 1150px) {
+  .offload.split { display: flex; flex-direction: column; }
+  .offload.split > .panel { position: static; }
+  .offload.split.busy > .jobs-col { order: -1; } /* a running copy goes above the form */
+  .offload.split .term-body { height: 320px; }
+}
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
 .panel h2 { margin: 0 0 4px; font-size: 16px; }
 .panel .hint { color: var(--muted); margin: 0 0 14px; font-size: 12.5px; }
@@ -316,13 +326,44 @@ td .bar { width: 90px; margin: 0; }
 .job-head h3 { margin: 0; font-size: 13.5px; }
 .job-head .when { color: var(--muted); font-size: 12px; }
 .job-head .actions { margin-left: auto; display: flex; gap: 6px; }
-.job .bar { height: 7px; margin: 10px 0 6px; }
-.job .bar > i { background: var(--accent); transition: width .4s linear; }
+.job .bar { height: 7px; margin: 12px 0 7px; }
+.job .bar > i { background: var(--accent); transition: width .5s linear; }
 .job-stats { display: flex; gap: 14px; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
 .job-stats b { color: var(--text); font-weight: 600; }
-.log { margin-top: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.55; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; color: var(--text-2); }
-.log .f { color: #ff6961; } .log .w { color: #ffc93c; } .log .k { color: #4cd964; }
-details.logwrap summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 8px; }
+.job-current { margin-top: 4px; color: var(--muted); font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 1.4em; }
+.job-outcome { margin-top: 10px; font-family: var(--mono); font-size: 12px; line-height: 1.6; }
+.job-outcome .t-ok { color: var(--ok); font-weight: 600; }
+.job-outcome .t-bad, .job-outcome .t-fail { color: var(--bad); font-weight: 600; }
+details.term-wrap > summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 10px; user-select: none; }
+details.term-wrap > summary:hover { color: var(--text); }
+
+/* The terminal stays dark in light mode too, like Terminal.app. */
+.term { margin-top: 8px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.6); background: #0e0e10; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+.term-bar { display: flex; align-items: center; gap: 7px; padding: 7px 10px; background: linear-gradient(#2a2a2e, #222226); border-bottom: 1px solid #000; }
+.term-bar > i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; flex: none; }
+.term-bar > i:nth-child(2) { background: #febc2e; }
+.term-bar > i:nth-child(3) { background: #28c840; }
+.term-title { flex: 1; text-align: center; font-size: 11.5px; color: #9a9aa2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-copy { background: none; border: 0; color: #8a8a92; padding: 2px; display: grid; }
+.term-copy:hover { color: #fff; }
+.term-copy svg { width: 14px; height: 14px; }
+.term-body { font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: #d4d4da; padding: 10px 12px 12px; height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-all; user-select: text; }
+.term-body .t-prompt { color: #e8e8ec; margin-bottom: 4px; }
+.term-body .t-prompt .ps { color: #28c840; font-weight: 700; }
+.term-body .t-copied { color: #7dd3fc; }
+.term-body .t-verified { color: #86efac; }
+.term-body .t-dim { color: #7b7b84; }
+.term-body .t-head { color: #ffffff; font-weight: 600; }
+.term-body .t-fail { color: #ff6b6b; }
+.term-body .t-warn { color: #fcd34d; }
+.term-body .t-ok { color: #4ade80; font-weight: 700; }
+.term-body .t-bad { color: #ff6b6b; font-weight: 700; }
+.cursor { display: inline-block; width: 7px; height: 14px; background: #d4d4da; vertical-align: -2px; animation: blink 1.05s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+.check-row { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 2px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.check-row input { margin-top: 2px; accent-color: var(--accent); }
+.check-row .note { display: block; color: var(--muted); font-size: 12px; }
 
 /* Folder picker list */
 .picker-path { font-family: var(--mono); font-size: 12px; color: var(--muted); padding: 0 0 8px; word-break: break-all; }

@@ -16,6 +16,7 @@ type Job struct {
 	ID       int
 	Kind     string
 	Title    string
+	Command  string // the equivalent lumpy command, for the log header
 	DriveID  string
 	State    string // running, ok, failed, cancelled, error
 	Started  int64
@@ -26,6 +27,7 @@ type Job struct {
 
 	mu     sync.Mutex
 	lines  []string
+	count  int // lines written so far, including ones dropped from lines
 	part   string
 	report *job.Report
 	cancel context.CancelFunc
@@ -41,6 +43,7 @@ func (j *Job) Write(p []byte) (int, error) {
 	parts := strings.Split(text, "\n")
 	j.part = parts[len(parts)-1]
 	j.lines = append(j.lines, parts[:len(parts)-1]...)
+	j.count += len(parts) - 1
 	if over := len(j.lines) - maxLines; over > 0 {
 		j.lines = append([]string(nil), j.lines[over:]...)
 	}
@@ -52,6 +55,7 @@ type JobView struct {
 	ID       int                `json:"id"`
 	Kind     string             `json:"kind"`
 	Title    string             `json:"title"`
+	Command  string             `json:"command"`
 	DriveID  string             `json:"driveId,omitempty"`
 	State    string             `json:"state"`
 	Started  int64              `json:"started"`
@@ -61,6 +65,9 @@ type JobView struct {
 	Error    string             `json:"error,omitempty"`
 	Progress *job.ProgressState `json:"progress"`
 	Lines    []string           `json:"lines"`
+	// LineCount is how many lines the job has written in all; Lines are
+	// the last of them.
+	LineCount int `json:"lineCount"`
 }
 
 func (j *Job) view(tail int) JobView {
@@ -70,7 +77,7 @@ func (j *Job) view(tail int) JobView {
 	if len(lines) > tail {
 		lines = lines[len(lines)-tail:]
 	}
-	v := JobView{ID: j.ID, Kind: j.Kind, Title: j.Title, DriveID: j.DriveID, State: j.State,
+	v := JobView{ID: j.ID, Kind: j.Kind, Title: j.Title, Command: j.Command, DriveID: j.DriveID, State: j.State, LineCount: j.count,
 		Started: j.Started, Ended: j.Ended, Failures: j.Failures, Warnings: j.Warnings, Error: j.Error,
 		Lines: append([]string(nil), lines...)}
 	if j.State == "running" {
@@ -87,12 +94,13 @@ type Jobs struct {
 	all  []*Job
 }
 
-// Start runs fn in the background as a new job.
-func (js *Jobs) Start(kind, title, driveID string, fn func(ctx context.Context, r *job.Report) error) *Job {
+// Start runs fn in the background as a new job. command is the lumpy
+// command that does the same thing, shown at the top of its log.
+func (js *Jobs) Start(kind, title, command, driveID string, fn func(ctx context.Context, r *job.Report) error) *Job {
 	ctx, cancel := context.WithCancel(context.Background())
 	js.mu.Lock()
 	js.next++
-	j := &Job{ID: js.next, Kind: kind, Title: title, DriveID: driveID, State: "running", Started: time.Now().Unix(), cancel: cancel}
+	j := &Job{ID: js.next, Kind: kind, Title: title, Command: command, DriveID: driveID, State: "running", Started: time.Now().Unix(), cancel: cancel}
 	j.report = job.NewReportTo(j)
 	js.all = append(js.all, j)
 	js.mu.Unlock()

@@ -363,8 +363,10 @@ type Copy = catalog.Copy
 
 // recordOffload adds the files an offload copied and verified to the
 // library, under each drive involved.
-func recordOffload(db *catalog.DB, src string, targets []string, files []scan.File, hashes map[string]string, verified []map[string]time.Time, r *Report) {
-	record := func(root string, isCopy bool, ok func(string) bool) {
+// The source's files count as verified when the source was read twice and
+// matched; files it read differently (sourceBad) are not recorded.
+func recordOffload(db *catalog.DB, src string, srcVerified bool, sourceBad map[string]bool, targets []string, files []scan.File, hashes map[string]string, verified []map[string]time.Time, r *Report) {
+	record := func(root string, verifiedHere bool, ok func(string) bool) {
 		v, err := volume.Of(root)
 		if err != nil {
 			r.Warn("drive library: cannot identify the drive holding %s: %v", root, err)
@@ -398,20 +400,20 @@ func recordOffload(db *catalog.DB, src string, targets []string, files []scan.Fi
 			}
 			ups = append(ups, catalog.HashUpdate{
 				Path: path.Join(filepath.ToSlash(prefix), f.Path), Size: st.Size(),
-				ModTime: st.ModTime().UnixNano(), XXH64: sum, Verified: isCopy,
+				ModTime: st.ModTime().UnixNano(), XXH64: sum, Verified: verifiedHere,
 			})
 		}
 		if err := db.SaveHashes(v.ID, ups); err != nil {
 			r.Warn("drive library: %v", err)
 			return
 		}
-		role := "offload source"
-		if isCopy {
-			role = "offload destination"
+		role := "offload destination"
+		if root == src {
+			role = "offload source"
 		}
 		db.Log(v.ID, "offload", fmt.Sprintf("%s: %s, %d files recorded", role, root, len(ups)), 0)
 	}
-	record(src, false, func(string) bool { return true })
+	record(src, srcVerified, func(p string) bool { return !sourceBad[p] })
 	for i, t := range targets {
 		record(t, true, func(p string) bool { _, ok := verified[i][p]; return ok })
 	}

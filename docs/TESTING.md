@@ -1,0 +1,151 @@
+# Testing Lumpy with real drives
+
+A first hands-on test with one card and two drives. Plan on about an hour,
+most of it waiting on copies.
+
+**Use footage you can afford to lose.** Shoot a few minutes of test clips
+onto the card, or use footage that is already backed up elsewhere. Keep
+using your usual offload tool for real work until these tests pass.
+
+## Before you start
+
+- A card with test footage on it (a few GB is enough; one long clip
+  over 4 GB is a useful extra).
+- Two drives with free space. Note each one's format (Disk Utility →
+  select the drive → format, e.g. APFS, exFAT, Mac OS Extended).
+- Lumpy.app from the latest CI run (**Lumpy-macOS**), moved to
+  Applications, then in Terminal:
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Lumpy.app
+  sudo ln -sf /Applications/Lumpy.app/Contents/Resources/lumpy /usr/local/bin/lumpy
+  ```
+
+Write down anything that looks wrong, slow or confusing. For problems, the
+**Copy** button on a terminal window copies the whole log.
+
+## 1. Drives show up
+
+1. Open Lumpy. If macOS asks whether Lumpy may access removable volumes,
+   click **Allow**.
+2. Plug in the card and both drives, one at a time.
+
+**Expect:** each appears under **Connected** within a few seconds with the
+right name, capacity and free space. In **Details**, *Volume UUID* is a
+long ID like `A1B2C3D4-…`, not `name:…`.
+
+3. Open a drive's **Details** and give it a display name, client, project
+   and color. Close and reopen the app: the labels are kept.
+
+## 2. A normal offload
+
+1. **Offload** tab → source: the card. Destinations:
+   `/Volumes/DRIVE_1/LUMPY_TEST` and `/Volumes/DRIVE_2/LUMPY_TEST`
+   (type the folder name after choosing the drive). Leave *Read the card a
+   second time* ticked.
+2. **Start offload** and watch the terminal.
+
+**Expect:** a cyan `copied` line per file, then `verified` lines for each
+drive and a `source ok` line per file, and finally two green `OK … all N
+files verified` lines. Note the copy speed and total time compared with
+your usual tool.
+
+3. In Finder, check that `LUMPY_TEST/<card name>` on both drives has the
+   same number of items and size as the card (select → **Get Info**), and
+   contains an `ascmhl` folder.
+
+## 3. Check the copies independently
+
+Don't just take Lumpy's word for it. In Terminal:
+
+```sh
+lumpy verify "/Volumes/DRIVE_1/LUMPY_TEST/<card name>"
+lumpy compare "/Volumes/<card>" "/Volumes/DRIVE_2/LUMPY_TEST/<card name>"
+md5 "/Volumes/<card>/<some clip>" "/Volumes/DRIVE_1/LUMPY_TEST/<card name>/<same clip>"
+```
+
+**Expect:** both Lumpy commands end with `OK`, and the two `md5` values
+are identical (md5 is computed by macOS, not Lumpy). If you have
+Silverstack, Hedge or ShotPut Pro, open or verify the `ascmhl` folder with
+it too: it should accept Lumpy's manifest.
+
+## 4. Running the same offload again
+
+Start exactly the same offload again.
+
+**Expect:** `exists … (checked in the verify pass)` lines instead of
+`copied`, nothing rewritten, and `OK` for both drives. Each `ascmhl`
+folder now has a second `.mhl` file.
+
+## 5. Cancelling part-way
+
+1. Offload the card again, to a new folder name (`LUMPY_TEST_2`).
+2. When the progress bar is about a third of the way, click **Cancel**.
+
+**Expect:** the job says *Cancelled*. In Finder, `LUMPY_TEST_2` holds only
+complete files: no half-written clip under its real name (Lumpy writes to
+a hidden `.name.lumpy-partial` file and renames it only when finished).
+
+3. Start the same offload again. **Expect:** it finishes with `OK`.
+
+## 6. A damaged copy is caught
+
+Damage one copy on purpose, on the test folder only. In Terminal, pick a
+clip on DRIVE_2 and change one byte in the middle of it:
+
+```sh
+printf 'X' | dd of="/Volumes/DRIVE_2/LUMPY_TEST/<card name>/<path to clip>" bs=1 seek=100000 conv=notrunc
+```
+
+1. **Logged** → DRIVE_2 → **Details** → **Check drive now**.
+
+**Expect:** the check ends with a red `FAIL … does not match its recorded
+checksum` line for that clip. The DRIVE_2 card shows **1 damaged**. In the
+card's **Details**, that clip now has only one good copy.
+
+2. Delete the damaged clip from DRIVE_2, run the offload from step 2
+   again, then **Check drive now** on DRIVE_2.
+
+**Expect:** the clip is copied again, the check passes, and the damage
+badge is gone.
+
+## 7. Checking a drive that isn't plugged in
+
+1. Eject DRIVE_1 (Finder → Eject).
+2. **Logged** → DRIVE_1 shows *Last seen …*. Open **Details** →
+   **Queue check**. The card shows *Check queued*.
+3. Plug DRIVE_1 back in with Lumpy open.
+
+**Expect:** within a few seconds Lumpy starts checking it by itself and
+posts a notification when it's done. The card then shows *Checked* with
+today's date.
+
+4. Eject the card. Open the card's **Details** in **Logged**.
+
+**Expect:** *2× backed up*, with copies listed on both drives. Type a clip
+name into the search box: it's found on all three.
+
+## 8. Logging without the app open
+
+```sh
+lumpy agent install
+```
+
+Quit Lumpy, unplug one drive and plug it back in. After a few seconds:
+
+```sh
+tail ~/Library/Logs/Lumpy/agent.log
+lumpy drives
+```
+
+**Expect:** the log shows the drive being mounted and logged, and `lumpy
+drives` lists it with a fresh *last seen* time.
+
+## Afterwards
+
+Delete the `LUMPY_TEST` folders from both drives when you're done. To
+start the library from scratch, quit Lumpy and delete
+`~/Library/Application Support/Lumpy`.
+
+Send back: what passed, anything that failed (with the copied log),
+copy and verify speeds next to your usual tool's, and anything that was
+confusing.

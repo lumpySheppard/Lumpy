@@ -25,11 +25,13 @@ const usage = `Lumpy copies camera cards and drives to backup drives, verifies e
 and keeps a library of every drive it has seen.
 
 Copying and checking:
-  lumpy offload [--name NAME] SOURCE DEST [DEST...]
+  lumpy offload [--name NAME] [--no-source-check] SOURCE DEST [DEST...]
       Copy SOURCE into a folder named after it on every DEST at once, read
       each copy back from its drive, compare xxh64 checksums with the source,
       write an ASC MHL manifest into each copy, and record it all in the
-      drive library. Re-running skips files already copied and checks them.
+      drive library. The source is read a second time during verification
+      to catch a faulty card or reader (--no-source-check skips that).
+      Re-running skips files already copied and checks them.
   lumpy verify PATH
       Re-check a folder against its ascmhl folder or a legacy .mhl file.
   lumpy compare A B
@@ -62,6 +64,7 @@ App:
 
 Options:
   --report FILE   also write the output to FILE (any command)
+  -v, --verbose   print a line for every file copied or checked
 
 Exit status: 0 all good, 1 a file failed or is not backed up, 2 usage or
 setup error, 130 interrupted.
@@ -102,9 +105,11 @@ type cmdCtx struct {
 	noDB bool
 	host string
 
-	port      int
-	noBrowser bool
-	appMode   bool
+	port          int
+	noBrowser     bool
+	appMode       bool
+	noSourceCheck bool
+	verbose       bool
 }
 
 func usageErr(format string, a ...any) error {
@@ -120,6 +125,7 @@ var commands = map[string]command{
 		return job.Offload(ctx, job.OffloadOptions{
 			Source: c.args[0], Dests: c.args[1:], Name: c.name,
 			Meta: job.Meta{Version: version, Hostname: c.host}, Library: db,
+			SkipSourceVerify: c.noSourceCheck,
 		}, c.r)
 	}},
 	"verify":  {1, 1, false, func(ctx context.Context, c *cmdCtx) error { return job.Verify(ctx, c.args[0], c.r) }},
@@ -169,6 +175,9 @@ func run(args []string) int {
 	fs.StringVar(&c.name, "name", "", "folder name to create in each destination (offload)")
 	fs.IntVar(&c.min, "min", 1, "copies needed on other drives (backups)")
 	fs.BoolVar(&c.noDB, "no-library", false, "do not record this offload in the drive library")
+	fs.BoolVar(&c.noSourceCheck, "no-source-check", false, "read the source only once (offload)")
+	fs.BoolVar(&c.verbose, "verbose", false, "print a line for every file")
+	fs.BoolVar(&c.verbose, "v", false, "print a line for every file")
 	fs.IntVar(&c.port, "port", 0, "port for `lumpy ui` (default: any free port)")
 	fs.BoolVar(&c.noBrowser, "no-browser", false, "do not open a browser (ui)")
 	fs.BoolVar(&c.appMode, "app", false, "run for Lumpy.app (ui)")
@@ -193,6 +202,7 @@ func run(args []string) int {
 		reportFile = f
 	}
 	c.r = job.NewReport(reportFile)
+	c.r.Verbose = c.verbose
 	c.host, _ = os.Hostname()
 
 	if cmd.library {

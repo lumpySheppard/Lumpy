@@ -13,6 +13,13 @@ import (
 // check queued for it. It repeats until the set of mounted drives stops
 // changing, so drives plugged in while it works are picked up too.
 func AgentRun(ctx context.Context, db *catalog.DB, r *Report, notify func(title, msg string)) error {
+	return AgentRunWith(ctx, db, r, notify, nil)
+}
+
+// AgentRunWith is AgentRun, but hands each queued check to startCheck
+// (when not nil) instead of running it in place. The app uses this to run
+// checks as jobs it can show.
+func AgentRunWith(ctx context.Context, db *catalog.DB, r *Report, notify func(title, msg string), startCheck func(v *volume.Volume)) error {
 	for round := 0; round < 50; round++ {
 		vols, err := volume.Mounted()
 		if err != nil {
@@ -40,13 +47,13 @@ func AgentRun(ctx context.Context, db *catalog.DB, r *Report, notify func(title,
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			agentDrive(ctx, db, v, r, notify)
+			agentDrive(ctx, db, v, r, notify, startCheck)
 		}
 	}
 	return nil
 }
 
-func agentDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Report, notify func(title, msg string)) {
+func agentDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Report, notify func(title, msg string), startCheck func(v *volume.Volume)) {
 	r.Info("%s  %s mounted at %s", time.Now().Format("2006-01-02 15:04:05"), v.Name, v.Mount)
 	if d, err := db.Drive(v.ID); err == nil && d.NeverLog {
 		r.Info("%s is set to never be logged; skipped", d.Title())
@@ -73,19 +80,36 @@ func agentDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Report
 		}
 		return
 	}
-	// A queued check lists the drive itself, so files that disappeared are
-	// compared with what was recorded before and counted as failures.
-	notify("Lumpy", fmt.Sprintf("Checking %s (%s). Keep it plugged in.", v.Name, Bytes(d.Bytes)))
+	if startCheck != nil {
+		startCheck(v)
+		return
+	}
+	QueuedCheck(ctx, db, v, r, notify)
+}
+
+// QueuedCheck runs the full check queued for a drive that has just been
+// plugged in and posts a notification with the outcome. The check lists
+// the drive itself, so files that disappeared are compared with what was
+// recorded before and counted as failures.
+func QueuedCheck(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Report, notify func(title, msg string)) {
+	d, err := db.Drive(v.ID)
+	if err != nil {
+		r.Info("lumpy: %v", err)
+		return
+	}
+	name := d.Title()
+	notify("Lumpy", fmt.Sprintf("Checking %s (%s). Keep it plugged in.", name, Bytes(d.Bytes)))
 	before := r.Failures()
 	if err := HashDrive(ctx, db, v, true, r); err != nil {
 		// Unplugged or interrupted: the check stays queued for next time.
+		r.Info("Check stopped: %v. It stays queued and runs again next time %s is plugged in.", err, name)
 		db.Log(v.ID, "verified", "check interrupted: "+err.Error()+"; still queued", 0)
-		notify("Lumpy: check of "+v.Name+" stopped", "It will run again next time the drive is plugged in.")
+		notify("Lumpy: check of "+name+" stopped", "It will run again next time the drive is plugged in.")
 		return
 	}
 	if n := r.Failures() - before; n > 0 {
-		notify("Lumpy: "+v.Name+" FAILED", fmt.Sprintf("%d problem(s) found. Run `lumpy drive %s` for details.", n, v.Name))
+		notify("Lumpy: "+name+" FAILED", fmt.Sprintf("%d problem(s) found. Open Lumpy for details.", n))
 	} else {
-		notify("Lumpy: "+v.Name+" verified", "Every file matched its recorded checksum.")
+		notify("Lumpy: "+name+" verified", "Every file matched its recorded checksum.")
 	}
 }

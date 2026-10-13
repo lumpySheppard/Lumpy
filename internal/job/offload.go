@@ -16,6 +16,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/hashing"
 	"github.com/lumpysheppard/lumpy/internal/mhl"
 	"github.com/lumpysheppard/lumpy/internal/scan"
+	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
 // Meta is written into every MHL generation Lumpy creates.
@@ -30,6 +31,11 @@ type OffloadOptions struct {
 	Dests  []string // drives or folders to copy it into
 	Name   string   // folder created in each destination; defaults to the source's name
 	Meta   Meta
+	// SkipSourceVerify turns off the second read of the source. By default
+	// the source is read again while the copies are verified, so a card or
+	// reader that returns different data on different reads is caught
+	// (otherwise every copy would carry the same bad data and still match).
+	SkipSourceVerify bool
 	// Library, when set, records every drive involved and the checksums
 	// of the files copied to it.
 	Library *catalog.DB
@@ -96,6 +102,15 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 	for _, t := range targets {
 		r.Info("Destination  %s", t)
 	}
+	if o.SkipSourceVerify {
+		r.Info("Source check off: the source is read once")
+	} else {
+		r.Info("Source check on: the source is read again during verification")
+	}
+	labels := make([]string, len(targets))
+	for i, t := range targets {
+		labels[i] = driveLabel(t)
+	}
 
 	srcHist, err := mhl.Load(src)
 	if err != nil {
@@ -143,6 +158,7 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 	}
 	srcHashes := map[string]string{}
 	sourceMHLFormatWarned := false
+	metaWarned := make([]bool, len(targets))
 
 	r.Info("")
 	r.Info("Copying...")
@@ -152,6 +168,7 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 			prog.Finish()
 			return err
 		}
+		prog.SetCurrent(f.Path)
 		var writes []string
 		var writeIdx []int
 		for i, t := range targets {
@@ -160,6 +177,7 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 			switch {
 			case err == nil && st.Mode().IsRegular() && st.Size() == f.Size:
 				// Already there from an earlier run; the verify pass decides whether it is good.
+				r.Detail("  exists    %s on %s (checked in the verify pass)", f.Path, labels[i])
 			case err == nil:
 				r.Fail("%s already exists on %s with different contents; left untouched", f.Path, t)
 				failed[i][f.Path] = true
@@ -171,7 +189,8 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 				failed[i][f.Path] = true
 			}
 		}
-		sum, n, readErr, writeErrs := copyFile(ctx, filepath.Join(src, filepath.FromSlash(f.Path)), writes, f.ModTime, prog)
+		cr := copyFile(ctx, filepath.Join(src, filepath.FromSlash(f.Path)), writes, f.ModTime, prog)
+		sum, n, readErr, writeErrs := cr.sum, cr.n, cr.readErr, cr.writeErrs
 		if errors.Is(readErr, context.Canceled) {
 			prog.Finish()
 			return readErr
@@ -180,6 +199,12 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 			if werr != nil {
 				r.Fail("%s: writing to %s: %v", f.Path, targets[writeIdx[k]], werr)
 				failed[writeIdx[k]][f.Path] = true
+			}
+		}
+		for k, merr := range cr.metaErrs {
+			if merr != nil && !metaWarned[writeIdx[k]] {
+				metaWarned[writeIdx[k]] = true
+				r.Warn("%s: could not copy macOS metadata (extended attributes) to %s: %v; file contents are unaffected", f.Path, labels[writeIdx[k]], merr)
 			}
 		}
 		if readErr == nil && n != f.Size {
@@ -198,6 +223,9 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 			continue
 		}
 		srcHashes[f.Path] = sum
+		if len(writes) > 0 {
+			r.Detail("  copied    %s  %s  xxh64 %s", f.Path, Bytes(f.Size), sum)
+		}
 		if want, ok := srcHist.Expected(f.Path); ok {
 			if want.Format != hashing.XXH64 {
 				if !sourceMHLFormatWarned {
@@ -211,14 +239,50 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 	}
 	copyTime := prog.Finish()
 	r.Info("Copied %s in %s", Bytes(res.TotalLen), copyTime.Round(time.Second))
+	if afterCopyHook != nil {
+		afterCopyHook()
+	}
 
 	// Read every copy back from its drive. Drives are read at the same time;
 	// each drive reads its files one after another.
 	r.Info("")
 	r.Info("Verifying...")
-	prog = r.startProgress("Verifying", res.TotalLen*int64(len(targets)))
+	reads := int64(len(targets))
+	if !o.SkipSourceVerify {
+		reads++
+	}
+	prog = r.startProgress("Verifying", res.TotalLen*reads)
 	verifiedAt := make([]map[string]time.Time, len(targets))
+	sourceBad := map[string]bool{}
 	var wg sync.WaitGroup
+	if !o.SkipSourceVerify {
+		// Read the source again, alongside the destinations (it is on its
+		// own drive, so this costs little extra time).
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, f := range res.Files {
+				want, ok := srcHashes[f.Path]
+				if !ok {
+					continue
+				}
+				got, _, err := hashFile(ctx, filepath.Join(src, filepath.FromSlash(f.Path)), hashing.XXH64, prog)
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				switch {
+				case err != nil:
+					r.Fail("%s: reading the source again: %v; its copies are not trusted", f.Path, err)
+					sourceBad[f.Path] = true
+				case got != want:
+					r.Fail("%s read differently from the source the second time (first %s, then %s): the card or reader is unreliable, so its copies are not trusted", f.Path, want, got)
+					sourceBad[f.Path] = true
+				default:
+					r.Detail("  source ok %s", f.Path)
+				}
+			}
+		}()
+	}
 	for i, t := range targets {
 		verifiedAt[i] = map[string]time.Time{}
 		wg.Add(1)
@@ -229,6 +293,7 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 				if !ok || failed[i][f.Path] {
 					continue
 				}
+				prog.SetCurrent(f.Path)
 				got, _, err := hashFile(ctx, filepath.Join(t, filepath.FromSlash(f.Path)), hashing.XXH64, prog)
 				if errors.Is(err, context.Canceled) {
 					return
@@ -242,6 +307,7 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 					failed[i][f.Path] = true
 				default:
 					verifiedAt[i][f.Path] = time.Now()
+					r.Detail("  verified  %s on %s", f.Path, labels[i])
 				}
 			}
 		}()
@@ -250,6 +316,14 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 	verifyTime := prog.Finish()
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	// A file the source gave back differently is not recorded as verified
+	// anywhere, even if a copy matched the first read.
+	for p := range sourceBad {
+		for i := range targets {
+			delete(verifiedAt[i], p)
+			failed[i][p] = true
+		}
 	}
 	r.Info("Verified in %s", verifyTime.Round(time.Second))
 
@@ -296,10 +370,14 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 		}
 	}
 	if o.Library != nil {
-		recordOffload(o.Library, src, targets, res.Files, srcHashes, verifiedAt, r)
+		recordOffload(o.Library, src, !o.SkipSourceVerify, sourceBad, targets, res.Files, srcHashes, verifiedAt, r)
 	}
 	return nil
 }
+
+// afterCopyHook lets tests change the source between the copy and the
+// verify pass, as a flaky card reader would.
+var afterCopyHook func()
 
 // existingParent returns p or its nearest folder that exists.
 func existingParent(p string) string {
@@ -317,15 +395,31 @@ func within(p, base string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// copyResult is what copyFile did. writeErrs and metaErrs line up with dsts.
+type copyResult struct {
+	sum       string
+	n         int64
+	readErr   error
+	writeErrs []error
+	metaErrs  []error // extended attributes that could not be copied
+}
+
 // copyFile reads src once and writes it to every path in dsts, hashing it
 // with xxh64 on the way. Each copy is written under a temporary name,
-// flushed to the drive, given the source's modification time and only then
-// renamed into place. A failed copy is removed.
-func copyFile(ctx context.Context, src string, dsts []string, mtime time.Time, prog *Progress) (sum string, n int64, readErr error, writeErrs []error) {
+// flushed to the drive, given the source's extended attributes and
+// modification time, and only then renamed into place. A failed copy is
+// removed.
+func copyFile(ctx context.Context, src string, dsts []string, mtime time.Time, prog *Progress) copyResult {
+	sum, n, readErr, writeErrs, metaErrs := copyFileInner(ctx, src, dsts, mtime, prog)
+	return copyResult{sum, n, readErr, writeErrs, metaErrs}
+}
+
+func copyFileInner(ctx context.Context, src string, dsts []string, mtime time.Time, prog *Progress) (sum string, n int64, readErr error, writeErrs, metaErrs []error) {
 	writeErrs = make([]error, len(dsts))
+	metaErrs = make([]error, len(dsts))
 	in, err := fsx.OpenRead(src)
 	if err != nil {
-		return "", 0, err, writeErrs
+		return "", 0, err, writeErrs, metaErrs
 	}
 	defer in.Close()
 
@@ -356,7 +450,7 @@ func copyFile(ctx context.Context, src string, dsts []string, mtime time.Time, p
 	m, err := io.ReadFull(in, bufs[cur])
 	for m > 0 {
 		if ctx.Err() != nil {
-			return "", n, ctx.Err(), writeErrs
+			return "", n, ctx.Err(), writeErrs, metaErrs
 		}
 		chunk := bufs[cur][:m]
 		var wg sync.WaitGroup
@@ -388,7 +482,7 @@ func copyFile(ctx context.Context, src string, dsts []string, mtime time.Time, p
 		cur, m, err = next, nm, nerr
 	}
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return "", n, err, writeErrs
+		return "", n, err, writeErrs, metaErrs
 	}
 
 	for i, f := range outs {
@@ -400,6 +494,7 @@ func copyFile(ctx context.Context, src string, dsts []string, mtime time.Time, p
 			continue
 		}
 		fsx.DropCache(f)
+		metaErrs[i] = fsx.CopyXattrs(src, f)
 		err := f.Close()
 		outs[i] = nil
 		if err == nil {
@@ -410,7 +505,7 @@ func copyFile(ctx context.Context, src string, dsts []string, mtime time.Time, p
 		}
 		writeErrs[i] = err
 	}
-	return h.Hex(), n, nil, writeErrs
+	return h.Hex(), n, nil, writeErrs, metaErrs
 }
 
 // copyMHLFolder copies src's ascmhl folder into dst and checks each copied file.
@@ -433,13 +528,14 @@ func copyMHLFolder(ctx context.Context, src, dst string) error {
 			return err
 		}
 		d := filepath.Join(to, e.Name())
-		sum, _, rerr, werrs := copyFile(ctx, filepath.Join(from, e.Name()), []string{d}, info.ModTime(), nopProgress())
-		if rerr != nil {
-			return rerr
+		cr := copyFile(ctx, filepath.Join(from, e.Name()), []string{d}, info.ModTime(), nopProgress())
+		if cr.readErr != nil {
+			return cr.readErr
 		}
-		if werrs[0] != nil {
-			return werrs[0]
+		if cr.writeErrs[0] != nil {
+			return cr.writeErrs[0]
 		}
+		sum := cr.sum
 		got, _, err := hashFile(ctx, d, hashing.XXH64, nil)
 		if err != nil {
 			return err
@@ -452,3 +548,14 @@ func copyMHLFolder(ctx context.Context, src, dst string) error {
 }
 
 func nopProgress() *Progress { return &Progress{} }
+
+// driveLabel names a destination briefly for per-file lines: the drive's
+// name, plus the folder on it.
+func driveLabel(t string) string {
+	if mp, err := volume.MountPoint(existingParent(t)); err == nil && mp != "/" {
+		if rel, err := filepath.Rel(mp, t); err == nil {
+			return filepath.Base(mp) + ":" + filepath.ToSlash(rel)
+		}
+	}
+	return t
+}

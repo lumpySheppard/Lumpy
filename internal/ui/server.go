@@ -82,7 +82,7 @@ func (s *Server) Watch(ctx context.Context) {
 		unlock, ok, err := agent.Lock(s.lockPath)
 		if err == nil && ok {
 			r := job.NewReportTo(nopWriter{})
-			job.AgentRun(ctx, s.db, r, agent.Notify)
+			job.AgentRunWith(ctx, s.db, r, agent.Notify, s.startQueuedCheck)
 			unlock()
 		}
 		select {
@@ -91,6 +91,22 @@ func (s *Server) Watch(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+// startQueuedCheck runs a drive's queued check as a job, so it shows in
+// Activity with its log.
+func (s *Server) startQueuedCheck(v *volume.Volume) {
+	if s.jobs.Busy(v.ID) {
+		return
+	}
+	title := v.Name
+	if d, err := s.db.Drive(v.ID); err == nil {
+		title = d.Title()
+	}
+	s.jobs.Start("verify", "Queued check of "+title, "lumpy drive verify "+shellQuote(title), v.ID, func(ctx context.Context, rep *job.Report) error {
+		job.QueuedCheck(ctx, s.db, v, rep, agent.Notify)
+		return nil
+	})
 }
 
 type nopWriter struct{}
@@ -430,7 +446,7 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err := s.requireIdle(d); err != nil {
 		return nil, err
 	}
-	j := s.jobs.Start("verify", "Check "+d.Title(), d.ID, func(ctx context.Context, rep *job.Report) error {
+	j := s.jobs.Start("verify", "Check "+d.Title(), "lumpy drive verify "+shellQuote(d.Title()), d.ID, func(ctx context.Context, rep *job.Report) error {
 		return job.HashDrive(ctx, s.db, v, true, rep)
 	})
 	return map[string]any{"job": j.ID}, nil
@@ -448,7 +464,7 @@ func (s *Server) hash(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err := s.requireIdle(d); err != nil {
 		return nil, err
 	}
-	j := s.jobs.Start("hash", "Checksum new files on "+d.Title(), d.ID, func(ctx context.Context, rep *job.Report) error {
+	j := s.jobs.Start("hash", "Checksum new files on "+d.Title(), "lumpy drive hash "+shellQuote(d.Title()), d.ID, func(ctx context.Context, rep *job.Report) error {
 		return job.HashDrive(ctx, s.db, v, false, rep)
 	})
 	return map[string]any{"job": j.ID}, nil
@@ -466,7 +482,7 @@ func (s *Server) rescan(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err := s.requireIdle(d); err != nil {
 		return nil, err
 	}
-	j := s.jobs.Start("rescan", "Rescan "+d.Title(), d.ID, func(ctx context.Context, rep *job.Report) error {
+	j := s.jobs.Start("rescan", "Rescan "+d.Title(), "lumpy catalog "+shellQuote(v.Mount), d.ID, func(ctx context.Context, rep *job.Report) error {
 		_, err := job.CatalogDrive(ctx, s.db, v, rep)
 		return err
 	})
@@ -496,7 +512,7 @@ func (s *Server) catalogMount(w http.ResponseWriter, r *http.Request) (any, erro
 		d.NeverLog = false
 		s.db.SetLabels(d.ID, d.Labels)
 	}
-	j := s.jobs.Start("rescan", "Log "+v.Name, v.ID, func(ctx context.Context, rep *job.Report) error {
+	j := s.jobs.Start("rescan", "Log "+v.Name, "lumpy catalog "+shellQuote(v.Mount), v.ID, func(ctx context.Context, rep *job.Report) error {
 		_, err := job.CatalogDrive(ctx, s.db, v, rep)
 		return err
 	})
@@ -602,9 +618,10 @@ func (s *Server) browse(w http.ResponseWriter, r *http.Request) (any, error) {
 
 func (s *Server) offload(w http.ResponseWriter, r *http.Request) (any, error) {
 	var body struct {
-		Source string   `json:"source"`
-		Dests  []string `json:"dests"`
-		Name   string   `json:"name"`
+		Source      string   `json:"source"`
+		Dests       []string `json:"dests"`
+		Name        string   `json:"name"`
+		SourceCheck *bool    `json:"sourceCheck"` // default true
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, badRequest("bad request: %v", err)
@@ -616,9 +633,22 @@ func (s *Server) offload(w http.ResponseWriter, r *http.Request) (any, error) {
 	if name == "" {
 		name = filepath.Base(filepath.Clean(body.Source))
 	}
+	skip := body.SourceCheck != nil && !*body.SourceCheck
+	cmd := []string{"lumpy", "offload"}
+	if body.Name != "" {
+		cmd = append(cmd, "--name", shellQuote(body.Name))
+	}
+	if skip {
+		cmd = append(cmd, "--no-source-check")
+	}
+	cmd = append(cmd, "--verbose", shellQuote(body.Source))
+	for _, d := range body.Dests {
+		cmd = append(cmd, shellQuote(d))
+	}
 	title := fmt.Sprintf("Offload %s to %d drive(s)", name, len(body.Dests))
-	j := s.jobs.Start("offload", title, "", func(ctx context.Context, rep *job.Report) error {
-		return job.Offload(ctx, job.OffloadOptions{Source: body.Source, Dests: body.Dests, Name: body.Name, Meta: s.meta, Library: s.db}, rep)
+	j := s.jobs.Start("offload", title, strings.Join(cmd, " "), "", func(ctx context.Context, rep *job.Report) error {
+		return job.Offload(ctx, job.OffloadOptions{Source: body.Source, Dests: body.Dests, Name: body.Name,
+			Meta: s.meta, Library: s.db, SkipSourceVerify: skip}, rep)
 	})
 	return map[string]any{"job": j.ID}, nil
 }
@@ -631,4 +661,14 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) (any, error) 
 	}
 	j.Cancel()
 	return map[string]bool{"ok": true}, nil
+}
+
+// shellQuote quotes s for a POSIX shell when it needs it.
+func shellQuote(s string) string {
+	if s != "" && strings.IndexFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/._-:+,=@", r))
+	}) < 0 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

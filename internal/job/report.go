@@ -18,11 +18,20 @@ type Report struct {
 	warnings int
 	prog     atomic.Pointer[Progress]
 	terminal bool // draw the live progress line on stderr
+	// Verbose adds a line per file (copied, verified, ...).
+	Verbose bool
 }
 
-// NewReportTo writes only to w and draws no terminal progress line; the
-// app reads progress with Now instead.
-func NewReportTo(w io.Writer) *Report { return &Report{out: w} }
+// NewReportTo writes only to w, with a line per file, and draws no
+// terminal progress line; the app reads progress with Now instead.
+func NewReportTo(w io.Writer) *Report { return &Report{out: w, Verbose: true} }
+
+// Detail prints a per-file line when the report is verbose.
+func (r *Report) Detail(format string, a ...any) {
+	if r.Verbose {
+		r.line(format, a...)
+	}
+}
 
 // ProgressState is a snapshot of the phase a command is in.
 type ProgressState struct {
@@ -30,6 +39,8 @@ type ProgressState struct {
 	Done  int64  `json:"done"`
 	Total int64  `json:"total"`
 	Rate  int64  `json:"rate"` // bytes per second
+	// Current is the file being worked on, when there is one.
+	Current string `json:"current,omitempty"`
 }
 
 // Now returns the running phase's progress, or nil between phases.
@@ -39,7 +50,7 @@ func (r *Report) Now() *ProgressState {
 		return nil
 	}
 	done := p.done.Load()
-	st := &ProgressState{Label: p.label, Done: done, Total: p.total}
+	st := &ProgressState{Label: p.label, Done: done, Total: p.total, Current: p.Current()}
 	if secs := time.Since(p.start).Seconds(); secs > 0 {
 		st.Rate = int64(float64(done) / secs)
 	}
@@ -138,6 +149,16 @@ type Progress struct {
 	wg    sync.WaitGroup
 	mu    *sync.Mutex
 	owner *Report
+	cur   atomic.Value // string
+}
+
+// SetCurrent names the file being worked on.
+func (p *Progress) SetCurrent(name string) { p.cur.Store(name) }
+
+// Current returns the file being worked on, or "".
+func (p *Progress) Current() string {
+	s, _ := p.cur.Load().(string)
+	return s
 }
 
 func (r *Report) startProgress(label string, total int64) *Progress {

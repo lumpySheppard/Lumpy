@@ -167,3 +167,79 @@ func TestInterruptLeavesNoPartialFiles(t *testing.T) {
 		return nil
 	})
 }
+
+func TestSourceReadTwiceCatchesFlakyReader(t *testing.T) {
+	dir, src := card(t)
+	d1 := filepath.Join(dir, "d1")
+	os.Mkdir(d1, 0o755)
+	clip := filepath.Join(src, "CLIPS", "A001C001.mov")
+	// The card hands back different bytes on the second read.
+	afterCopyHook = func() {
+		f, _ := os.OpenFile(clip, os.O_WRONLY, 0)
+		f.WriteAt([]byte{0x42}, 77)
+		f.Close()
+	}
+	defer func() { afterCopyHook = nil }()
+
+	r, out := offload(t, src, d1)
+	if r.Failures() != 1 || !strings.Contains(out, "read differently from the source the second time") {
+		t.Fatalf("flaky source not caught:\n%s", out)
+	}
+	h, _ := mhl.Load(filepath.Join(d1, "A001"))
+	if _, listed := h.Hashes["CLIPS/A001C001.mov"]; listed {
+		t.Fatal("a file the source read inconsistently was recorded as verified")
+	}
+	if _, listed := h.Hashes["CLIPS/empty.bin"]; !listed {
+		t.Fatal("the good file was not recorded")
+	}
+
+	// With the source check off, the same fault goes unnoticed (which is
+	// why the check is on by default).
+	d2 := filepath.Join(dir, "d2")
+	os.Mkdir(d2, 0o755)
+	afterCopyHook = func() {
+		f, _ := os.OpenFile(clip, os.O_WRONLY, 0)
+		f.WriteAt([]byte{0x43}, 77)
+		f.Close()
+	}
+	r2, buf := quiet(t)
+	Offload(context.Background(), OffloadOptions{Source: src, Dests: []string{d2}, SkipSourceVerify: true}, r2)
+	if r2.Failures() != 0 {
+		t.Fatalf("expected no failures without the source check:\n%s", buf)
+	}
+}
+
+func TestOffloadCopiesExtendedAttributes(t *testing.T) {
+	dir, src := card(t)
+	d1 := filepath.Join(dir, "d1")
+	os.Mkdir(d1, 0o755)
+	clip := filepath.Join(src, "CLIPS", "A001C001.mov")
+	if err := setXattr(clip, "user.lumpy.test", "tagged"); err != nil {
+		t.Skip("filesystem has no extended attributes:", err)
+	}
+	r, out := offload(t, src, d1)
+	if r.Failures() != 0 {
+		t.Fatal(out)
+	}
+	got, err := getXattr(filepath.Join(d1, "A001", "CLIPS", "A001C001.mov"), "user.lumpy.test")
+	if err != nil || got != "tagged" {
+		t.Fatalf("attribute not copied: %q %v", got, err)
+	}
+}
+
+func TestVerboseListsEveryFile(t *testing.T) {
+	dir, src := card(t)
+	d1 := filepath.Join(dir, "d1")
+	os.Mkdir(d1, 0o755)
+	r, buf := quiet(t)
+	r.Verbose = true
+	if err := Offload(context.Background(), OffloadOptions{Source: src, Dests: []string{d1}}, r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"copied    CLIPS/A001C001.mov", "verified  CLIPS/empty.bin on", "source ok CLIPS/A001C001.mov"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}

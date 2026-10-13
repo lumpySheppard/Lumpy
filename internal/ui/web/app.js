@@ -123,7 +123,7 @@ const S = {
   jobs: [],
   fileHits: null,
   detail: null, // id of open drive
-  offload: { source: "", dests: [""], name: "" },
+  offload: { source: "", dests: [""], name: "", sourceCheck: true },
 };
 
 // ---------- data refresh ----------
@@ -159,6 +159,7 @@ async function loadJobs() {
       }
       lastJobSig = sig;
     }
+    if (S.tab === "offload") $(".offload")?.classList.toggle("busy", running > 0);
     if (S.tab === "activity" || S.tab === "offload") renderJobsInto();
   } catch {}
 }
@@ -547,7 +548,8 @@ function renderOffload() {
   const vols = S.state.volumes;
   const chips = (target) => vols.map((v) => `<button class="chip" data-chip="${target}" data-path="${esc(v.mount)}">${esc(v.name)}<small>${bytes(v.free)} free</small></button>`).join("");
   const name = o.name || (o.source ? o.source.replace(/\/+$/, "").split("/").pop() : "");
-  $("#main").innerHTML = `<div class="offload">
+  const busy = S.jobs.some((j) => j.kind === "offload" && j.state === "running");
+  $("#main").innerHTML = `<div class="offload split ${busy ? "busy" : ""}">
     <section class="panel">
       <h2>New offload</h2>
       <p class="hint">Lumpy reads the source once, writes every destination at the same time, reads each copy back from its drive and compares xxh64 checksums. Each copy gets an ASC MHL manifest and is recorded in the library.</p>
@@ -559,10 +561,11 @@ function renderOffload() {
         <div class="chips"><button class="chip" id="add-dest">${"+ Add destination"}</button>${chips("dest")}</div></div></div>
       <div class="step"><span class="step-n">3</span><div><h3>Folder name in each destination</h3>
         <div class="path-row"><input class="path-input" id="oname" value="${esc(o.name)}" placeholder="${esc(name || "Same as the source")}"></div>
+        <label class="check-row"><input type="checkbox" id="source-check" ${o.sourceCheck ? "checked" : ""}><span>Read the card a second time while verifying<span class="note">Catches a faulty card or reader. Recommended; it runs alongside the copy checks.</span></span></label>
         <div class="go-row"><button class="btn primary" id="start-offload">${ICON.copy}Start offload</button>
           <span class="note" id="offload-note">${o.source && o.dests.some(Boolean) ? `Copies to ${o.dests.filter(Boolean).map((d) => esc(d.replace(/\/+$/, "") + "/" + (name || ""))).join(", ")}` : ""}</span></div></div></div>
     </section>
-    <div><div class="section-head"><h2>Offloads</h2></div><div class="jobs" id="jobs"></div></div>
+    <div class="jobs-col"><div class="section-head"><h2>Offloads</h2></div><div class="jobs" id="jobs"></div></div>
   </div>`;
   wireOffload();
   renderJobsInto();
@@ -573,6 +576,7 @@ function wireOffload() {
   const rerender = () => renderOffload();
   $("#src").onchange = (e) => { o.source = e.target.value.trim(); rerender(); };
   $("#oname").onchange = (e) => { o.name = e.target.value.trim(); rerender(); };
+  $("#source-check").onchange = (e) => { o.sourceCheck = e.target.checked; };
   for (const el of document.querySelectorAll("[data-dest]")) el.onchange = () => { o.dests[+el.dataset.dest] = el.value.trim(); rerender(); };
   for (const el of document.querySelectorAll("[data-rmdest]")) el.onclick = () => { o.dests.splice(+el.dataset.rmdest, 1); rerender(); };
   $("#add-dest").onclick = () => { o.dests.push(""); rerender(); };
@@ -592,9 +596,9 @@ function wireOffload() {
     const dests = o.dests.filter(Boolean);
     if (!o.source || !dests.length) return toast("Choose a source and at least one destination", true);
     try {
-      await api("/api/offload", { method: "POST", body: { source: o.source, dests, name: o.name } });
+      await api("/api/offload", { method: "POST", body: { source: o.source, dests, name: o.name, sourceCheck: o.sourceCheck } });
       toast("Offload started");
-      S.offload = { source: "", dests: [""], name: "" };
+      S.offload = { source: "", dests: [""], name: "", sourceCheck: o.sourceCheck };
       await loadJobs();
       renderOffload();
     } catch (e) { toast(e.message, true); }
@@ -629,7 +633,108 @@ function renderActivity() {
   renderJobsInto();
 }
 
-const openLogs = new Set();
+const STATE_BADGE = { running: ["info", "Running"], ok: ["ok", "Done"], cancelled: ["warn", "Cancelled"], error: ["bad", "Error"] };
+function lineClass(l) {
+  if (/^FAIL/.test(l)) return "t-fail";
+  if (/^BAD /.test(l)) return "t-bad";
+  if (/^WARN/.test(l)) return "t-warn";
+  if (/^OK /.test(l)) return "t-ok";
+  if (/^ {2}copied /.test(l)) return "t-copied";
+  if (/^ {2}(verified|source ok) /.test(l)) return "t-verified";
+  if (/^ {2}exists /.test(l)) return "t-dim";
+  if (/^(Copying|Verifying|Checking|Hashing)\b.*(\.\.\.|files)/.test(l) || /^(Copied|Verified) /.test(l)) return "t-head";
+  return "";
+}
+function lineEl(text) {
+  const d = document.createElement("div");
+  const c = lineClass(text);
+  if (c) d.className = c;
+  d.textContent = text || " ";
+  return d;
+}
+
+function jobShell(j) {
+  const el = document.createElement("div");
+  el.className = "job";
+  el.dataset.job = j.id;
+  el.innerHTML = `<div class="job-head"><h3></h3><span class="badge"></span><span class="when"></span><div class="actions"></div></div>
+    <div class="job-progress"><div class="bar"><i></i></div><div class="job-stats"></div><div class="job-current"></div></div>
+    <div class="job-outcome"></div>
+    <details class="term-wrap" ${j.state === "running" ? "open" : ""}><summary>Terminal</summary>
+      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span class="term-title"></span><button class="term-copy" title="Copy the log">${ICON.copy}</button></div>
+      <div class="term-body"><div class="t-prompt"><span class="ps">$</span> <span class="cmd"></span></div><div class="t-lines"></div><span class="cursor"></span></div></div>
+    </details>`;
+  el._count = 0;
+  el.querySelector(".term-copy").onclick = async (e) => {
+    e.preventDefault();
+    const text = "$ " + (j.command || "") + "\n" + [...el.querySelectorAll(".t-lines > div")].map((d) => d.textContent).join("\n");
+    try { await navigator.clipboard.writeText(text); toast("Log copied"); }
+    catch { const r = document.createRange(); r.selectNodeContents(el.querySelector(".term-body")); getSelection().removeAllRanges(); getSelection().addRange(r); toast("Log selected. Press ⌘C to copy"); }
+  };
+  return el;
+}
+
+function updateJob(el, j) {
+  const running = j.state === "running";
+  const p = j.progress;
+  el.querySelector(".job-head h3").textContent = j.title;
+  const [cls, label] = j.state === "failed" ? ["bad", `${j.failures} problem(s)`] : STATE_BADGE[j.state] || ["", j.state];
+  const badge = el.querySelector(".job-head .badge");
+  badge.className = "badge " + cls;
+  badge.textContent = label;
+  el.querySelector(".job-head .when").textContent = short(j.started) + (j.ended ? " · " + duration(j.ended - j.started || 1) : "");
+  const actions = el.querySelector(".job-head .actions");
+  const wantCancel = running ? "1" : "";
+  if (actions.dataset.cancel !== wantCancel) {
+    actions.dataset.cancel = wantCancel;
+    actions.innerHTML = running ? `<button class="btn small" data-cancel="${j.id}">${ICON.x}Cancel</button>` : "";
+    const b = actions.querySelector("button");
+    if (b) b.onclick = async () => { try { await api(`/api/jobs/${j.id}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, true); } };
+  }
+
+  const prog = el.querySelector(".job-progress");
+  prog.hidden = !running;
+  if (running) {
+    const pct = p && p.total ? Math.min(100, (p.done / p.total) * 100) : 0;
+    prog.querySelector(".bar > i").style.width = pct.toFixed(1) + "%";
+    const eta = p && p.rate > 0 && p.total > p.done ? duration((p.total - p.done) / p.rate) + " left" : "";
+    prog.querySelector(".job-stats").innerHTML = p
+      ? `<span><b>${esc(p.label)}</b></span><span>${bytes(p.done)} of ${bytes(p.total)}</span><span>${pct.toFixed(0)}%</span><span>${bytes(p.rate)}/s</span><span>${eta}</span>${j.failures ? `<span style="color:var(--bad)">${j.failures} problem(s)</span>` : ""}`
+      : "<span>Preparing…</span>";
+    prog.querySelector(".job-current").textContent = p && p.current ? p.current : "";
+  }
+
+  const outcome = el.querySelector(".job-outcome");
+  const results = running ? [] : j.lines.filter((l) => /^(OK|BAD) /.test(l));
+  outcome.hidden = !results.length && !j.error;
+  outcome.innerHTML = (j.error ? `<div class="t-fail">${esc(j.error)}</div>` : "") +
+    results.map((l) => `<div class="${lineClass(l)}">${esc(l.replace(/\s{2,}/g, "  "))}</div>`).join("");
+
+  el.querySelector(".term-title").textContent = "lumpy — " + j.title;
+  el.querySelector(".cmd").textContent = j.command || "";
+  const body = el.querySelector(".term-body");
+  const lines = el.querySelector(".t-lines");
+  const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+  const fresh = j.lineCount - el._count;
+  if (fresh > 0) {
+    const frag = document.createDocumentFragment();
+    if (fresh > j.lines.length) {
+      lines.textContent = "";
+      if (j.lineCount > j.lines.length) frag.append(lineEl(`… ${(j.lineCount - j.lines.length).toLocaleString()} earlier lines not shown (use Copy for what's here, or run with --report to keep everything)`));
+      j.lines.forEach((l) => frag.append(lineEl(l)));
+    } else {
+      j.lines.slice(j.lines.length - fresh).forEach((l) => frag.append(lineEl(l)));
+    }
+    lines.append(frag);
+    // Keep the terminal from growing without limit on huge offloads.
+    while (lines.childElementCount > 4000) lines.firstElementChild.remove();
+    el._count = j.lineCount;
+  }
+  el.querySelector(".cursor").hidden = !running;
+  el.querySelector(".term-wrap summary").textContent = `Terminal · ${j.lineCount.toLocaleString()} lines`;
+  if (atBottom || fresh === j.lineCount) body.scrollTop = body.scrollHeight;
+}
+
 function renderJobsInto() {
   const box = $("#jobs");
   if (!box) return;
@@ -638,30 +743,19 @@ function renderJobsInto() {
     box.innerHTML = `<div class="empty" style="margin:30px auto">${ICON.activity}<p>${S.tab === "offload" ? "No offloads yet." : "Nothing has run yet. Offloads, drive checks and rescans show their progress here."}</p></div>`;
     return;
   }
-  const scrolls = {};
-  box.querySelectorAll(".log").forEach((el) => { scrolls[el.dataset.id] = el.scrollHeight - el.scrollTop - el.clientHeight < 20 ? -1 : el.scrollTop; });
-  box.innerHTML = list.map((j) => {
-    const p = j.progress;
-    const pct = p && p.total ? Math.min(100, (p.done / p.total) * 100) : j.state === "running" ? 0 : 100;
-    const state = { running: ["info", "Running"], ok: ["ok", "Done"], failed: ["bad", `${j.failures} problem(s)`], cancelled: ["warn", "Cancelled"], error: ["bad", "Error"] }[j.state];
-    const eta = p && p.rate > 0 && p.total > p.done ? duration((p.total - p.done) / p.rate) + " left" : "";
-    const lines = j.lines.map((l) => {
-      const c = l.startsWith("FAIL") || l.startsWith("BAD") ? "f" : l.startsWith("WARN") ? "w" : l.startsWith("OK") ? "k" : "";
-      return c ? `<span class="${c}">${esc(l)}</span>` : esc(l);
-    }).join("\n");
-    const outcome = j.lines.filter((l) => /^(OK|BAD) /.test(l)).map((l) => esc(l.replace(/\s{2,}/g, "  "))).join("<br>");
-    return `<div class="job"><div class="job-head"><h3>${esc(j.title)}</h3><span class="badge ${state[0]}">${state[1]}</span>
-        <span class="when">${short(j.started)}${j.ended ? " · " + duration(j.ended - j.started || 1) : ""}</span>
-        <div class="actions">${j.state === "running" ? `<button class="btn small" data-cancel="${j.id}">${ICON.x}Cancel</button>` : ""}</div></div>
-      ${j.state === "running" ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
-        <div class="job-stats">${p ? `<span><b>${esc(p.label)}</b></span><span>${bytes(p.done)} of ${bytes(p.total)}</span><span>${bytes(p.rate)}/s</span><span>${eta}</span>` : "<span>Preparing…</span>"}${j.failures ? `<span style="color:var(--bad)">${j.failures} problem(s)</span>` : ""}</div>` : ""}
-      ${j.error ? `<div class="job-stats" style="color:var(--bad);margin-top:8px">${esc(j.error)}</div>` : ""}
-      ${outcome && j.state !== "running" ? `<div class="job-stats" style="margin-top:8px;display:block;font-family:var(--mono);font-size:11.5px">${outcome}</div>` : ""}
-      <details class="logwrap" data-id="${j.id}" ${openLogs.has(j.id) || (j.state === "running" && j.failures) ? "open" : ""}><summary>Log (${j.lines.length} lines)</summary><div class="log" data-id="${j.id}">${lines}</div></details></div>`;
-  }).join("");
-  box.querySelectorAll(".log").forEach((el) => { const s = scrolls[el.dataset.id]; el.scrollTop = s === undefined || s === -1 ? el.scrollHeight : s; });
-  box.querySelectorAll("details.logwrap").forEach((el) => el.ontoggle = () => { el.open ? openLogs.add(+el.dataset.id) : openLogs.delete(+el.dataset.id); });
-  box.querySelectorAll("[data-cancel]").forEach((b) => b.onclick = async () => { try { await api(`/api/jobs/${b.dataset.cancel}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, true); } });
+  box.querySelector(".empty")?.remove();
+  const keep = new Set(list.map((j) => String(j.id)));
+  box.querySelectorAll(":scope > .job").forEach((el) => { if (!keep.has(el.dataset.job)) el.remove(); });
+  let prev = null;
+  for (const j of list) {
+    let el = box.querySelector(`:scope > .job[data-job="${j.id}"]`);
+    if (!el) {
+      el = jobShell(j);
+      if (prev) prev.after(el); else box.prepend(el);
+    }
+    updateJob(el, j);
+    prev = el;
+  }
 }
 
 // ---------- events ----------
