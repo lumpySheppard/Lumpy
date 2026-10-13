@@ -1,19 +1,22 @@
 name: Release
 
 # Publishes a version: Actions → Release → "Run workflow" → version
-# (e.g. 0.6.0). The run tags the commit, builds Lumpy.app and the bare
-# binary, and attaches them with SHA256SUMS to a GitHub Release. The
-# app's "Install update" and `lumpy update` read these releases.
+# (e.g. 0.6.0). It takes the Lumpy.app that CI already built for the
+# chosen commit (no macOS runner needed, so it starts at once), checks
+# the version inside, and attaches it with the bare binary and
+# SHA256SUMS to a GitHub Release at tag v<version>. The app's "Install
+# update" and `lumpy update` read these releases.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish, without the v (e.g. 0.6.0)"
+        description: "Version to publish, without the v (e.g. 0.6.0); must match cmd/lumpy/main.go"
         required: true
         type: string
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: release
@@ -21,24 +24,26 @@ concurrency:
 
 jobs:
   release:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     env:
       VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: go test ./...
-      - name: Build Lumpy.app and the bare binary
+      - name: Take the app CI built for this commit
         run: |
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
-          macos/build-app.sh "$VERSION"
-          dist/Lumpy.app/Contents/Resources/lumpy version | grep -q "$VERSION"
-          ditto -c -k --keepParent dist/Lumpy.app Lumpy-macOS.zip
-          cp dist/Lumpy.app/Contents/Resources/lumpy lumpy
+          grep -q "var version = \"$VERSION\"" cmd/lumpy/main.go || { echo "cmd/lumpy/main.go says a different version"; exit 1; }
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq '.[0].databaseId')
+          test -n "$RUN_ID" || { echo "CI has not finished green for $GITHUB_SHA yet; wait for it, then run this again"; exit 1; }
+          echo "Using CI run $RUN_ID"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n Lumpy-macOS -D app
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n lumpy-macos-universal -D bin
+          cp app/Lumpy-macOS.zip .
+          unzip -p Lumpy-macOS.zip Lumpy.app/Contents/Info.plist | grep -A1 CFBundleShortVersionString | grep -q "<string>$VERSION</string>"
+          cp bin/lumpy lumpy && chmod +x lumpy
           zip -q lumpy-macos-universal.zip lumpy
-          shasum -a 256 Lumpy-macOS.zip lumpy-macos-universal.zip > SHA256SUMS
+          sha256sum Lumpy-macOS.zip lumpy-macos-universal.zip > SHA256SUMS
           cat SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
