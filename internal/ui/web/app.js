@@ -120,6 +120,7 @@ const S = {
   tab: localGet("tab", "logged"),
   view: localGet("view", "grid"),
   sort: localGet("sort", "seen"),
+  colorBy: localGet("colorBy", "project"),
   desc: localGet("desc", "1") === "1",
   query: "",
   state: null,
@@ -229,6 +230,34 @@ function checkBadge(d) {
     ? `<span class="badge ok">${ICON.shield}Checked ${new Date(d.lastVerify * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>`
     : `<span class="badge bad">${ICON.warn}Check failed</span>`;
 }
+// cardColor is what a drive's card colour means under the "Colour by"
+// menu: its project's colour (drives in no project keep their own), its
+// own label colour, its backup state, or its client.
+const CLIENT_PALETTE = ["#4fa3ff", "#ff9f43", "#3ddc84", "#ec4899", "#14b8a6", "#ffcc4d", "#b36cff", "#ff5c5c"];
+function cardColor(d) {
+  switch (S.colorBy) {
+    case "project": {
+      const p = (S.state.projects || []).find((x) => (d.projects || []).includes(x.id));
+      if (p) return COLORS[p.color] || "var(--accent)";
+      return COLORS[d.labels.color] || null;
+    }
+    case "drive": return COLORS[d.labels.color] || null;
+    case "backup": {
+      const b = d.backups;
+      if (d.damaged) return "var(--bad)";
+      if (!b || !d.files) return null;
+      return { full: "var(--ok)", partial: "var(--warn)", none: "var(--bad)", unknown: "#6b6b74", empty: null }[backupState(b.enough + b.short, b.files, b.unknown + b.likely)];
+    }
+    case "client": {
+      const c = (d.labels.client || "").trim().toLowerCase();
+      if (!c) return null;
+      let h = 0;
+      for (const ch of c) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      return CLIENT_PALETTE[h % CLIENT_PALETTE.length];
+    }
+  }
+  return null;
+}
 function projectBadges(d) {
   const ps = (S.state.projects || []).filter((p) => (d.projects || []).includes(p.id));
   return ps.map((p) => `<span class="badge proj" style="--pc:${COLORS[p.color] || "var(--accent)"}" data-open-project="${p.id}">${ICON.film}${esc(p.name)}</span>`).join("");
@@ -249,8 +278,9 @@ function hl(text) {
 
 function driveCard(d) {
   const l = d.labels;
-  const tint = COLORS[l.color] || "transparent";
-  const dot = d.connected ? "var(--ok)" : COLORS[l.color] || "var(--muted)";
+  const color = cardColor(d);
+  const tint = color || "transparent";
+  const dot = d.connected ? "var(--ok)" : color || "var(--muted)";
   const used = Math.max(0, d.size - d.free);
   const pct = d.size ? Math.min(100, (used / d.size) * 100) : 0;
   const who = [l.client, l.project].filter(Boolean);
@@ -312,6 +342,7 @@ function renderToolbar() {
   $("#sort-dir").innerHTML = S.desc ? ICON.down : ICON.up;
   for (const b of $("#view-seg").children) b.classList.toggle("on", b.dataset.view === S.view);
   $("#sort").value = S.sort;
+  $("#color-by").value = S.colorBy;
   $("#select-mode").classList.toggle("on", S.selecting);
   $("#select-mode").textContent = S.selecting ? "Done" : "Select";
 }
@@ -354,7 +385,7 @@ function drivesHTML(ds) {
     return `<table class="list"><thead><tr><th>Name</th><th>Client · Project</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th class="num">Files</th><th>Backups</th><th>Last check</th><th>Last seen</th></tr></thead><tbody>
       ${ds.map((d) => {
         const used = Math.max(0, d.size - d.free);
-        return `<tr class="row" data-drive="${esc(d.id)}"><td><div class="name"><span class="dot" style="background:${d.connected ? "var(--ok)" : COLORS[d.labels.color] || "var(--muted)"}"></span>${hl(d.title)}${d.labels.nickname ? ` <small>${esc(d.name)}</small>` : ""}</div></td>
+        return `<tr class="row" data-drive="${esc(d.id)}"><td><div class="name"><span class="dot" style="background:${d.connected ? "var(--ok)" : cardColor(d) || "var(--muted)"}"></span>${hl(d.title)}${d.labels.nickname ? ` <small>${esc(d.name)}</small>` : ""}</div></td>
           <td>${esc([d.labels.client, d.labels.project].filter(Boolean).join(" · "))}</td>
           <td class="num">${bytes(d.size)}</td><td>${capBar(used, d.size)}</td>
           <td class="num ${lowSpace(d) ? "cap" : ""}"><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)}</span></td><td class="num">${d.files.toLocaleString()}</td>
@@ -483,7 +514,7 @@ async function openDetail(id, refresh, focusLabels) {
           <div class="field"><label>Client</label><input data-label="client" value="${esc(l.client)}" placeholder="Client"></div>
           <div class="field"><label>Project</label><input data-label="project" value="${esc(l.project)}" placeholder="Project or show"></div>
           <div class="field wide"><label>Notes</label><textarea data-label="notes" placeholder="Where it lives, who has it, what's on it…">${esc(l.notes)}</textarea></div>
-          <div class="field wide"><label>Color</label><div class="swatches">
+          <div class="field wide"><label>Card colour (used when the drive is in no project, or when colouring by drive label)</label><div class="swatches">
             <button class="swatch none ${l.color ? "" : "on"}" data-color="" title="None"></button>
             ${Object.entries(COLORS).map(([k, c]) => `<button class="swatch ${l.color === k ? "on" : ""}" data-color="${k}" title="${k}" style="background:${c}"></button>`).join("")}
           </div></div>
@@ -1122,6 +1153,7 @@ document.querySelector(".tabs").onclick = (e) => {
 $("#select-mode").onclick = () => { S.selecting = !S.selecting; if (!S.selecting) S.selected.clear(); render(); };
 $("#view-seg").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.view = b.dataset.view; localSet("view", S.view); render(); };
 $("#sort").onchange = (e) => { S.sort = e.target.value; localSet("sort", S.sort); render(); };
+$("#color-by").onchange = (e) => { S.colorBy = e.target.value; localSet("colorBy", S.colorBy); render(); };
 $("#sort-dir").onclick = () => { S.desc = !S.desc; localSet("desc", S.desc ? "1" : "0"); render(); };
 $("#refresh").innerHTML = ICON.refresh;
 $("#refresh").onclick = () => { loadState(); loadJobs(); };
