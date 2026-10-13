@@ -1,14 +1,14 @@
 package volume
 
 import (
-	"syscall"
-	"sync"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 func plistValue(plist, key string) string {
