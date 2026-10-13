@@ -24,7 +24,7 @@ func identify(mount string) (*Volume, error) {
 		return fallback(mount), nil
 	}
 	p := string(out)
-	v := &Volume{Mount: mount, Name: plistValue(p, "VolumeName"), FSType: plistValue(p, "FilesystemType")}
+	v := &Volume{Mount: mount, Name: plistValue(p, "VolumeName"), FSType: plistValue(p, "FilesystemType"), Free: free(mount)}
 	if v.Name == "" {
 		v.Name = filepath.Base(mount)
 	}

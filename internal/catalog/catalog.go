@@ -99,8 +99,20 @@ func Open(path string) (*DB, error) {
 		s.Close()
 		return nil, fmt.Errorf("opening drive library %s: %w", path, err)
 	}
-	// Libraries made by 0.2 betas lack bad_hash; adding it twice fails harmlessly.
-	s.Exec(`ALTER TABLE files ADD COLUMN bad_hash TEXT`)
+	// Columns added after the first release; adding one twice fails harmlessly.
+	for _, col := range []string{
+		`files ADD COLUMN bad_hash TEXT`,
+		`drives ADD COLUMN free INTEGER NOT NULL DEFAULT 0`,
+		`drives ADD COLUMN nickname TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN client TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN project TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN contact TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN color TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN never_log INTEGER NOT NULL DEFAULT 0`,
+	} {
+		s.Exec(`ALTER TABLE ` + col)
+	}
 	return &DB{sql: s}, nil
 }
 
@@ -120,10 +132,31 @@ type Drive struct {
 	LastVerify      time.Time // zero if never
 	LastVerifyOK    bool
 	VerifyRequested time.Time // zero if no check is queued
-	Files           int
-	Bytes           int64
-	Hashed          int
-	Damaged         int // files whose last check did not match
+	Free            int64     // bytes free when last seen
+	Labels
+	Files   int
+	Bytes   int64
+	Hashed  int
+	Damaged int // files whose last check did not match
+}
+
+// Labels are the notes a person attaches to a drive.
+type Labels struct {
+	Nickname string `json:"nickname"`
+	Client   string `json:"client"`
+	Project  string `json:"project"`
+	Contact  string `json:"contact"`
+	Notes    string `json:"notes"`
+	Color    string `json:"color"`
+	NeverLog bool   `json:"neverLog"` // the agent leaves this drive alone
+}
+
+// Title is the nickname if the drive has one, else its volume name.
+func (d *Drive) Title() string {
+	if d.Nickname != "" {
+		return d.Nickname
+	}
+	return d.Name
 }
 
 func unix(n sql.NullInt64) time.Time {
@@ -142,6 +175,7 @@ func nullTime(t time.Time) any {
 
 const driveCols = `d.id, d.name, d.size, d.fstype, d.first_seen, d.last_seen, d.last_mount,
 	d.last_scan, d.last_verify, d.last_verify_ok, d.verify_requested,
+	d.free, d.nickname, d.client, d.project, d.contact, d.notes, d.color, d.never_log,
 	COUNT(f.path), COALESCE(SUM(f.size), 0), COUNT(f.xxh64), COUNT(f.bad_hash)`
 
 func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
@@ -149,7 +183,9 @@ func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 	var first, last int64
 	var scanAt, verAt, verOK, req sql.NullInt64
 	if err := row.Scan(&d.ID, &d.Name, &d.Size, &d.FSType, &first, &last, &d.LastMount,
-		&scanAt, &verAt, &verOK, &req, &d.Files, &d.Bytes, &d.Hashed, &d.Damaged); err != nil {
+		&scanAt, &verAt, &verOK, &req,
+		&d.Free, &d.Nickname, &d.Client, &d.Project, &d.Contact, &d.Notes, &d.Color, &d.NeverLog,
+		&d.Files, &d.Bytes, &d.Hashed, &d.Damaged); err != nil {
 		return nil, err
 	}
 	d.FirstSeen, d.LastSeen = time.Unix(first, 0), time.Unix(last, 0)
@@ -162,11 +198,11 @@ func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 // and updating its name and mount point if they changed.
 func (db *DB) SaveDrive(v *volume.Volume) error {
 	now := time.Now().Unix()
-	_, err := db.sql.Exec(`INSERT INTO drives (id, name, size, fstype, first_seen, last_seen, last_mount)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (id) DO UPDATE SET name = excluded.name, size = excluded.size,
+	_, err := db.sql.Exec(`INSERT INTO drives (id, name, size, free, fstype, first_seen, last_seen, last_mount)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET name = excluded.name, size = excluded.size, free = excluded.free,
 			fstype = excluded.fstype, last_seen = excluded.last_seen, last_mount = excluded.last_mount`,
-		v.ID, v.Name, v.Size, v.FSType, now, now, v.Mount)
+		v.ID, v.Name, v.Size, v.Free, v.FSType, now, now, v.Mount)
 	return err
 }
 
@@ -219,7 +255,7 @@ func (db *DB) Find(arg string) (*Drive, error) {
 	}
 	var hits []*Drive
 	for _, d := range all {
-		if strings.EqualFold(d.Name, arg) || strings.EqualFold(d.ID, arg) ||
+		if strings.EqualFold(d.Name, arg) || strings.EqualFold(d.ID, arg) || (d.Nickname != "" && strings.EqualFold(d.Nickname, arg)) ||
 			(len(arg) >= 4 && strings.HasPrefix(strings.ToUpper(d.ID), strings.ToUpper(arg))) {
 			hits = append(hits, d)
 		}
@@ -492,7 +528,7 @@ func (db *DB) Coverage(driveID string) ([]Coverage, error) {
 	}
 	byHash := map[string][]Copy{}
 	byName := map[string][]Copy{}
-	rows, err := db.sql.Query(`SELECT o.drive_id, d.name, o.path, o.size, COALESCE(o.xxh64, ''), o.verified_at IS NOT NULL
+	rows, err := db.sql.Query(`SELECT o.drive_id, COALESCE(NULLIF(d.nickname, ''), d.name), o.path, o.size, COALESCE(o.xxh64, ''), o.verified_at IS NOT NULL
 		FROM files f JOIN files o ON o.drive_id != f.drive_id AND o.bad_hash IS NULL
 			AND ((f.xxh64 IS NOT NULL AND o.xxh64 = f.xxh64 AND o.size = f.size)
 			  OR (f.xxh64 IS NULL AND o.name = f.name AND o.size = f.size))
@@ -548,7 +584,7 @@ type Match struct {
 // Search finds files whose name contains text (any case), by drive and path.
 func (db *DB) Search(text string, limit int) ([]Match, error) {
 	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(text)
-	rows, err := db.sql.Query(`SELECT f.drive_id, d.name, f.path, f.size, COALESCE(f.xxh64, '')
+	rows, err := db.sql.Query(`SELECT f.drive_id, COALESCE(NULLIF(d.nickname, ''), d.name), f.path, f.size, COALESCE(f.xxh64, '')
 		FROM files f JOIN drives d ON d.id = f.drive_id
 		WHERE f.name LIKE ? ESCAPE '\' ORDER BY f.name, d.name, f.path LIMIT ?`, "%"+esc+"%", limit)
 	if err != nil {

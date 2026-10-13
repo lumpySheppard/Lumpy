@@ -192,7 +192,7 @@ func HashDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, all bool, 
 		verb = "Checking"
 	}
 	r.Info("%s %d files (%s) on %s", verb, len(todo), Bytes(total), v.Name)
-	prog := r.startProgress(strings.ToLower(verb), total)
+	prog := r.startProgress(verb, total)
 	var batch []catalog.HashUpdate
 	flush := func() error {
 		if len(batch) == 0 {
@@ -279,7 +279,7 @@ func Backups(db *catalog.DB, d *catalog.Drive, min int, r *Report) error {
 	if err != nil {
 		return err
 	}
-	r.Info("Drive        %s  (%d files, %s, %d with checksums)", d.Name, d.Files, Bytes(d.Bytes), d.Hashed)
+	r.Info("Drive        %s  (%d files, %s, %d with checksums)", d.Title(), d.Files, Bytes(d.Bytes), d.Hashed)
 	if d.Hashed < d.Files {
 		r.Info("             %d files have no checksum yet; plug the drive in and run `lumpy drive hash %s` to prove their copies", d.Files-d.Hashed, d.Name)
 	}

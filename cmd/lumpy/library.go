@@ -70,7 +70,7 @@ func listDrives(c *cmdCtx) error {
 		if mountedAs(d) != nil {
 			seen = "plugged in"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%d%%\t%s\t%s\t\n", d.Name, shortID(d.ID), job.Bytes(d.Size), d.Files, job.Bytes(d.Bytes), pct, seen, checkState(d))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%d%%\t%s\t%s\t\n", d.Title(), shortID(d.ID), job.Bytes(d.Size), d.Files, job.Bytes(d.Bytes), pct, seen, checkState(d))
 	}
 	tw.Flush()
 	c.r.Info("%s", strings.TrimRight(b.String(), "\n"))
@@ -132,7 +132,8 @@ func driveCmd(ctx context.Context, c *cmdCtx) error {
 }
 
 func driveInfo(c *cmdCtx, d *catalog.Drive) error {
-	c.r.Info("%s", d.Name)
+	c.r.Info("%s", d.Title())
+	c.r.Info("  volume       %s", d.Name)
 	c.r.Info("  id           %s", d.ID)
 	c.r.Info("  capacity     %s  %s", job.Bytes(d.Size), d.FSType)
 	c.r.Info("  files        %d (%s), %d with checksums", d.Files, job.Bytes(d.Bytes), d.Hashed)

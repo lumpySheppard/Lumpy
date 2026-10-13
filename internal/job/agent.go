@@ -48,6 +48,10 @@ func AgentRun(ctx context.Context, db *catalog.DB, r *Report, notify func(title,
 
 func agentDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Report, notify func(title, msg string)) {
 	r.Info("%s  %s mounted at %s", time.Now().Format("2006-01-02 15:04:05"), v.Name, v.Mount)
+	if d, err := db.Drive(v.ID); err == nil && d.NeverLog {
+		r.Info("%s is set to never be logged; skipped", d.Title())
+		return
+	}
 	if err := db.SaveDrive(v); err != nil {
 		r.Info("lumpy: %v", err)
 		return

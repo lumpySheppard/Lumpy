@@ -40,3 +40,35 @@ jobs:
         with:
           name: lumpy-macos-universal
           path: lumpy
+
+  app:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build Lumpy.app
+        run: macos/build-app.sh
+      - name: Check the bundle
+        run: |
+          codesign --verify --verbose dist/Lumpy.app
+          dist/Lumpy.app/Contents/Resources/lumpy version
+          plutil -lint dist/Lumpy.app/Contents/Info.plist
+      - name: Smoke-test the engine the app starts
+        run: |
+          export LUMPY_HOME="$RUNNER_TEMP/lumpy-home"
+          (sleep 5; echo) | dist/Lumpy.app/Contents/Resources/lumpy ui --app > ui.out &
+          sleep 2
+          URL=$(sed -n 's/^LUMPY_URL //p' ui.out)
+          test -n "$URL"
+          BASE=${URL%%/#*}; TOKEN=${URL##*#t=}
+          curl -fsS "$BASE/" | grep -q '<title>Lumpy</title>'
+          curl -fsS -H "X-Lumpy-Token: $TOKEN" "$BASE/api/state" | grep -q '"drives"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/state")" = 403
+      - run: ditto -c -k --keepParent dist/Lumpy.app Lumpy-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lumpy-macOS
+          path: Lumpy-macOS.zip

@@ -146,7 +146,7 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 
 	r.Info("")
 	r.Info("Copying...")
-	prog := r.startProgress("copy", res.TotalLen)
+	prog := r.startProgress("Copying", res.TotalLen)
 	for _, f := range res.Files {
 		if err := ctx.Err(); err != nil {
 			prog.Finish()
@@ -216,7 +216,7 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 	// each drive reads its files one after another.
 	r.Info("")
 	r.Info("Verifying...")
-	prog = r.startProgress("verify", res.TotalLen*int64(len(targets)))
+	prog = r.startProgress("Verifying", res.TotalLen*int64(len(targets)))
 	verifiedAt := make([]map[string]time.Time, len(targets))
 	var wg sync.WaitGroup
 	for i, t := range targets {

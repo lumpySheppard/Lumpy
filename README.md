@@ -14,6 +14,8 @@ proving every copy is intact.
   schema and its reference `ascmhl` tool.
 - **Re-check** a drive later against its manifest, or **compare** two copies
   that have no manifest.
+- **A Mac app** with drive cards, details, search, offloads and live
+  progress, plus the same features on the command line.
 - **Keep a drive library**: every drive you plug in is logged with its files
   and checksums, so you can see where a clip lives and whether a drive is
   properly backed up while it sits on a shelf, and queue a full check that
@@ -21,8 +23,43 @@ proving every copy is intact.
 
 ## Install
 
-Download the `lumpy-macos-universal` build from the latest
-[CI run](../../actions/workflows/ci.yml) (or build it yourself, below), then:
+### The app
+
+Download **Lumpy-macOS** from the latest [CI run](../../actions/workflows/ci.yml),
+unzip it, and move `Lumpy.app` to Applications. It isn't notarized yet, so
+the first time, clear the download flag before opening it:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Lumpy.app
+```
+
+The app has four tabs:
+
+- **Connected**: drives plugged in now. New drives are logged as soon as they
+  mount while the app is open.
+- **Logged**: every drive Lumpy has seen, as cards or a list, with capacity,
+  labels (display name, client, project, contact, notes, color), backup
+  status and last check. Search finds drives by any label and files by name
+  across every drive, plugged in or not. **Export CSV** saves the library.
+  **Details** shows a drive's storage breakdown by top-level folder, a file
+  browser with each file's checksum status, its backup coverage, and its
+  history. From there you can check the drive now, or queue a check for the
+  next time it's plugged in.
+- **Offload**: pick a card and destinations (or click the drive chips), then
+  start. Progress, speed and time left are shown live.
+- **Activity**: every offload, check and rescan with its full log.
+
+The command-line tool is inside the app. To use it in Terminal:
+
+```sh
+sudo ln -sf /Applications/Lumpy.app/Contents/Resources/lumpy /usr/local/bin/lumpy
+```
+
+`lumpy ui` opens the same screens in a browser instead.
+
+### Command line only
+
+Download the `lumpy-macos-universal` build from the same CI run, then:
 
 ```sh
 chmod +x lumpy
@@ -152,3 +189,14 @@ Requires Go 1.24 or later.
 go test ./...
 go build -o lumpy ./cmd/lumpy
 ```
+
+To build `Lumpy.app` on a Mac (needs the Xcode command line tools as well):
+
+```sh
+macos/build-app.sh      # writes dist/Lumpy.app
+```
+
+The app is a small Swift window (`macos/main.swift`) around the same
+engine: it starts `lumpy ui --app`, which serves the interface from
+`internal/ui/web` on 127.0.0.1 with a per-launch access token, and shows it
+in a WKWebView with native folder pickers and Save dialogs.

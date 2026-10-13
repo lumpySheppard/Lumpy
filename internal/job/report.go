@@ -16,6 +16,34 @@ type Report struct {
 	out      io.Writer
 	failures int
 	warnings int
+	prog     atomic.Pointer[Progress]
+	terminal bool // draw the live progress line on stderr
+}
+
+// NewReportTo writes only to w and draws no terminal progress line; the
+// app reads progress with Now instead.
+func NewReportTo(w io.Writer) *Report { return &Report{out: w} }
+
+// ProgressState is a snapshot of the phase a command is in.
+type ProgressState struct {
+	Label string `json:"label"`
+	Done  int64  `json:"done"`
+	Total int64  `json:"total"`
+	Rate  int64  `json:"rate"` // bytes per second
+}
+
+// Now returns the running phase's progress, or nil between phases.
+func (r *Report) Now() *ProgressState {
+	p := r.prog.Load()
+	if p == nil {
+		return nil
+	}
+	done := p.done.Load()
+	st := &ProgressState{Label: p.label, Done: done, Total: p.total}
+	if secs := time.Since(p.start).Seconds(); secs > 0 {
+		st.Rate = int64(float64(done) / secs)
+	}
+	return st
 }
 
 // NewReport writes to stdout and, when extra is not nil, to extra as well.
@@ -24,7 +52,7 @@ func NewReport(extra io.Writer) *Report {
 	if extra != nil {
 		w = io.MultiWriter(os.Stdout, extra)
 	}
-	return &Report{out: w}
+	return &Report{out: w, terminal: stderrIsTerminal()}
 }
 
 func (r *Report) line(format string, a ...any) {
@@ -109,11 +137,13 @@ type Progress struct {
 	stop  chan struct{}
 	wg    sync.WaitGroup
 	mu    *sync.Mutex
+	owner *Report
 }
 
 func (r *Report) startProgress(label string, total int64) *Progress {
-	p := &Progress{label: label, total: total, start: time.Now(), stop: make(chan struct{}), mu: &r.mu}
-	if !stderrIsTerminal() {
+	p := &Progress{label: label, total: total, start: time.Now(), stop: make(chan struct{}), mu: &r.mu, owner: r}
+	r.prog.Store(p)
+	if !r.terminal {
 		return p
 	}
 	p.wg.Add(1)
@@ -160,6 +190,9 @@ func (p *Progress) Add(n int) { p.done.Add(int64(n)) }
 
 // Finish stops the counter and returns how long the phase took.
 func (p *Progress) Finish() time.Duration {
+	if p.owner != nil {
+		p.owner.prog.CompareAndSwap(p, nil)
+	}
 	close(p.stop)
 	p.wg.Wait()
 	p.mu.Lock()

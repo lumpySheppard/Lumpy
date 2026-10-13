@@ -51,7 +51,7 @@ func Verify(ctx context.Context, target string, r *Report) error {
 	sort.Strings(paths)
 
 	r.Info("")
-	prog := r.startProgress("verify", total)
+	prog := r.startProgress("Checking", total)
 	ok := 0
 	for _, p := range paths {
 		want, have := hist.Expected(p)

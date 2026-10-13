@@ -19,7 +19,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/job"
 )
 
-var version = "0.2.0"
+var version = "0.3.0"
 
 const usage = `Lumpy copies camera cards and drives to backup drives, verifies every copy,
 and keeps a library of every drive it has seen.
@@ -54,6 +54,11 @@ Drive library (works for drives that are not plugged in):
 
 Background agent (logs every drive you plug in, runs queued checks):
   lumpy agent install | uninstall | status
+
+App:
+  lumpy ui [--port N] [--no-browser]
+      Open Lumpy's drive library and offload screens in your browser.
+      (Lumpy.app shows the same screens in its own window.)
 
 Options:
   --report FILE   also write the output to FILE (any command)
@@ -96,6 +101,10 @@ type cmdCtx struct {
 	min  int
 	noDB bool
 	host string
+
+	port      int
+	noBrowser bool
+	appMode   bool
 }
 
 func usageErr(format string, a ...any) error {
@@ -130,6 +139,7 @@ var commands = map[string]command{
 	"find":    {1, 1, true, findCmd},
 	"catalog": {0, -1, true, catalogCmd},
 	"agent":   {1, 1, false, agentCmd},
+	"ui":      {0, 0, true, uiCmd},
 }
 
 func run(args []string) int {
@@ -159,6 +169,9 @@ func run(args []string) int {
 	fs.StringVar(&c.name, "name", "", "folder name to create in each destination (offload)")
 	fs.IntVar(&c.min, "min", 1, "copies needed on other drives (backups)")
 	fs.BoolVar(&c.noDB, "no-library", false, "do not record this offload in the drive library")
+	fs.IntVar(&c.port, "port", 0, "port for `lumpy ui` (default: any free port)")
+	fs.BoolVar(&c.noBrowser, "no-browser", false, "do not open a browser (ui)")
+	fs.BoolVar(&c.appMode, "app", false, "run for Lumpy.app (ui)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return 2

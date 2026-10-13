@@ -59,7 +59,7 @@ func Compare(ctx context.Context, a, b string, r *Report) error {
 		r.Fail("%s is only in B", p)
 	}
 
-	prog := r.startProgress("compare", 2*total)
+	prog := r.startProgress("Comparing", 2*total)
 	ok := 0
 	for _, f := range both {
 		var sums [2]string

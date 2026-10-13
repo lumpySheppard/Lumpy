@@ -17,6 +17,7 @@ type Volume struct {
 	Name   string
 	Mount  string // where it is mounted now, e.g. /Volumes/SHUTTLE_1
 	Size   int64  // capacity in bytes
+	Free   int64  // bytes free now
 	FSType string
 }
 
@@ -117,11 +118,19 @@ func capacity(mount string) int64 {
 	return int64(st.Blocks) * int64(st.Bsize)
 }
 
+func free(mount string) int64 {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(mount, &st); err != nil {
+		return 0
+	}
+	return int64(st.Bavail) * int64(st.Bsize)
+}
+
 // fallback identifies a volume with no UUID by its name and capacity.
 func fallback(mount string) *Volume {
 	name := filepath.Base(mount)
 	size := capacity(mount)
-	return &Volume{ID: "name:" + name + ":" + itoa(size), Name: name, Mount: mount, Size: size}
+	return &Volume{ID: "name:" + name + ":" + itoa(size), Name: name, Mount: mount, Size: size, Free: free(mount)}
 }
 
 func itoa(n int64) string {
