@@ -544,13 +544,18 @@ func recordOffload(db *catalog.DB, src string, srcVerified bool, sourceBad map[s
 }
 
 // hashWorkers is how many files a drive is read from at once:
-// LUMPY_HASH_WORKERS when set, 4 for a solid-state drive, else 1.
+// LUMPY_HASH_WORKERS when set; otherwise 1 for a spinning disk, 2 for
+// a solid-state drive on USB (readers and hubs are the weak link there),
+// 4 for a solid-state drive on Thunderbolt, PCI or SATA.
 func hashWorkers(v *volume.Volume) int {
 	if n, err := strconv.Atoi(os.Getenv("LUMPY_HASH_WORKERS")); err == nil && n > 0 && n <= 16 {
 		return n
 	}
-	if v.SolidState {
-		return 4
+	if !v.SolidState {
+		return 1
 	}
-	return 1
+	if strings.EqualFold(v.Bus, "USB") {
+		return 2
+	}
+	return 4
 }

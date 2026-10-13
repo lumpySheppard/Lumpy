@@ -26,6 +26,9 @@ type Volume struct {
 	// mounted .dmg or .iso. Both are hidden by default (see Hide).
 	Internal  bool
 	DiskImage bool
+	// Bus is how the drive is attached, as diskutil names it: USB,
+	// Thunderbolt, PCI-Express, SATA…
+	Bus string
 }
 
 // Hide says which mounted volumes are left out of listings: the Mac's

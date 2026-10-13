@@ -1,6 +1,8 @@
 package volume
 
 import (
+	"syscall"
+	"sync"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,8 +19,53 @@ func plistValue(plist, key string) string {
 	return ""
 }
 
-// identify asks diskutil for the volume's UUID, name and size.
+// identities remembers what diskutil said about each mount point, keyed
+// by the filesystem id as well, so a different volume mounted at the
+// same path is asked about afresh. Without this, every poll (the app
+// looks every few seconds) would run diskutil once per drive, which
+// keeps diskarbitrationd busier than Finder likes.
+var (
+	identMu    sync.Mutex
+	identities = map[string]cachedIdentity{}
+)
+
+type cachedIdentity struct {
+	fsid [2]int32
+	v    Volume
+}
+
+func fsidOf(mount string) ([2]int32, bool) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(mount, &st); err != nil {
+		return [2]int32{}, false
+	}
+	return st.Fsid.Val, true
+}
+
+// identify asks diskutil for the volume's UUID, name and size, once per
+// mount; later calls reuse the answer and refresh only the free space.
 func identify(mount string) (*Volume, error) {
+	fsid, ok := fsidOf(mount)
+	if ok {
+		identMu.Lock()
+		c, hit := identities[mount]
+		identMu.Unlock()
+		if hit && c.fsid == fsid {
+			v := c.v
+			v.Free = free(mount)
+			return &v, nil
+		}
+	}
+	v, err := identifyWithDiskutil(mount)
+	if err == nil && ok {
+		identMu.Lock()
+		identities[mount] = cachedIdentity{fsid: fsid, v: *v}
+		identMu.Unlock()
+	}
+	return v, err
+}
+
+func identifyWithDiskutil(mount string) (*Volume, error) {
 	out, err := exec.Command("diskutil", "info", "-plist", mount).Output()
 	if err != nil {
 		return fallback(mount), nil
@@ -39,6 +86,7 @@ func identify(mount string) (*Volume, error) {
 		v.ID = "name:" + v.Name + ":" + itoa(v.Size)
 	}
 	v.SolidState = plistBool(p, "SolidState")
+	v.Bus = plistValue(p, "BusProtocol")
 	v.Internal = plistBool(p, "Internal") && !plistBool(p, "RemovableMediaOrExternalDevice")
 	v.DiskImage = plistValue(p, "BusProtocol") == "Disk Image" || plistValue(p, "VirtualOrPhysical") == "Virtual" && plistValue(p, "BusProtocol") == ""
 	return v, nil
