@@ -210,9 +210,8 @@ reload once more: it updated again on the way out.
 ## 11. Updating in place
 
 Needs a release to exist: `git tag v0.6.0 && git push origin v0.6.0`
-(CI publishes it in a few minutes). While the repository is private,
-paste a fine-grained GitHub token (Contents: read) under the gear →
-**GitHub token**.
+(CI publishes it in a few minutes). The repository is public, so no
+token is needed.
 
 1. Gear → **Check now**.
 

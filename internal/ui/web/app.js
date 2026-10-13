@@ -1440,7 +1440,7 @@ async function openSettings(focus) {
           <p class="hint" style="margin:0 0 10px">Updates replace ${esc(u.target || "the app")} in place; the library is untouched. ${native ? "" : "From Terminal: <code>lumpy update</code>."}</p>
           <div class="fields">
             <div class="field"><label>Check for updates</label><label class="switch" style="margin-top:7px">Twice a day while Lumpy is open <input type="checkbox" id="upd-auto" ${u.auto ? "checked" : ""}></label></div>
-            <div class="field"><label>GitHub token <span class="hint">· needed while the Lumpy repository is private</span></label><input id="upd-token" type="password" value="${u.hasToken ? "••••••••••••" : ""}" placeholder="github_pat_…" autocomplete="off"></div>
+            <div class="field"><label>GitHub token <span class="hint">· optional; only needed if the Lumpy repository is made private</span></label><input id="upd-token" type="password" value="${u.hasToken ? "••••••••••••" : ""}" placeholder="github_pat_…" autocomplete="off"></div>
           </div>
         </div></div>
       <div class="sec"><div class="sec-title">${ICON.globe}Status page for coworkers

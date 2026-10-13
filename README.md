@@ -306,9 +306,10 @@ finishes the job. The library is untouched, the `lumpy` command and the
 background agent follow the app automatically. `lumpy update` does the
 same from Terminal (`lumpy update check` only looks).
 
-While the repository is private, the check needs a GitHub token that can
-read it: Settings → **GitHub token** (or `lumpy update token TOKEN`). A
-fine-grained token with *Contents: read* on this repository is enough.
+The repository is public, so no sign-in is needed. (If it is ever made
+private, the check needs a GitHub token that can read it: Settings →
+**GitHub token**, or `lumpy update token TOKEN`; a fine-grained token with
+*Contents: read* on this repository is enough.)
 
 To publish a version: `git tag v0.6.0 && git push origin v0.6.0`. The
 Release workflow builds the app, attaches `Lumpy-macOS.zip`,
