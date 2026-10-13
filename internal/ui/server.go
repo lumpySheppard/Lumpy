@@ -402,7 +402,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	return map[string]any{
 		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects,
 		"agent": agent.Status(), "version": s.meta.Version, "home": filepath.Dir(s.lockPath),
-		"update": s.updateSummary(),
+		"update": s.updateSummary(), "recent": s.db.RecentOffloads(),
 	}, nil
 }
 
@@ -724,6 +724,7 @@ func (s *Server) offload(w http.ResponseWriter, r *http.Request) (any, error) {
 	for _, d := range body.Dests {
 		cmd = append(cmd, shellQuote(d))
 	}
+	s.db.RememberOffload(body.Source, body.Dests)
 	title := fmt.Sprintf("Offload %s to %d drive(s)", name, len(body.Dests))
 	j := s.jobs.Start("offload", title, strings.Join(cmd, " "), "", func(ctx context.Context, rep *job.Report) error {
 		return job.Offload(ctx, job.OffloadOptions{Source: body.Source, Dests: body.Dests, Name: body.Name,
@@ -751,3 +752,4 @@ func shellQuote(s string) string {
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+

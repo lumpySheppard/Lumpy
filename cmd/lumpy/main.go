@@ -148,6 +148,9 @@ var commands = map[string]command{
 		if c.noDB {
 			db = nil
 		}
+		if c.db != nil {
+			c.db.RememberOffload(c.args[0], c.args[1:])
+		}
 		return job.Offload(ctx, job.OffloadOptions{
 			Source: c.args[0], Dests: c.args[1:], Name: c.name,
 			Meta: job.Meta{Version: version, Hostname: c.host}, Library: db,

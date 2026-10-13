@@ -209,7 +209,7 @@ func (s *Server) probeDrive(w http.ResponseWriter, r *http.Request) (any, error)
 
 func (s *Server) mediaFilter(r *http.Request) (catalog.MediaFilter, error) {
 	q := r.URL.Query()
-	f := catalog.MediaFilter{DriveID: q.Get("drive"), Kind: q.Get("kind"), Codec: q.Get("codec"), QC: q.Get("qc"), Text: q.Get("q")}
+	f := catalog.MediaFilter{DriveID: q.Get("drive"), Kind: q.Get("kind"), Container: q.Get("format"), Codec: q.Get("codec"), QC: q.Get("qc"), Text: q.Get("q")}
 	if v := q.Get("rate"); v != "" {
 		f.FrameRate, _ = strconv.ParseFloat(v, 64)
 	}
@@ -238,9 +238,12 @@ func (s *Server) listMedia(w http.ResponseWriter, r *http.Request) (any, error) 
 	if rows == nil {
 		rows = []catalog.MediaRow{}
 	}
-	codecs, rates, err := s.db.MediaFacets()
+	formats, codecs, rates, err := s.db.MediaFacets()
 	if err != nil {
 		return nil, err
+	}
+	if formats == nil {
+		formats = []string{}
 	}
 	if codecs == nil {
 		codecs = []string{}
@@ -248,7 +251,7 @@ func (s *Server) listMedia(w http.ResponseWriter, r *http.Request) (any, error) 
 	if rates == nil {
 		rates = []float64{}
 	}
-	return map[string]any{"files": rows, "codecs": codecs, "rates": rates, "limit": f.Limit}, nil
+	return map[string]any{"files": rows, "formats": formats, "codecs": codecs, "rates": rates, "limit": f.Limit}, nil
 }
 
 // exportMedia writes the media listing as CSV for post.

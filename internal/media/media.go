@@ -73,14 +73,42 @@ func KindOf(name string) Kind {
 	return Other
 }
 
-// Probable reports whether Probe is likely to learn anything from the file.
+// Probable reports whether the file belongs in the clip library: every
+// video, audio and still. Formats Lumpy cannot read inside (R3D, BRAW,
+// ARRIRAW without ffprobe) are still listed with their kind, format and
+// what their names say.
 func Probable(name string) bool {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".mov", ".mp4", ".m4v", ".m4a", ".wav", ".bwf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".dng", ".arw", ".nef", ".cr2":
-		return true
-	}
 	k := KindOf(name)
-	return (k == Video || k == Audio) && ffprobePath() != ""
+	return k == Video || k == Audio || k == Image
+}
+
+// containers names the format of files Lumpy does not open itself.
+var containers = map[string]string{
+	".r3d": "R3D", ".braw": "BRAW", ".mxf": "MXF", ".ari": "ARRIRAW", ".arx": "ARRIRAW", ".crm": "Canon RAW", ".avi": "AVI",
+	".mkv": "Matroska", ".mts": "AVCHD", ".m2ts": "AVCHD", ".mpg": "MPEG", ".mpeg": "MPEG", ".mp3": "MP3", ".flac": "FLAC",
+	".caf": "CAF", ".exr": "OpenEXR", ".psd": "Photoshop", ".heic": "HEIC", ".gif": "GIF", ".webp": "WebP", ".dpx": "DPX",
+	".cr3": "Canon RAW", ".raf": "Fujifilm RAW", ".bwf": "BWF",
+}
+
+// fromName fills in what a camera's file name says: RED's
+// A001_C001_0101XY (camera A, reel 001, clip C001) and Blackmagic's
+// A001_01011234_C001.
+func fromName(name string, info *Info) {
+	base := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
+	parts := strings.Split(base, "_")
+	switch {
+	case info.Container == "R3D" && len(parts) >= 3 && len(parts[0]) == 4 && len(parts[1]) == 4 && parts[1][0] == 'C':
+		info.Reel = parts[0]
+		info.Camera = "RED"
+		addExtra(info, "clip", parts[1])
+		if len(parts) >= 4 {
+			addExtra(info, "chunk", parts[len(parts)-1])
+		}
+	case info.Container == "BRAW" && len(parts) >= 3 && len(parts[0]) == 4 && len(parts[2]) == 4 && parts[2][0] == 'C':
+		info.Reel = parts[0]
+		info.Camera = "Blackmagic"
+		addExtra(info, "clip", parts[2])
+	}
 }
 
 // Probe reads the file's metadata. It never reads more than the headers
@@ -115,6 +143,10 @@ func Probe(path string) (*Info, error) {
 			info.Container = strings.ToUpper(ext[1:])
 		}
 	default:
+		if c, ok := containers[strings.ToLower(filepath.Ext(path))]; ok {
+			info.Container = c
+		}
+		fromName(path, info)
 		if p := ffprobePath(); p != "" && (info.Kind == Video || info.Kind == Audio) {
 			err = probeFFprobe(p, path, info)
 		}

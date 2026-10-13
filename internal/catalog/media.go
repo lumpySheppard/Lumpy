@@ -153,6 +153,7 @@ type MediaFilter struct {
 	DriveID   string
 	Project   *Project // files under the project's folders
 	Kind      string
+	Container string // format: QuickTime, R3D, BWF…
 	Codec     string
 	FrameRate float64
 	QC        string
@@ -193,6 +194,10 @@ func (db *DB) ListMedia(f MediaFilter) ([]MediaRow, error) {
 	if f.Kind != "" {
 		where = append(where, "m.kind = ?")
 		args = append(args, f.Kind)
+	}
+	if f.Container != "" {
+		where = append(where, "m.container = ?")
+		args = append(args, f.Container)
 	}
 	if f.Codec != "" {
 		where = append(where, "(m.video_codec = ? OR m.audio_codec = ?)")
@@ -256,21 +261,32 @@ func (db *DB) ListMedia(f MediaFilter) ([]MediaRow, error) {
 	return out, rows.Err()
 }
 
-// MediaFacets lists the codecs and frame rates present, for filters.
-func (db *DB) MediaFacets() (codecs []string, rates []float64, err error) {
-	rows, err := db.sql.Query(`SELECT DISTINCT video_codec FROM media WHERE video_codec != '' UNION SELECT DISTINCT audio_codec FROM media WHERE audio_codec != '' ORDER BY 1`)
-	if err != nil {
-		return nil, nil, err
+// MediaFacets lists the formats, codecs and frame rates present, for
+// filters.
+func (db *DB) MediaFacets() (formats, codecs []string, rates []float64, err error) {
+	strs := func(q string) ([]string, error) {
+		rows, err := db.sql.Query(q)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var c string
+			rows.Scan(&c)
+			out = append(out, c)
+		}
+		return out, rows.Err()
 	}
-	for rows.Next() {
-		var c string
-		rows.Scan(&c)
-		codecs = append(codecs, c)
+	if formats, err = strs(`SELECT DISTINCT container FROM media WHERE container != '' ORDER BY 1`); err != nil {
+		return nil, nil, nil, err
 	}
-	rows.Close()
-	rows, err = db.sql.Query(`SELECT DISTINCT frame_rate FROM media WHERE frame_rate > 0 ORDER BY 1`)
+	if codecs, err = strs(`SELECT DISTINCT video_codec FROM media WHERE video_codec != '' UNION SELECT DISTINCT audio_codec FROM media WHERE audio_codec != '' ORDER BY 1`); err != nil {
+		return nil, nil, nil, err
+	}
+	rows, err := db.sql.Query(`SELECT DISTINCT frame_rate FROM media WHERE frame_rate > 0 ORDER BY 1`)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -278,7 +294,7 @@ func (db *DB) MediaFacets() (codecs []string, rates []float64, err error) {
 		rows.Scan(&r)
 		rates = append(rates, r)
 	}
-	return codecs, rates, nil
+	return formats, codecs, rates, nil
 }
 
 // Setting reads a stored setting, or def when unset.
@@ -312,4 +328,43 @@ func (db *DB) Settings(prefix string) (map[string]string, error) {
 		out[k] = v
 	}
 	return out, rows.Err()
+}
+
+// RecentOffloads returns the last sources and destination folders used
+// for offloads, newest first, so the form can offer them again.
+func (db *DB) RecentOffloads() map[string][]string {
+	out := map[string][]string{"sources": {}, "dests": {}}
+	if v := db.Setting("offload.recent", ""); v != "" {
+		json.Unmarshal([]byte(v), &out)
+	}
+	for k, v := range out {
+		if v == nil {
+			out[k] = []string{}
+		}
+	}
+	return out
+}
+
+// RememberOffload records an offload's source and destinations.
+func (db *DB) RememberOffload(source string, dests []string) error {
+	r := db.RecentOffloads()
+	push := func(list []string, p string) []string {
+		p = strings.TrimRight(p, "/")
+		if p == "" {
+			return list
+		}
+		out := []string{p}
+		for _, x := range list {
+			if x != p && len(out) < 10 {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	r["sources"] = push(r["sources"], source)
+	for i := len(dests) - 1; i >= 0; i-- {
+		r["dests"] = push(r["dests"], dests[i])
+	}
+	b, _ := json.Marshal(r)
+	return db.SetSetting("offload.recent", string(b))
 }

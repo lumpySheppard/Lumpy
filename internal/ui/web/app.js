@@ -120,7 +120,7 @@ function nativeCall(action, args = {}) {
 
 // ---------- state ----------
 const S = {
-  tab: localGet("tab", "logged"),
+  tab: localGet("tab", "logged") === "activity" ? "logged" : localGet("tab", "logged"),
   view: localGet("view", "grid"),
   sort: localGet("sort", "seen"),
   colorBy: localGet("colorBy", "project"),
@@ -136,7 +136,9 @@ const S = {
   selecting: false,
   selected: new Set(),
   offload: { source: "", dests: [""], name: "", sourceCheck: true },
-  media: { project: "", drive: "", kind: "", codec: "", rate: "", qc: "", q: "" },
+  media: { project: "", drive: "", kind: "", format: "", codec: "", rate: "", qc: "", q: "" },
+  mediaSort: localGet("mediaSort", "name"),
+  mediaDesc: localGet("mediaDesc", "0") === "1",
   mediaData: null,
   file: null, // { driveId, path, back } for the open file sheet
   settings: null, // publish settings and last result
@@ -149,7 +151,7 @@ async function loadState() {
     S.state = await api("/api/state");
     if (first || !S.settings) S.settings = await api("/api/settings").catch(() => null);
     // The offload form keeps what's being typed; only the counts refresh.
-    if (!first && (S.tab === "offload" || S.tab === "activity" || S.tab === "media")) renderCounts();
+    if (!first && (S.tab === "offload" || S.tab === "media")) renderCounts();
     else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }
     else render();
   } catch (e) {
@@ -179,7 +181,8 @@ async function loadJobs() {
       lastJobSig = sig;
     }
     if (S.tab === "offload") $(".offload")?.classList.toggle("busy", running > 0);
-    if (S.tab === "activity" || S.tab === "offload") renderJobsInto();
+    if (S.tab === "offload") renderJobsInto($("#offload-jobs"), S.jobs.filter((j) => j.kind === "offload"), "No offloads yet.");
+    if (!$("#activity-pop").hidden) renderJobsInto($("#activity-jobs"), S.jobs, "Nothing has run yet. Offloads, drive checks and rescans show their progress here.");
   } catch {}
 }
 
@@ -395,7 +398,6 @@ function render() {
   const main = $("#main");
   const keepScroll = main.scrollTop;
   if (S.tab === "offload") return renderOffload();
-  if (S.tab === "activity") return renderActivity();
   if (S.tab === "projects") return renderProjects();
   if (S.tab === "media") return renderMedia();
   main.innerHTML = (S.tab === "connected" ? renderConnected() : renderLogged()) + selectionBar();
@@ -832,7 +834,7 @@ function renderProjectPage() {
 }
 
 function wireProjectPage(p) {
-  $("#proj-media").onclick = () => { S.media = { project: String(p.id), drive: "", kind: "", codec: "", rate: "", qc: "", q: "" }; S.tab = "media"; S.project = null; localSet("tab", S.tab); render(); };
+  $("#proj-media").onclick = () => { S.media = { project: String(p.id), drive: "", kind: "", format: "", codec: "", rate: "", qc: "", q: "" }; S.tab = "media"; S.project = null; localSet("tab", S.tab); render(); };
   $("#proj-media-csv").onclick = () => downloadCSV(`/api/media.csv?project=${p.id}`, `${p.name.replace(/[^\w.-]+/g, "_")}-clips-${new Date().toISOString().slice(0, 10)}.csv`);
   const patch = async (body, then) => {
     try { await api(`/api/projects/${p.id}`, { method: "PATCH", body }); await loadState(); await loadProject(p.id); if (then) then(); }
@@ -956,6 +958,8 @@ function renderOffload() {
   const o = S.offload;
   const vols = S.state.volumes;
   const chips = (target) => vols.map((v) => `<button class="chip" data-chip="${target}" data-path="${esc(v.mount)}">${esc(v.name)}<small>${bytes(v.free)} free</small></button>`).join("");
+  const recent = (S.state.recent || {});
+  const recentSel = (kind, i) => { const list = recent[kind] || []; return list.length ? `<select class="plain recent" data-recent="${kind}" data-i="${i ?? ""}" title="Recently used"><option value="">Recent…</option>${list.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}</select>` : ""; };
   const name = o.name || (o.source ? o.source.replace(/\/+$/, "").split("/").pop() : "");
   const busy = S.jobs.some((j) => j.kind === "offload" && j.state === "running");
   $("#main").innerHTML = `<div class="offload split ${busy ? "busy" : ""}">
@@ -963,10 +967,10 @@ function renderOffload() {
       <h2>New offload</h2>
       <p class="hint">Lumpy reads the source once, writes every destination at the same time, reads each copy back from its drive and compares xxh64 checksums. Each copy gets an ASC MHL manifest and is recorded in the library.</p>
       <div class="step"><span class="step-n">1</span><div><h3>Source card or folder</h3>
-        <div class="path-row"><input class="path-input" id="src" value="${esc(o.source)}" placeholder="/Volumes/A001"><button class="btn" data-pick="src">Choose…</button></div>
+        <div class="path-row"><input class="path-input" id="src" value="${esc(o.source)}" placeholder="/Volumes/A001">${recentSel("sources")}<button class="btn" data-pick="src">Choose…</button></div>
         <div class="chips">${chips("src")}</div></div></div>
       <div class="step"><span class="step-n">2</span><div><h3>Destinations <span style="color:var(--muted);font-weight:400">(at least two recommended)</span></h3>
-        ${o.dests.map((p, i) => `<div class="path-row"><input class="path-input" data-dest="${i}" value="${esc(p)}" placeholder="/Volumes/SHUTTLE_1/Day_01"><button class="btn" data-pick="dest" data-i="${i}">Choose…</button>${o.dests.length > 1 ? `<button class="icon-btn" data-rmdest="${i}" title="Remove">${ICON.x}</button>` : ""}</div>`).join("")}
+        ${o.dests.map((p, i) => `<div class="path-row"><input class="path-input" data-dest="${i}" value="${esc(p)}" placeholder="/Volumes/SHUTTLE_1/Day_01">${recentSel("dests", i)}<button class="btn" data-pick="dest" data-i="${i}">Choose…</button>${o.dests.length > 1 ? `<button class="icon-btn" data-rmdest="${i}" title="Remove">${ICON.x}</button>` : ""}</div>`).join("")}
         <div class="chips"><button class="chip" id="add-dest">${"+ Add destination"}</button>${chips("dest")}</div></div></div>
       <div class="step"><span class="step-n">3</span><div><h3>Folder name in each destination</h3>
         <div class="path-row"><input class="path-input" id="oname" value="${esc(o.name)}" placeholder="${esc(name || "Same as the source")}"></div>
@@ -974,10 +978,10 @@ function renderOffload() {
         <div class="go-row"><button class="btn primary" id="start-offload">${ICON.copy}Start offload</button>
           <span class="note" id="offload-note">${o.source && o.dests.some(Boolean) ? `Copies to ${o.dests.filter(Boolean).map((d) => esc(d.replace(/\/+$/, "") + "/" + (name || ""))).join(", ")}` : ""}</span></div></div></div>
     </section>
-    <div class="jobs-col"><div class="section-head"><h2>Offloads</h2></div><div class="jobs" id="jobs"></div></div>
+    <div class="jobs-col"><div class="section-head"><h2>Offloads</h2></div><div class="jobs" id="offload-jobs"></div></div>
   </div>`;
   wireOffload();
-  renderJobsInto();
+  renderJobsInto($("#offload-jobs"), S.jobs.filter((j) => j.kind === "offload"), "No offloads yet.");
 }
 
 function wireOffload() {
@@ -989,6 +993,11 @@ function wireOffload() {
   for (const el of document.querySelectorAll("[data-dest]")) el.onchange = () => { o.dests[+el.dataset.dest] = el.value.trim(); rerender(); };
   for (const el of document.querySelectorAll("[data-rmdest]")) el.onclick = () => { o.dests.splice(+el.dataset.rmdest, 1); rerender(); };
   $("#add-dest").onclick = () => { o.dests.push(""); rerender(); };
+  for (const el of document.querySelectorAll("[data-recent]")) el.onchange = () => {
+    if (!el.value) return;
+    if (el.dataset.recent === "sources") o.source = el.value; else o.dests[+el.dataset.i] = el.value;
+    rerender();
+  };
   for (const el of document.querySelectorAll("[data-chip]")) el.onclick = () => {
     if (el.dataset.chip === "src") o.source = el.dataset.path;
     else { const i = o.dests.findIndex((x) => !x); if (i >= 0) o.dests[i] = el.dataset.path; else o.dests.push(el.dataset.path); }
@@ -1007,7 +1016,7 @@ function wireOffload() {
     try {
       await api("/api/offload", { method: "POST", body: { source: o.source, dests, name: o.name, sourceCheck: o.sourceCheck } });
       toast("Offload started");
-      S.offload = { source: "", dests: [""], name: "", sourceCheck: o.sourceCheck };
+      o.name = "";
       await loadJobs();
       renderOffload();
     } catch (e) { toast(e.message, true); }
@@ -1037,9 +1046,14 @@ async function pickFolder(start) {
 }
 
 // ---------- activity ----------
-function renderActivity() {
-  $("#main").innerHTML = `<div class="offload"><div class="section-head"><h2>Activity</h2><span>Offloads, checks and scans started from this window</span></div><div class="jobs" id="jobs"></div></div>`;
-  renderJobsInto();
+// Activity is a panel that drops down from the top bar, so a running
+// offload can be watched from any tab.
+function toggleActivity(open) {
+  const pop = $("#activity-pop");
+  const show = open === undefined ? pop.hidden : open;
+  pop.hidden = !show;
+  $("#activity-btn").classList.toggle("on", show);
+  if (show) renderJobsInto($("#activity-jobs"), S.jobs, "Nothing has run yet. Offloads, drive checks and rescans show their progress here.");
 }
 
 const STATE_BADGE = { running: ["info", "Running"], ok: ["ok", "Done"], cancelled: ["warn", "Cancelled"], error: ["bad", "Error"] };
@@ -1144,12 +1158,10 @@ function updateJob(el, j) {
   if (atBottom || fresh === j.lineCount) body.scrollTop = body.scrollHeight;
 }
 
-function renderJobsInto() {
-  const box = $("#jobs");
+function renderJobsInto(box, list, emptyText) {
   if (!box) return;
-  const list = S.tab === "offload" ? S.jobs.filter((j) => j.kind === "offload") : S.jobs;
   if (!list.length) {
-    box.innerHTML = `<div class="empty" style="margin:30px auto">${ICON.activity}<p>${S.tab === "offload" ? "No offloads yet." : "Nothing has run yet. Offloads, drive checks and rescans show their progress here."}</p></div>`;
+    box.innerHTML = `<div class="empty" style="margin:30px auto">${ICON.activity}<p>${emptyText}</p></div>`;
     return;
   }
   box.querySelector(".empty")?.remove();
@@ -1193,7 +1205,7 @@ function qcBadge(qc, small) {
 }
 function mediaQuery() {
   const m = S.media, q = new URLSearchParams();
-  for (const k of ["project", "drive", "kind", "codec", "rate", "qc", "q"]) if (m[k]) q.set(k, m[k]);
+  for (const k of ["project", "drive", "kind", "format", "codec", "rate", "qc", "q"]) if (m[k]) q.set(k, m[k]);
   return q.toString();
 }
 async function loadMedia() {
@@ -1204,31 +1216,48 @@ function renderMedia() {
   const main = $("#main");
   const m = S.media, st = S.state;
   const opt = (v, label, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? "selected" : ""}>${esc(label)}</option>`;
-  const d = S.mediaData || { files: [], codecs: [], rates: [] };
+  const d = S.mediaData || { files: [], formats: [], codecs: [], rates: [] };
+  const SORTS = [["name", "Name"], ["path", "Folder"], ["size", "Size"], ["format", "Format"], ["created", "Date created"], ["duration", "Length"], ["timecode", "Timecode"], ["rate", "Frame rate"], ["camera", "Camera"], ["scene", "Scene / take"], ["qc", "QC"], ["drive", "Drive"]];
   main.innerHTML = `<div class="media">
     <div class="media-bar">
       <div class="toolbar-title">${ICON.clapper}Clips</div>
       <label class="select"><select id="m-project">${opt("", "All projects", m.project)}${(st.projects || []).map((p) => opt(p.id, p.name, m.project)).join("")}</select></label>
       <label class="select"><select id="m-drive">${opt("", "All drives", m.drive)}${st.drives.map((x) => opt(x.id, x.title, m.drive)).join("")}</select></label>
       <label class="select"><select id="m-kind">${opt("", "Any kind", m.kind)}${Object.entries(KIND_LABEL).map(([k, v]) => opt(k, v, m.kind)).join("")}</select></label>
+      <label class="select"><select id="m-format">${opt("", "Any format", m.format)}${d.formats.map((c) => opt(c, c, m.format)).join("")}</select></label>
       <label class="select"><select id="m-codec">${opt("", "Any codec", m.codec)}${d.codecs.map((c) => opt(c, c, m.codec)).join("")}</select></label>
       <label class="select"><select id="m-rate">${opt("", "Any frame rate", m.rate)}${d.rates.map((r) => opt(r, fps(r) + " fps", m.rate)).join("")}</select></label>
       <label class="select"><select id="m-qc">${opt("", "Any QC", m.qc)}${opt("none", "Not checked", m.qc)}${opt("ok", "OK", m.qc)}${opt("flag", "Flagged", m.qc)}${opt("reject", "Rejected", m.qc)}</select></label>
       <div class="search"><span class="search-icon">${ICON.search}</span><input id="m-q" type="search" placeholder="Clip, scene, take, camera, reel, notes, tag…" value="${esc(m.q)}" autocomplete="off" spellcheck="false"></div>
+      <span class="sortgrp"><label class="select" title="Sort"><select id="m-sort">${SORTS.map(([k, v]) => opt(k, "Sort: " + v, S.mediaSort)).join("")}</select></label>
+      <button class="icon-btn" id="m-dir" title="Reverse order">${S.mediaDesc ? ICON.down : ICON.up}</button></span>
       <button class="btn" id="m-export" title="This list with every column, for post">${ICON.export}Export CSV…</button>
     </div>
     <div id="media-body"></div></div>`;
-  const reload = () => { for (const k of ["project", "drive", "kind", "codec", "rate", "qc"]) m[k] = $("#m-" + k).value; loadMedia(); };
-  for (const k of ["project", "drive", "kind", "codec", "rate", "qc"]) $("#m-" + k).onchange = reload;
+  const reload = () => { for (const k of ["project", "drive", "kind", "format", "codec", "rate", "qc"]) m[k] = $("#m-" + k).value; loadMedia(); };
+  for (const k of ["project", "drive", "kind", "format", "codec", "rate", "qc"]) $("#m-" + k).onchange = reload;
+  $("#m-sort").onchange = (e) => { S.mediaSort = e.target.value; localSet("mediaSort", S.mediaSort); renderMediaTable(); };
+  $("#m-dir").onclick = () => { S.mediaDesc = !S.mediaDesc; localSet("mediaDesc", S.mediaDesc ? "1" : "0"); $("#m-dir").innerHTML = S.mediaDesc ? ICON.down : ICON.up; renderMediaTable(); };
   let t;
   $("#m-q").oninput = (e) => { m.q = e.target.value; clearTimeout(t); t = setTimeout(loadMedia, 220); };
   $("#m-export").onclick = () => downloadCSV("/api/media.csv?" + mediaQuery(), `lumpy-clips-${new Date().toISOString().slice(0, 10)}.csv`);
   if (S.mediaData) renderMediaTable(); else { $("#media-body").innerHTML = `<div class="empty"><p>Loading…</p></div>`; loadMedia(); }
 }
+const CLIP_KEY = {
+  name: (f) => f.path.split("/").pop().toLowerCase(), path: (f) => f.path.toLowerCase(), size: (f) => f.size, format: (f) => (f.container || "") + " " + (f.videoCodec || f.audioCodec || ""),
+  created: (f) => f.created || "", duration: (f) => f.durationMs || 0, timecode: (f) => f.timecode || "", rate: (f) => f.frameRate || 0,
+  camera: (f) => (f.camera || "") + " " + (f.reel || ""), scene: (f) => `${f.edits.scene || ""}|${f.edits.shot || ""}|${(f.edits.take || "").padStart(4, "0")}`,
+  qc: (f) => ({ reject: 0, flag: 1, "": 2, ok: 3 })[f.edits.qc] ?? 2, drive: (f) => driveTitle(f.driveId).toLowerCase(),
+};
+function sortClips(list) {
+  const key = CLIP_KEY[S.mediaSort] || CLIP_KEY.name, dir = S.mediaDesc ? -1 : 1;
+  const cmp = (a, b) => (typeof a === "number" ? a - b : String(a).localeCompare(String(b), undefined, { numeric: true }));
+  return list.sort((a, b) => dir * cmp(key(a), key(b)) || cmp(CLIP_KEY.name(a), CLIP_KEY.name(b)));
+}
 function renderMediaTable() {
   const body = $("#media-body");
   if (!body) return;
-  const d = S.mediaData, files = d.files;
+  const d = S.mediaData, files = sortClips(d.files.slice());
   const filtered = Object.values(S.media).some(Boolean);
   if (!files.length) {
     body.innerHTML = `<div class="empty">${ICON.clapper}<h2>${filtered ? "No clips match" : "No clip metadata yet"}</h2><p>${filtered ? "Try fewer filters." : "Lumpy reads codec, frame rate, timecode and camera from every clip it offloads or scans. For drives already in the library, open the drive and click <b>Read metadata</b>."}</p></div>`;
@@ -1256,7 +1285,7 @@ function renderMediaTable() {
         <td><span class="sdot ${st}" title="${st === "full" ? `Copy on ${f.copies} other drive${f.copies === 1 ? "" : "s"}` : st === "none" ? "No copy on another drive" : "No checksum yet"}"></span></td>
         <td><div class="clip-name"><b>${esc(name)}</b><small title="${esc(f.path)}">${esc(folder)}</small></div></td>
         <td><div class="name" style="font-weight:500"><span class="dot" style="background:${dr && dr.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(dr ? dr.title : f.driveId)}${f.copies ? `<small>+${f.copies}</small>` : ""}</div></td>
-        <td>${esc(f.videoCodec ? clipFormat(f) : f.kind === "audio" ? "" : (f.container || KIND_LABEL[f.kind] || ""))}</td>
+        <td>${esc(f.videoCodec ? clipFormat(f) : f.kind === "audio" ? "" : (f.container || KIND_LABEL[f.kind] || ""))}${f.extra && f.extra.clip ? ` <small class="hint">${esc(f.extra.clip)}${f.extra.chunk ? " · part " + esc(f.extra.chunk) : ""}</small>` : ""}</td>
         <td class="num">${fps(f.frameRate)}</td><td class="num">${dur(f.durationMs)}</td><td class="mono">${esc(f.timecode)}</td>
         <td>${esc(audio)}</td><td>${esc(sc)}</td><td>${qcBadge(f.edits.qc, true)}</td><td>${esc(f.camera)}${f.reel ? `<small class="hint"> ${esc(f.reel)}</small>` : ""}</td></tr>`;
     }).join("")}</tbody></table>
@@ -1417,7 +1446,7 @@ async function openSettings(focus) {
   const ui = $("#upd-install");
   if (ui) ui.onclick = async () => {
     ui.disabled = true; ui.textContent = "Installing…";
-    try { await api("/api/update/install", { method: "POST" }); toast("Installing the update… (see Activity)"); loadJobs(); closeSheet(); S.tab = "activity"; localSet("tab", S.tab); render(); }
+    try { await api("/api/update/install", { method: "POST" }); toast("Installing the update…"); closeSheet(); await loadJobs(); toggleActivity(true); }
     catch (err) { toast(err.message, true); ui.disabled = false; ui.textContent = "Install"; }
   };
   const rl = $("#upd-relaunch");
@@ -1455,6 +1484,11 @@ $("#color-by").onchange = (e) => { S.colorBy = e.target.value; localSet("colorBy
 $("#sort-dir").onclick = () => { S.desc = !S.desc; localSet("desc", S.desc ? "1" : "0"); render(); };
 $("#refresh").innerHTML = ICON.refresh;
 $("#settings").innerHTML = ICON.gear;
+$("#activity-btn").insertAdjacentHTML("afterbegin", ICON.activity);
+$("#activity-btn").onclick = () => toggleActivity();
+$("#activity-close").innerHTML = ICON.x;
+$("#activity-close").onclick = () => toggleActivity(false);
+document.addEventListener("click", (e) => { if (!$("#activity-pop").hidden && !e.target.closest("#activity-pop, #activity-btn")) toggleActivity(false); });
 $("#settings").onclick = () => openSettings();
 $("#update-pill").onclick = () => openSettings("updates");
 $("#refresh").onclick = () => { loadState(); loadJobs(); };
@@ -1510,6 +1544,7 @@ $("#main").onclick = async (e) => {
 };
 $("#scrim").onclick = () => { closeSheet(); };
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#activity-pop").hidden) return toggleActivity(false);
   if (e.key === "Escape" && !$("#sheet").hidden && S.file) return closeFile();
   if (e.key === "Escape" && !$("#sheet").hidden && S.detail) closeSheet();
   if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); $("#search").focus(); }
