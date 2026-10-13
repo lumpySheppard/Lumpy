@@ -5,6 +5,12 @@ import Cocoa
 import UniformTypeIdentifiers
 import WebKit
 
+/// A mutable value shared with a callback that may run on another thread.
+final class Box<T> {
+    var value: T
+    init(_ value: T) { self.value = value }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
     var window: NSWindow!
     var web: WKWebView!
@@ -55,12 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let out = Pipe()
         p.standardOutput = out
         p.standardError = logHandle()
-        var loaded = false
+        let loaded = Box(false)
         out.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData // keep draining so the engine never blocks
-            guard !loaded, let text = String(data: data, encoding: .utf8) else { return }
+            guard !loaded.value, let text = String(data: data, encoding: .utf8) else { return }
             for line in text.split(separator: "\n") where line.hasPrefix("LUMPY_URL ") {
-                loaded = true
+                loaded.value = true
                 if let url = URL(string: String(line.dropFirst("LUMPY_URL ".count))) {
                     DispatchQueue.main.async { self?.web.load(URLRequest(url: url)) }
                 }
@@ -118,15 +124,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     // Asks the page synchronously-enough (spinning the run loop briefly)
     // whether jobs are running, from the Activity counter.
     func hasRunningJobs() -> Bool {
-        var result: Bool?
+        let result = Box<Bool?>(nil)
         web.evaluateJavaScript("(document.getElementById('count-jobs')||{}).textContent || ''") { value, _ in
-            result = ((value as? String) ?? "") != ""
+            result.value = ((value as? String) ?? "") != ""
         }
         let deadline = Date().addingTimeInterval(1)
-        while result == nil && Date() < deadline {
+        while result.value == nil && Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
         }
-        return result ?? false
+        return result.value ?? false
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -284,6 +284,13 @@ td .bar { width: 90px; margin: 0; }
 .history .kind { color: var(--text-2); font-weight: 550; }
 .history .fail { color: var(--bad); }
 
+.confirm { margin-top: 16px; display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  background: rgba(255,69,58,.10); border: 1px solid rgba(255,69,58,.4); border-radius: 10px; padding: 12px 14px; font-size: 12.5px; color: var(--text-2); }
+.confirm b { color: var(--text); }
+.confirm-actions { display: flex; gap: 8px; }
+.btn.danger-fill { background: var(--bad); }
+.btn.danger-fill:hover { background: #ff6259; }
+
 /* Offload */
 .offload { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }

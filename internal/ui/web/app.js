@@ -486,10 +486,19 @@ function wireDetail(d) {
     document.querySelectorAll("[data-color]").forEach((x) => x.classList.toggle("on", x === el));
     save({ color: el.dataset.color });
   };
-  $("#forget").onclick = async () => {
-    if (!confirm(`Remove ${d.title} from the library? Its file list, checksums and history are deleted. The drive itself is not touched.`)) return;
-    try { await api(`/api/drives/${encodeURIComponent(d.id)}`, { method: "DELETE" }); closeSheet(); toast(`${d.title} removed`); loadState(); }
-    catch (e) { toast(e.message, true); }
+  $("#forget").onclick = () => {
+    const body = $(".sheet-body");
+    const box = document.createElement("div");
+    box.className = "confirm";
+    box.innerHTML = `<div><b>Remove ${esc(d.title)} from the library?</b><br>Its file list, checksums and history are deleted. The drive itself is not touched, and it is logged again next time it's plugged in unless Never log is on.</div>
+      <div class="confirm-actions"><button class="btn" id="forget-no">Cancel</button><button class="btn primary danger-fill" id="forget-yes">Remove</button></div>`;
+    body.prepend(box);
+    body.scrollTop = 0;
+    $("#forget-no").onclick = () => box.remove();
+    $("#forget-yes").onclick = async () => {
+      try { await api(`/api/drives/${encodeURIComponent(d.id)}`, { method: "DELETE" }); closeSheet(); toast(`${d.title} removed`); loadState(); }
+      catch (e) { toast(e.message, true); }
+    };
   };
   const act = (sel, path, msg) => { const el = $(sel); if (el) el.onclick = async () => {
     try { const r = await api(`/api/drives/${encodeURIComponent(d.id)}/${path}`, { method: "POST" });

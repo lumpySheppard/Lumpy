@@ -145,3 +145,25 @@ func TestCatalogTakesChecksumsFromMHL(t *testing.T) {
 		t.Fatalf("got %+v", files)
 	}
 }
+
+// A destination reached through a symlink (as /var is on macOS) must
+// still be recorded with paths relative to its drive.
+func TestOffloadThroughSymlinkRecordsDrivePaths(t *testing.T) {
+	vols, db := library(t)
+	write(t, filepath.Join(vols, "A001", "C001.mov"), []byte("clip"))
+	os.Mkdir(filepath.Join(vols, "SHUTTLE"), 0o755)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(vols, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	run(t, func(r *Report) error {
+		return Offload(context.Background(), OffloadOptions{Source: filepath.Join(link, "A001"),
+			Dests: []string{filepath.Join(link, "SHUTTLE", "Day01")}, Library: db}, r)
+	})
+	for _, name := range []string{"A001", "SHUTTLE"} {
+		files, _ := db.Files(drive(t, db, name).ID)
+		if len(files) != 1 || strings.HasPrefix(files[0].Path, "..") {
+			t.Fatalf("%s recorded as %+v", name, files)
+		}
+	}
+}

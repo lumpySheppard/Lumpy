@@ -374,7 +374,17 @@ func recordOffload(db *catalog.DB, src string, targets []string, files []scan.Fi
 			r.Warn("drive library: %v", err)
 			return
 		}
-		prefix, _ := filepath.Rel(v.Mount, root)
+		// The mount point has symlinks resolved, so the folder must be too
+		// (on macOS /var is really /private/var).
+		real, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			real = root
+		}
+		prefix, err := filepath.Rel(v.Mount, real)
+		if err != nil || prefix == ".." || strings.HasPrefix(prefix, ".."+string(filepath.Separator)) {
+			r.Warn("drive library: %s is not on %s; not recorded", root, v.Mount)
+			return
+		}
 		var ups []catalog.HashUpdate
 		for _, f := range files {
 			sum, have := hashes[f.Path]
