@@ -142,10 +142,10 @@ main { flex: 1; overflow: auto; padding: 20px; }
 .bar { height: 5px; background: var(--line-2); border-radius: 99px; overflow: hidden; margin-top: 4px; }
 .bar > i { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
 /* Capacity: the gradient is sized to the whole track (background-size
-   is set inline), so the fill reveals only the used part of it: blue
-   while there is room, yellow past three quarters, red only in the last
-   10%. */
-.bar.cap > i { background: linear-gradient(90deg, #3b7bff 0%, #4fa3ff 45%, #ffcc4d 75%, #ff9f43 85%, #ff5c5c 90%, #ff5c5c 100%) no-repeat left / 100% 100%; border-radius: 99px 0 0 99px; }
+   is set inline), so the fill reveals only the used part of it. It runs
+   from pale grey and gains red as the drive fills, saturated red only
+   in the last 10%. */
+.bar.cap > i { background: linear-gradient(90deg, #cfcfd6 0%, #d3c6c8 30%, #dcadaf 55%, #e98d8f 75%, #f46a6c 85%, #ff5252 90%, #ff2e2e 100%) no-repeat left / 100% 100%; border-radius: 99px 0 0 99px; }
 .cap .low { color: var(--bad); font-weight: 600; }
 
 /* Backup state: one bar, one meaning. */
