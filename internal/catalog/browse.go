@@ -228,6 +228,14 @@ func (db *DB) Backups(driveID string, min int) (*BackupSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	titles, err := db.titles()
+	if err != nil {
+		return nil, err
+	}
+	return backupsFrom(cov, titles, min), nil
+}
+
+func (db *DB) titles() (map[string]string, error) {
 	titles := map[string]string{}
 	ds, err := db.Drives()
 	if err != nil {
@@ -236,6 +244,24 @@ func (db *DB) Backups(driveID string, min int) (*BackupSummary, error) {
 	for _, d := range ds {
 		titles[d.ID] = d.Title()
 	}
+	return titles, nil
+}
+
+// DriveSummary is Backups and FolderHealths from one read of the
+// drive's copies, for the details sheet.
+func (db *DB) DriveSummary(driveID string, min int) (*BackupSummary, []FolderHealth, error) {
+	cov, err := db.Coverage(driveID)
+	if err != nil {
+		return nil, nil, err
+	}
+	titles, err := db.titles()
+	if err != nil {
+		return nil, nil, err
+	}
+	return backupsFrom(cov, titles, min), folderHealthsFrom(cov), nil
+}
+
+func backupsFrom(cov []Coverage, titles map[string]string, min int) *BackupSummary {
 	s := &BackupSummary{Files: len(cov), Min: min, MinCopies: -1, Holders: map[string]int{}}
 	for _, c := range cov {
 		bad := false
@@ -278,5 +304,5 @@ func (db *DB) Backups(driveID string, min int) (*BackupSummary, error) {
 			s.Problems = append(s.Problems, c.Path)
 		}
 	}
-	return s, nil
+	return s
 }

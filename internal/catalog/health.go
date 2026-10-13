@@ -322,6 +322,10 @@ func (db *DB) FolderHealths(driveID string) ([]FolderHealth, error) {
 	if err != nil {
 		return nil, err
 	}
+	return folderHealthsFrom(cov), nil
+}
+
+func folderHealthsFrom(cov []Coverage) []FolderHealth {
 	byName := map[string]*FolderHealth{}
 	var order []*FolderHealth
 	for _, c := range cov {
@@ -357,7 +361,7 @@ func (db *DB) FolderHealths(driveID string) ([]FolderHealth, error) {
 	for i, f := range order {
 		out[i] = *f
 	}
-	return out, nil
+	return out
 }
 
 // TopFolder is the first path component, used to summarise plans. A file

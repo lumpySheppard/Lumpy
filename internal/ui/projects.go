@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/job"
@@ -19,8 +20,40 @@ type ProjectView struct {
 	Health *catalog.Health `json:"health"`
 }
 
+// healthEntry is a project's health as last computed, and the library
+// it was computed for.
+type healthEntry struct {
+	key string
+	at  time.Time
+	h   *catalog.Health
+}
+
+// projectHealth caches each project's health until the library changes,
+// and while a job keeps changing it, for summaryTTL at a time, since
+// the Map and the Projects tab ask for every project on every poll.
 func (s *Server) projectHealth(p *catalog.Project) (*catalog.Health, error) {
-	return s.db.ProjectHealth(p.Sources, p.Target)
+	ds, err := s.db.Drives()
+	if err != nil {
+		return nil, err
+	}
+	key := libraryKey(ds) + fmt.Sprintf("|%d|%v", p.Target, p.Sources)
+	s.mu.Lock()
+	e := s.healths[p.ID]
+	s.mu.Unlock()
+	if e != nil && (e.key == key || (s.jobs.AnyRunning() && time.Since(e.at) < summaryTTL)) {
+		return e.h, nil
+	}
+	h, err := s.db.ProjectHealth(p.Sources, p.Target)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	if s.healths == nil {
+		s.healths = map[int64]*healthEntry{}
+	}
+	s.healths[p.ID] = &healthEntry{key: key, at: time.Now(), h: h}
+	s.mu.Unlock()
+	return h, nil
 }
 
 func (s *Server) projects(w http.ResponseWriter, r *http.Request) (any, error) {

@@ -44,12 +44,15 @@ type Server struct {
 	pubDone chan struct{}
 	upd     updater
 
-	mu       sync.Mutex
-	vols     []*volume.Volume
-	volsAt   time.Time
-	cacheKey string
-	summary  map[string]*driveExtra
-	states   map[string]map[string]catalog.FileState // backup state per drive, until the library changes
+	mu         sync.Mutex
+	vols       []*volume.Volume
+	volsAt     time.Time
+	cacheKey   string
+	summary    map[string]*driveExtra
+	summaryAt  time.Time
+	refreshing bool
+	states     map[string]map[string]catalog.FileState // backup state per drive, until the library changes
+	healths    map[int64]*healthEntry                  // project health, until the library changes
 
 	archMu   sync.Mutex
 	archives map[string]*archiveRun // archive analyses waiting to be applied
@@ -294,39 +297,103 @@ func ts(t time.Time) int64 {
 	return t.Unix()
 }
 
-// extras computes the per-drive summaries the cards show. They are cached
-// until anything in the library changes, since backup coverage depends on
-// every drive.
-func (s *Server) extras(ds []*catalog.Drive) map[string]*driveExtra {
+// libraryKey changes whenever any drive's files change, which is when
+// backup coverage anywhere may have changed.
+func libraryKey(ds []*catalog.Drive) string {
 	var key strings.Builder
 	for _, d := range ds {
 		fmt.Fprintf(&key, "%s:%d:%d:%d:%d:%d;", d.ID, d.Files, d.Bytes, d.Hashed, d.Damaged, ts(d.LastScan))
 	}
+	return key.String()
+}
+
+// summaryTTL is how long the cards may show the last summaries while the
+// library keeps changing (a checksum job saves hashes every few seconds).
+const summaryTTL = 20 * time.Second
+
+// extras computes the per-drive summaries the cards show. They are
+// cached until the library changes. While a job is running the library
+// changes every few seconds (a checksum job saves as it goes), so then
+// the old summaries are shown while new ones are computed in the
+// background, and never more often than summaryTTL; a drive that is
+// new to the cache always gets its summary at once. With no job
+// running a change is rare (a job just ended, a drive was scanned) and
+// the summaries are recomputed on the spot, so what follows a job is
+// never stale.
+func (s *Server) extras(ds []*catalog.Drive) map[string]*driveExtra {
+	key := libraryKey(ds)
+	busy := s.jobs.AnyRunning()
 	s.mu.Lock()
-	if key.String() == s.cacheKey {
+	if key == s.cacheKey {
 		m := s.summary
 		s.mu.Unlock()
 		return m
 	}
-	s.mu.Unlock()
-	m := map[string]*driveExtra{}
-	for _, d := range ds {
-		e := &driveExtra{}
-		if slices, err := s.db.Breakdown(d.ID); err == nil {
-			for _, sl := range slices {
-				if sl.Folder {
-					e.topFolders = append(e.topFolders, sl.Name)
-				} else {
-					e.topFiles = append(e.topFiles, sl.Name)
-				}
-			}
+	if s.summary != nil && busy {
+		m := s.summary
+		if !s.refreshing && time.Since(s.summaryAt) >= summaryTTL {
+			s.refreshing = true
+			go s.computeExtras(ds, key)
 		}
-		e.backups, _ = s.db.Backups(d.ID, 1)
-		m[d.ID] = e
+		s.mu.Unlock()
+		return s.withMissing(m, ds)
+	}
+	s.mu.Unlock()
+	return s.computeExtras(ds, key)
+}
+
+// withMissing adds summaries for drives the cached map does not know.
+func (s *Server) withMissing(m map[string]*driveExtra, ds []*catalog.Drive) map[string]*driveExtra {
+	var missing []*catalog.Drive
+	for _, d := range ds {
+		if m[d.ID] == nil {
+			missing = append(missing, d)
+		}
+	}
+	if len(missing) == 0 {
+		return m
+	}
+	out := make(map[string]*driveExtra, len(m)+len(missing))
+	for k, v := range m {
+		out[k] = v
+	}
+	for _, d := range missing {
+		out[d.ID] = s.extraOf(d)
 	}
 	s.mu.Lock()
-	s.cacheKey, s.summary = key.String(), m
+	if s.summary != nil {
+		for _, d := range missing {
+			s.summary[d.ID] = out[d.ID]
+		}
+	}
+	s.mu.Unlock()
+	return out
+}
+
+func (s *Server) extraOf(d *catalog.Drive) *driveExtra {
+	e := &driveExtra{}
+	if slices, err := s.db.Breakdown(d.ID); err == nil {
+		for _, sl := range slices {
+			if sl.Folder {
+				e.topFolders = append(e.topFolders, sl.Name)
+			} else {
+				e.topFiles = append(e.topFiles, sl.Name)
+			}
+		}
+	}
+	e.backups, _ = s.db.Backups(d.ID, 1)
+	return e
+}
+
+func (s *Server) computeExtras(ds []*catalog.Drive, key string) map[string]*driveExtra {
+	m := map[string]*driveExtra{}
+	for _, d := range ds {
+		m[d.ID] = s.extraOf(d)
+	}
+	s.mu.Lock()
+	s.cacheKey, s.summary, s.summaryAt, s.refreshing = key, m, time.Now(), false
 	s.states = map[string]map[string]catalog.FileState{}
+	s.healths = nil
 	s.mu.Unlock()
 	return m
 }
@@ -442,10 +509,6 @@ func (s *Server) driveDetail(w http.ResponseWriter, r *http.Request) (any, error
 	if err != nil {
 		return nil, err
 	}
-	folders, err := s.db.FolderHealths(d.ID)
-	if err != nil {
-		return nil, err
-	}
 	memberships, _ := s.db.DriveProjects()
 	events, err := s.db.Events(d.ID, 50)
 	if err != nil {
@@ -455,7 +518,7 @@ func (s *Server) driveDetail(w http.ResponseWriter, r *http.Request) (any, error
 	if n, err := strconv.Atoi(r.URL.Query().Get("min")); err == nil && n > 0 {
 		min = n
 	}
-	backups, err := s.db.Backups(d.ID, min)
+	backups, folders, err := s.db.DriveSummary(d.ID, min)
 	if err != nil {
 		return nil, err
 	}

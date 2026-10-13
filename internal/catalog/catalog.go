@@ -155,7 +155,9 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.SetMaxOpenConns(1)
+	// WAL lets readers run alongside one writer, so a long coverage query
+	// for the cards never holds up a click; busy_timeout covers the rest.
+	s.SetMaxOpenConns(4)
 	if _, err := s.Exec(schema); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("opening drive library %s: %w", path, err)
@@ -178,8 +180,27 @@ func Open(path string) (*DB, error) {
 		`drives ADD COLUMN solid_state INTEGER NOT NULL DEFAULT 0`,
 		`drives ADD COLUMN bus TEXT NOT NULL DEFAULT ''`,
 		`drives ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN files INTEGER NOT NULL DEFAULT 0`,
+		`drives ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`,
+		`drives ADD COLUMN hashed INTEGER NOT NULL DEFAULT 0`,
+		`drives ADD COLUMN damaged INTEGER NOT NULL DEFAULT 0`,
 	} {
 		s.Exec(`ALTER TABLE ` + col)
+	}
+	// Each drive's file count, size, checksummed and damaged counts are
+	// kept on the drive row by triggers, so listing drives never has to
+	// count a hundred thousand files.
+	if _, err := s.Exec(counters); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("opening drive library %s: %w", path, err)
+	}
+	var v string
+	if err := s.QueryRow(`SELECT value FROM settings WHERE key = 'counters'`).Scan(&v); err != nil || v != "1" {
+		s.Exec(`UPDATE drives SET files = (SELECT COUNT(*) FROM files WHERE drive_id = drives.id),
+			bytes = (SELECT COALESCE(SUM(size), 0) FROM files WHERE drive_id = drives.id),
+			hashed = (SELECT COUNT(xxh64) FROM files WHERE drive_id = drives.id),
+			damaged = (SELECT COUNT(bad_hash) FROM files WHERE drive_id = drives.id)`)
+		s.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('counters', '1')`)
 	}
 	// Raw formats logged before their codec was implied from the extension.
 	for c, codec := range map[string]string{"R3D": "REDCODE RAW", "BRAW": "Blackmagic RAW", "ARRIRAW": "ARRIRAW", "Canon RAW": "Cinema RAW Light"} {
@@ -187,6 +208,24 @@ func Open(path string) (*DB, error) {
 	}
 	return &DB{sql: s, path: path}, nil
 }
+
+const counters = `
+CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
+	UPDATE drives SET files = files + 1, bytes = bytes + NEW.size,
+		hashed = hashed + (NEW.xxh64 IS NOT NULL), damaged = damaged + (NEW.bad_hash IS NOT NULL)
+	WHERE id = NEW.drive_id;
+END;
+CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
+	UPDATE drives SET files = files - 1, bytes = bytes - OLD.size,
+		hashed = hashed - (OLD.xxh64 IS NOT NULL), damaged = damaged - (OLD.bad_hash IS NOT NULL)
+	WHERE id = OLD.drive_id;
+END;
+CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
+	UPDATE drives SET bytes = bytes - OLD.size + NEW.size,
+		hashed = hashed - (OLD.xxh64 IS NOT NULL) + (NEW.xxh64 IS NOT NULL),
+		damaged = damaged - (OLD.bad_hash IS NOT NULL) + (NEW.bad_hash IS NOT NULL)
+	WHERE id = NEW.drive_id;
+END;`
 
 // Close closes the library.
 func (db *DB) Close() error { return db.sql.Close() }
@@ -257,7 +296,7 @@ const driveCols = `d.id, d.name, d.size, d.fstype, d.first_seen, d.last_seen, d.
 	d.last_scan, d.last_verify, d.last_verify_ok, d.verify_requested,
 	d.free, d.nickname, d.client, d.project, d.contact, d.notes, d.color, d.never_log, d.no_backups,
 	d.solid_state, d.bus, d.icon,
-	COUNT(f.path), COALESCE(SUM(f.size), 0), COUNT(f.xxh64), COUNT(f.bad_hash)`
+	d.files, d.bytes, d.hashed, d.damaged`
 
 func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 	var d Drive
@@ -291,8 +330,7 @@ func (db *DB) SaveDrive(v *volume.Volume) error {
 
 // Drive returns the drive with this exact id.
 func (db *DB) Drive(id string) (*Drive, error) {
-	d, err := scanDrive(db.sql.QueryRow(`SELECT `+driveCols+` FROM drives d
-		LEFT JOIN files f ON f.drive_id = d.id WHERE d.id = ? GROUP BY d.id`, id))
+	d, err := scanDrive(db.sql.QueryRow(`SELECT `+driveCols+` FROM drives d WHERE d.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no drive %s in the library", id)
 	}
@@ -301,8 +339,7 @@ func (db *DB) Drive(id string) (*Drive, error) {
 
 // Drives returns every drive in the library, by name.
 func (db *DB) Drives() ([]*Drive, error) {
-	rows, err := db.sql.Query(`SELECT ` + driveCols + ` FROM drives d
-		LEFT JOIN files f ON f.drive_id = d.id GROUP BY d.id ORDER BY d.name COLLATE NOCASE, d.first_seen`)
+	rows, err := db.sql.Query(`SELECT ` + driveCols + ` FROM drives d ORDER BY d.name COLLATE NOCASE, d.first_seen`)
 	if err != nil {
 		return nil, err
 	}
@@ -609,38 +646,42 @@ func (db *DB) Coverage(driveID string) ([]Coverage, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Two joins, each on its own index: checksummed files find copies
+	// by checksum and size, the rest find likely copies by name and size.
 	byHash := map[string][]Copy{}
 	byName := map[string][]Copy{}
-	rows, err := db.sql.Query(`SELECT o.drive_id, COALESCE(NULLIF(d.nickname, ''), d.name), o.path, o.size, COALESCE(o.xxh64, ''), o.verified_at IS NOT NULL
-		FROM files f JOIN files o ON o.drive_id != f.drive_id AND o.bad_hash IS NULL
-			AND ((f.xxh64 IS NOT NULL AND o.xxh64 = f.xxh64 AND o.size = f.size)
-			  OR (f.xxh64 IS NULL AND o.name = f.name AND o.size = f.size))
-		JOIN drives d ON d.id = o.drive_id
-		WHERE f.drive_id = ?`, driveID)
-	if err != nil {
+	collect := func(query string, key func(c Copy, hash string, size int64) string, into map[string][]Copy) error {
+		rows, err := db.sql.Query(query, driveID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		seen := map[string]bool{}
+		for rows.Next() {
+			var c Copy
+			var size int64
+			var hash string
+			if err := rows.Scan(&c.DriveID, &c.DriveName, &c.Path, &size, &hash, &c.Verified); err != nil {
+				return err
+			}
+			k := key(c, hash, size) + "\x00" + c.DriveID + "\x00" + c.Path
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			into[key(c, hash, size)] = append(into[key(c, hash, size)], c)
+		}
+		return rows.Err()
+	}
+	const cols = `SELECT o.drive_id, COALESCE(NULLIF(d.nickname, ''), d.name), o.path, o.size, COALESCE(o.xxh64, ''), o.verified_at IS NOT NULL FROM files f `
+	if err := collect(cols+`JOIN files o ON o.xxh64 = f.xxh64 AND o.size = f.size AND o.drive_id != f.drive_id AND o.bad_hash IS NULL
+		JOIN drives d ON d.id = o.drive_id WHERE f.drive_id = ? AND f.xxh64 IS NOT NULL`,
+		func(c Copy, hash string, size int64) string { return hash + fmt.Sprint(size) }, byHash); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	seen := map[string]bool{}
-	for rows.Next() {
-		var c Copy
-		var size int64
-		var hash string
-		if err := rows.Scan(&c.DriveID, &c.DriveName, &c.Path, &size, &hash, &c.Verified); err != nil {
-			return nil, err
-		}
-		k := c.DriveID + "\x00" + c.Path
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-		if hash != "" {
-			byHash[hash+fmt.Sprint(size)] = append(byHash[hash+fmt.Sprint(size)], c)
-		}
-		nk := baseName(c.Path) + "\x00" + fmt.Sprint(size)
-		byName[nk] = append(byName[nk], c)
-	}
-	if err := rows.Err(); err != nil {
+	if err := collect(cols+`JOIN files o ON o.name = f.name AND o.size = f.size AND o.drive_id != f.drive_id AND o.bad_hash IS NULL
+		JOIN drives d ON d.id = o.drive_id WHERE f.drive_id = ? AND f.xxh64 IS NULL`,
+		func(c Copy, hash string, size int64) string { return baseName(c.Path) + "\x00" + fmt.Sprint(size) }, byName); err != nil {
 		return nil, err
 	}
 	out := make([]Coverage, len(files))
