@@ -34,7 +34,13 @@ func AgentRunWith(ctx context.Context, db *catalog.DB, r *Report, notify func(ti
 		var fresh []*volume.Volume
 		for _, v := range vols {
 			now[v.ID] = v.Mount
+			// New at this mount point, or not in the library at all (a
+			// stale "mounted" entry from a session that ended with the
+			// drive plugged in must not hide a drive that was never
+			// logged).
 			if was[v.ID] != v.Mount {
+				fresh = append(fresh, v)
+			} else if _, err := db.Drive(v.ID); err != nil {
 				fresh = append(fresh, v)
 			}
 		}

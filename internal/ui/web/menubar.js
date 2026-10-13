@@ -50,21 +50,17 @@ function render() {
   const low = (d) => d.size > 0 && d.free < d.size * 0.1;
   el.innerHTML = `
     <div class="mb-head">${GLYPH}<b>Lumpy</b><span class="hint">${esc(state.version || "")}</span></div>
-    <div class="mb-jobs">
+    <div class="mb-sec mb-jobs">
       ${running.length ? running.map((j) => { const p = j.progress || {}; const pct = p.total ? Math.min(100, (p.done / p.total) * 100) : 0; const eta = p.rate > 0 && p.total > p.done ? duration((p.total - p.done) / p.rate) + " left" : "";
-        return `<div class="mb-job"><div class="t"><span>${esc(j.title)}</span><span class="badge info">${p.label ? esc(p.label) : "Running"}</span></div>
+        return `<div class="mb-job"><div class="t"><span>${esc(j.title)}</span><span class="badge">${p.label ? esc(p.label) : "Running"}</span></div>
           <div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
           <div class="s"><span><b>${pct.toFixed(0)}%</b></span><span>${bytes(p.done || 0)} of ${bytes(p.total || 0)}</span><span>${bytes(p.rate || 0)}/s</span><span>${eta}</span><button class="btn small" data-cancel="${j.id}">Cancel</button></div>
           ${p.current ? `<div class="cur">${esc(p.current)}</div>` : ""}</div>`; }).join("")
       : recent.length ? recent.map((j) => { const [cls, label] = STATE[j.state] || ["", j.state]; return `<div class="mb-job"><div class="t"><span>${esc(j.title)}</span><span class="badge ${cls}">${label}${j.failures ? " · " + j.failures : ""}</span></div><div class="s"><span>${clock(j.ended || j.started)}</span>${j.params ? `<button class="btn small" data-again="${j.id}">Run again</button>` : ""}</div></div>`; }).join("")
-      : `<div class="mb-empty">Nothing running. Offloads and checks show their progress here.</div>`}
+      : `<div class="mb-empty">Nothing running</div>`}
     </div>
-    <div class="mb-stats">
-      <div class="mb-stat"><div class="v">${vols.length}</div><div class="l">plugged in</div></div>
-      <div class="mb-stat"><div class="v">${state.drives.length}</div><div class="l">in the library</div></div>
-      <div class="mb-stat"><div class="v">${lib ? lib.media.toLocaleString() : "…"}</div><div class="l">clips</div></div>
-    </div>
-    ${vols.length ? `<div><h4>Plugged in</h4><div class="mb-drives">${vols.slice(0, 8).map((d) => { const [st, label] = backupOf(d.backups); return `<div class="mb-drive"><span class="sdot ${st || "none"}" title="${esc(label)}"></span><span class="n">${esc(d.title)}<small>${esc(label)}</small></span><span class="f ${low(d) ? "low" : ""}">${bytes(d.free)} free</span></div>`; }).join("")}${vols.length > 8 ? `<div class="mb-empty">and ${vols.length - 8} more</div>` : ""}</div></div>` : ""}
+    <div class="mb-sec mb-stats"><span><b>${vols.length}</b> plugged in</span><i>·</i><span><b>${state.drives.length}</b> in the library</span><i>·</i><span><b>${lib ? lib.media.toLocaleString() : "…"}</b> clips</span></div>
+    ${vols.length ? `<div class="mb-sec mb-drives">${vols.slice(0, 8).map((d) => { const [st, label] = backupOf(d.backups); return `<div class="mb-drive"><span class="sdot ${st || "none"}" title="${esc(label)}"></span><span class="n">${esc(d.title)}<small>${esc(label)}</small></span><span class="f ${low(d) ? "low" : ""}">${bytes(d.free)} free</span></div>`; }).join("")}${vols.length > 8 ? `<div class="mb-empty">and ${vols.length - 8} more</div>` : ""}</div>` : ""}
     <div class="mb-foot">
       <span class="hint">${settings && settings.last && settings.last.ok ? "Status page · " + clock(Math.floor(new Date(settings.last.at).getTime() / 1000)) : state.agent && state.agent.startsWith("installed and running") ? "Auto-logging on" : "Logging while open"}</span>
       <button class="btn small" id="quit">Quit</button>

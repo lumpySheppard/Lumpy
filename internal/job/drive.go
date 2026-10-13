@@ -112,6 +112,12 @@ func listDrive(ctx context.Context, root string, r *Report) ([]catalog.File, map
 
 // CatalogDrive records a mounted drive and refreshes its file list.
 func CatalogDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Report) (catalog.SyncResult, error) {
+	if _, err := os.ReadDir(v.Mount); err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return catalog.SyncResult{}, fmt.Errorf("macOS is not letting Lumpy read %s. Allow it under System Settings → Privacy & Security → Files and Folders (Removable Volumes), or give Lumpy Full Disk Access, then try again", v.Mount)
+		}
+		return catalog.SyncResult{}, fmt.Errorf("cannot read %s: %w", v.Mount, err)
+	}
 	return catalogDrive(ctx, db, v, r, true)
 }
 

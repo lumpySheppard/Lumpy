@@ -72,16 +72,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         }
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "lumpy")
-        menuWeb = WKWebView(frame: NSRect(x: 0, y: 0, width: 380, height: 300), configuration: config)
-        menuWeb.setValue(false, forKey: "drawsBackground")
+        menuWeb = WKWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 260), configuration: config)
+        menuWeb.setValue(false, forKey: "drawsBackground") // the material shows through the page
         menuWeb.navigationDelegate = self
+        menuWeb.autoresizingMask = [.width, .height]
+        // A translucent dark material, like the system's own menu bar panels.
+        let material = NSVisualEffectView(frame: menuWeb.frame)
+        material.material = .hudWindow
+        material.blendingMode = .behindWindow
+        material.state = .active
+        material.autoresizingMask = [.width, .height]
+        material.addSubview(menuWeb)
         let vc = NSViewController()
-        vc.view = menuWeb
+        vc.view = material
         popover.contentViewController = vc
-        popover.contentSize = NSSize(width: 380, height: 300)
+        popover.contentSize = NSSize(width: 320, height: 260)
         popover.behavior = .transient
         popover.animates = true
-        popover.appearance = NSAppearance(named: .darkAqua)
+        popover.appearance = NSAppearance(named: .vibrantDark)
         statusTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.pollStatus() }
     }
 
@@ -279,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             NSApp.terminate(nil)
         case "resize":
             if let h = body["height"] as? Double {
-                popover.contentSize = NSSize(width: 380, height: min(max(h + 2, 120), 640))
+                popover.contentSize = NSSize(width: 320, height: min(max(h + 2, 100), 640))
             }
             resolve(id, true, in: from)
         case "pickFolder":

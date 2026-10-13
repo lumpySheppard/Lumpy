@@ -6,42 +6,41 @@
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="app.css">
 <style>
-  /* The menu bar panel: the popover supplies the dark material, the
-     page draws on top of it. */
+  /* The menu bar panel: the popover's translucent material is the
+     background; the page draws only text and hairlines on it. */
   html, body { background: transparent; overflow: hidden; height: auto; }
-  body { font-size: 12.5px; }
-  .mb { padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 12px; }
-  .mb-head { display: flex; align-items: center; gap: 9px; }
-  .mb-head .brand-glyph { width: 22px; height: 22px; filter: none; }
-  .mb-head b { font-size: 14px; }
-  .mb-head .hint { margin-left: auto; }
-  .mb-jobs { display: flex; flex-direction: column; gap: 8px; }
-  .mb-job { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 9px 11px; }
+  body { font-size: 12.5px; color: rgba(255,255,255,.92); }
+  .mb { padding: 10px 14px 10px; display: flex; flex-direction: column; }
+  .mb-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+  .mb-head .brand-glyph { width: 20px; height: 20px; filter: none; }
+  .mb-head b { font-size: 13.5px; }
+  .mb-head .hint { margin-left: auto; color: rgba(255,255,255,.45); }
+  .mb-sec { border-top: 1px solid rgba(255,255,255,.12); padding: 8px 0; }
   .mb-job .t { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-  .mb-job .t .badge { margin-left: auto; }
-  .mb-job .bar { height: 5px; margin: 8px 0 6px; }
+  .mb-job .t .badge { margin-left: auto; background: rgba(255,255,255,.1); }
+  .mb-job .bar { height: 4px; margin: 7px 0 5px; background: rgba(255,255,255,.14); }
   .mb-job .bar > i { background: var(--accent); transition: width .5s linear; }
-  .mb-job .s { display: flex; gap: 10px; color: var(--text-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-  .mb-job .s b { color: var(--text); }
-  .mb-job .cur { color: var(--muted); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }
+  .mb-job .s { display: flex; gap: 10px; align-items: center; color: rgba(255,255,255,.7); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .mb-job .s b { color: #fff; }
+  .mb-job .cur { color: rgba(255,255,255,.45); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }
   .mb-job .btn { margin-left: auto; }
-  .mb-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .mb-stat { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 8px 10px; text-align: center; }
-  .mb-stat .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
-  .mb-stat .l { color: var(--muted); font-size: 11px; }
-  .mb-drives { display: flex; flex-direction: column; }
-  .mb-drive { display: grid; grid-template-columns: 9px 1fr auto; gap: 8px; align-items: center; padding: 5px 2px; border-top: 1px solid rgba(255,255,255,.07); }
-  .mb-drive:first-child { border-top: 0; }
+  .mb-stats { display: flex; gap: 6px; color: rgba(255,255,255,.7); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .mb-stats b { color: #fff; font-weight: 600; }
+  .mb-stats i { font-style: normal; color: rgba(255,255,255,.3); }
+  .mb-drives { display: flex; flex-direction: column; gap: 2px; }
+  .mb-drive { display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; }
   .mb-drive .n { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mb-drive .n small { color: var(--muted); font-weight: 400; margin-left: 6px; }
-  .mb-drive .f { color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11.5px; }
+  .mb-drive .n small { color: rgba(255,255,255,.45); font-weight: 400; margin-left: 6px; }
+  .mb-drive .f { color: rgba(255,255,255,.7); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11.5px; }
   .mb-drive .f.low { color: var(--bad); }
-  .mb-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255,255,255,.1); padding-top: 10px; }
-  .mb-foot .hint { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mb-foot .btn { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1); }
-  .mb-foot .btn.primary { background: var(--accent); border-color: transparent; }
-  .mb-empty { color: var(--muted); padding: 2px 0; }
-  .mb h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  .mb-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 9px; }
+  .mb-foot .hint { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,.45); }
+  .btn { background: rgba(255,255,255,.1); border-color: transparent; }
+  .btn:hover { background: rgba(255,255,255,.18); }
+  .btn.primary { background: var(--accent); }
+  .mb-empty { color: rgba(255,255,255,.45); }
+  .sdot { width: 8px; height: 8px; }
+  .sdot.none { background: rgba(255,255,255,.25); }
 </style>
 </head>
 <body>

@@ -91,6 +91,9 @@ func (s *Server) Watch(ctx context.Context) {
 	go s.publishLoop(ctx)
 	go s.updateLoop(ctx)
 	go s.rescanLoop(ctx)
+	// Whatever is plugged in when the app opens is logged (again) now,
+	// however the last session ended.
+	s.db.SetMounted(map[string]string{})
 	t := time.NewTicker(4 * time.Second)
 	defer t.Stop()
 	for {

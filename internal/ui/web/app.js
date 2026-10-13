@@ -1616,7 +1616,7 @@ $("#search").oninput = (e) => {
 $("#main").onclick = async (e) => {
   const logBtn = e.target.closest("[data-log]");
   if (logBtn) {
-    try { await api("/api/catalog", { method: "POST", body: { id: logBtn.dataset.log } }); toast("Logging drive…"); loadJobs(); } catch (err) { toast(err.message, true); }
+    try { await api("/api/catalog", { method: "POST", body: { id: logBtn.dataset.log } }); toast("Logging the drive… its card fills in when the listing is done."); await loadJobs(); toggleActivity(true); } catch (err) { toast(err.message, true); }
     return;
   }
   const openP = e.target.closest("[data-open-project]");
