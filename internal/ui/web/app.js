@@ -215,8 +215,12 @@ function backupBar(backed, total, unknown, likely = 0, opts = {}) {
   const t = total || 1;
   const fill = st === "full" ? "fill-full" : "fill-partial";
   const n = (v) => (opts.unit === "files" ? v.toLocaleString() : bytes(v));
+  const pc = (v) => Math.round((v / t) * 100) + "%";
+  // Cards get percentages, which stay short however big the project is.
   const label = opts.label !== undefined ? opts.label : st === "partial"
-    ? `${n(backed)} of ${n(total)}${opts.unit === "files" ? " files" : ""} backed up${likely ? ` · ${n(likely)} probably` : ""}${unknown ? ` · ${n(unknown)} unproven` : ""}`
+    ? (opts.compact
+      ? `${pc(backed)} backed up${likely ? ` · ${pc(likely)} probably` : ""}${unknown ? ` · ${pc(unknown)} unproven` : ""}`
+      : `${n(backed)} of ${n(total)}${opts.unit === "files" ? " files" : ""} backed up${likely ? ` · ${n(likely)} probably` : ""}${unknown ? ` · ${n(unknown)} unproven` : ""}`)
     : STATE_LABEL[st];
   return `<div class="bbar s-${st} ${opts.size || ""}" title="${esc(STATE_TITLE[st] || (likely ? "Probably: a file with the same name and size is on another drive; checksum to prove it" : ""))}">
     <div class="track">${backed > 0 ? `<i class="${fill}" style="width:${((backed / t) * 100).toFixed(2)}%"></i>` : ""}${likely > 0 ? `<i class="fill-likely" style="width:${((likely / t) * 100).toFixed(2)}%"></i>` : ""}${unknown > 0 ? `<i class="fill-unknown" style="width:${((unknown / t) * 100).toFixed(2)}%"></i>` : ""}</div>
@@ -729,7 +733,7 @@ function renderProjects() {
         return `<article class="card pcard" style="--tint:${COLORS[p.color] || "transparent"}" data-open-project="${p.id}">
           <div class="card-top"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span><span class="drive-ico">${ICON.film}</span></div>
           <div class="card-title"><h3>${esc(p.name)}</h3><span class="vol">${p.sources.length} folder${p.sources.length === 1 ? "" : "s"} · ${p.target} copies wanted</span></div>
-          ${backupBar(h.backedBytes, h.bytes, h.unknownBytes, h.likelyBytes || 0)}
+          ${backupBar(h.backedBytes, h.bytes, h.unknownBytes, h.likelyBytes || 0, { compact: true })}
           <div class="cap">${bytes(h.bytes)}<span class="sep">•</span>${h.contents.toLocaleString()} files${bad ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(bad)} still to copy</span>` : ""}</div>
           <div class="badges">${h.damaged ? `<span class="badge bad">${h.damaged} damaged</span>` : ""}</div>
           <div class="card-foot"><span>${p.sources.map((src) => driveTitle(src.driveId) + (src.folder ? "/" + src.folder : "")).join(", ") || "No folders yet"}</span><button class="btn small">Open</button></div></article>`;
@@ -834,7 +838,7 @@ function renderProjectPage() {
           return `<div class="step-card" style="margin-bottom:10px">
             <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : (d && COLORS[d.labels.color]) || "var(--muted)"}"></span><b style="min-width:0;overflow:hidden;text-overflow:ellipsis">${sourceLabel(sh)}</b>
               <div class="right"><button class="btn small" data-drive-open="${esc(sh.driveId)}">Drive</button><button class="icon-btn" data-remove-src="${i}" title="Remove from project">${ICON.x}</button></div></div>
-            ${backupBar(sh.backedBytes, sh.bytes, sh.unknownBytes, sh.likelyBytes || 0)}
+            ${backupBar(sh.backedBytes, sh.bytes, sh.unknownBytes, sh.likelyBytes || 0, { compact: true })}
             <div class="cap">${bytes(sh.bytes)} · ${sh.files.toLocaleString()} files${sh.soleBytes + sh.shortBytes ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(sh.soleBytes + sh.shortBytes)} still to copy</span>` : ""}${sh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.extraBytes)} on more drives than needed</span>` : ""}${d && !d.connected ? `<span class="sep">•</span><span class="hint">last seen ${new Date(d.lastSeen * 1000).toLocaleDateString()}</span>` : ""}</div></div>`;
         }).join("")}
         <button class="btn" id="proj-add-src">${ICON.plus}Add a folder or drive…</button>

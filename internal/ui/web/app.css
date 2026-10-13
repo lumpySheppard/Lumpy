@@ -184,13 +184,13 @@ main { flex: 1; overflow: auto; padding: 20px; }
 
 /* Backup state: one bar, one meaning. */
 .bbar { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.bbar .track { flex: 1; height: 6px; background: var(--line-2); border-radius: 99px; overflow: hidden; display: flex; }
+.bbar .track { flex: 1 1 90px; min-width: 90px; height: 6px; background: var(--line-2); border-radius: 99px; overflow: hidden; display: flex; }
 .bbar .track i { display: block; height: 100%; }
 .bbar .track .fill-full { background: var(--ok); }
 .bbar .track .fill-partial { background: var(--warn); }
 .bbar .track .fill-unknown { background: repeating-linear-gradient(90deg, #4a4a52 0 4px, #333339 4px 8px); }
 .bbar .track .fill-likely { background: repeating-linear-gradient(90deg, #d9ad3f 0 4px, #7a6224 4px 8px); }
-.bbar .lbl { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); }
+.bbar .lbl { font-size: 12px; white-space: normal; line-height: 1.25; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); max-width: 70%; }
 .bbar .lbl svg { width: 12px; height: 12px; }
 .bbar.s-full .lbl { color: var(--ok); font-weight: 600; }
 .bbar.s-partial .lbl, .bbar.s-likely .lbl { color: var(--warn); }
