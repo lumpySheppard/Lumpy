@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lumpy</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="app.css">
+<style>
+  /* The menu bar panel: the popover supplies the dark material, the
+     page draws on top of it. */
+  html, body { background: transparent; overflow: hidden; height: auto; }
+  body { font-size: 12.5px; }
+  .mb { padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 12px; }
+  .mb-head { display: flex; align-items: center; gap: 9px; }
+  .mb-head .brand-glyph { width: 22px; height: 22px; filter: none; }
+  .mb-head b { font-size: 14px; }
+  .mb-head .hint { margin-left: auto; }
+  .mb-jobs { display: flex; flex-direction: column; gap: 8px; }
+  .mb-job { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 9px 11px; }
+  .mb-job .t { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .mb-job .t .badge { margin-left: auto; }
+  .mb-job .bar { height: 5px; margin: 8px 0 6px; }
+  .mb-job .bar > i { background: var(--accent); transition: width .5s linear; }
+  .mb-job .s { display: flex; gap: 10px; color: var(--text-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .mb-job .s b { color: var(--text); }
+  .mb-job .cur { color: var(--muted); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }
+  .mb-job .btn { margin-left: auto; }
+  .mb-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .mb-stat { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 8px 10px; text-align: center; }
+  .mb-stat .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .mb-stat .l { color: var(--muted); font-size: 11px; }
+  .mb-drives { display: flex; flex-direction: column; }
+  .mb-drive { display: grid; grid-template-columns: 9px 1fr auto; gap: 8px; align-items: center; padding: 5px 2px; border-top: 1px solid rgba(255,255,255,.07); }
+  .mb-drive:first-child { border-top: 0; }
+  .mb-drive .n { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mb-drive .n small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .mb-drive .f { color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11.5px; }
+  .mb-drive .f.low { color: var(--bad); }
+  .mb-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255,255,255,.1); padding-top: 10px; }
+  .mb-foot .hint { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mb-foot .btn { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1); }
+  .mb-foot .btn.primary { background: var(--accent); border-color: transparent; }
+  .mb-empty { color: var(--muted); padding: 2px 0; }
+  .mb h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="mb" id="mb"><div class="mb-empty">Connecting…</div></div>
+<script src="menubar.js"></script>
+</body>
+</html>

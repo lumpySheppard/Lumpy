@@ -1643,6 +1643,15 @@ document.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); $("#search").focus(); }
 });
 
+// The menu bar panel's Run again lands here: refill the offload form.
+window.lumpyRunAgain = async (id) => {
+  await loadJobs();
+  const j = S.jobs.find((x) => x.id === id);
+  if (!j || !j.params) return;
+  S.offload = { source: j.params.source || "", dests: (j.params.dests || []).slice(), name: j.params.name || "", sourceCheck: j.params.sourceCheck !== false };
+  S.tab = "offload"; S.project = null; localSet("tab", S.tab); render();
+};
+
 loadState();
 loadJobs();
 setInterval(() => { if (!document.hidden) loadState(); }, 3000);

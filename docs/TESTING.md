@@ -226,7 +226,18 @@ to finish*; **Relaunch Lumpy** quits and reopens the app, which now
 reports the new version in Settings. Drives, labels, projects and clip
 metadata are all still there.
 
-## 12. Logging without the app open
+## 12. Menu bar
+
+1. Start an offload, then close the Lumpy window (not Quit).
+
+**Expect:** the NAS glyph in the menu bar shows the offload's percentage
+beside it; clicking it drops a panel with the progress bar, speed and
+time left, the plugged-in drives and their free space, and **Open
+Lumpy**, which brings the window back. The offload keeps running with
+the window closed. **Quit** in the panel (or ⌘Q) quits, with a warning
+if a job is running.
+
+## 13. Logging without the app open
 
 ```sh
 lumpy agent install

@@ -17,6 +17,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var engine: Process?
     let engineInput = Pipe()
     var quitting = false
+    var engineURL: URL?
+
+    // The menu bar item and its panel: running transfers, plugged-in
+    // drives and a few numbers, from any app.
+    var statusItem: NSStatusItem!
+    let popover = NSPopover()
+    var menuWeb: WKWebView!
+    var statusTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -40,13 +48,115 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 : NSColor(red: 0.953, green: 0.953, blue: 0.961, alpha: 1)
         }
         window.minSize = NSSize(width: 760, height: 520)
+        window.isReleasedWhenClosed = false // closing hides; the menu bar item brings it back
         window.contentView = web
         window.center()
         window.setFrameAutosaveName("LumpyMainWindow")
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
+        setupStatusItem()
         startEngine()
+    }
+
+    // MARK: menu bar
+
+    func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            button.image = menuBarIcon()
+            button.imagePosition = .imageLeading
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+            button.toolTip = "Lumpy"
+        }
+        let config = WKWebViewConfiguration()
+        config.userContentController.add(self, name: "lumpy")
+        menuWeb = WKWebView(frame: NSRect(x: 0, y: 0, width: 380, height: 300), configuration: config)
+        menuWeb.setValue(false, forKey: "drawsBackground")
+        menuWeb.navigationDelegate = self
+        let vc = NSViewController()
+        vc.view = menuWeb
+        popover.contentViewController = vc
+        popover.contentSize = NSSize(width: 380, height: 300)
+        popover.behavior = .transient
+        popover.animates = true
+        popover.appearance = NSAppearance(named: .darkAqua)
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.pollStatus() }
+    }
+
+    /// The NAS-with-an-L glyph as a template image, so it follows the
+    /// menu bar's light or dark style.
+    func menuBarIcon() -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 16), flipped: false) { _ in
+            NSColor.black.setStroke()
+            NSColor.black.setFill()
+            let box = NSBezierPath(roundedRect: NSRect(x: 0.75, y: 0.75, width: 16.5, height: 14.5), xRadius: 3.5, yRadius: 3.5)
+            box.lineWidth = 1.5
+            box.stroke()
+            for i in 0..<3 {
+                NSBezierPath(roundedRect: NSRect(x: 3.5, y: CGFloat(3 + i * 4), width: 5, height: 1.8), xRadius: 0.9, yRadius: 0.9).fill()
+            }
+            let l = NSBezierPath()
+            l.move(to: NSPoint(x: 11, y: 12.5))
+            l.line(to: NSPoint(x: 11, y: 3.5))
+            l.line(to: NSPoint(x: 14.5, y: 3.5))
+            l.lineWidth = 1.8
+            l.lineCapStyle = .round
+            l.lineJoinStyle = .round
+            l.stroke()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    @objc func togglePopover(_ sender: Any?) {
+        if popover.isShown {
+            popover.performClose(sender)
+            return
+        }
+        guard let button = statusItem.button, let base = engineURL else { return }
+        let page = base.absoluteString.replacingOccurrences(of: "/#t=", with: "/menubar.html#t=")
+        if let url = URL(string: page) {
+            menuWeb.load(URLRequest(url: url))
+        }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    /// While a job runs, its progress shows next to the menu bar icon.
+    func pollStatus() {
+        guard let base = engineURL, var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
+        let token = (base.fragment ?? "").replacingOccurrences(of: "t=", with: "")
+        comps.fragment = nil
+        comps.path = "/api/jobs"
+        guard let url = comps.url else { return }
+        var req = URLRequest(url: url)
+        req.setValue(token, forHTTPHeaderField: "X-Lumpy-Token")
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let data = data, let jobs = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+            var title = ""
+            for job in jobs where (job["state"] as? String) == "running" {
+                if let p = job["progress"] as? [String: Any], let done = p["done"] as? Double, let total = p["total"] as? Double, total > 0 {
+                    title = " \(Int(done / total * 100))%"
+                } else {
+                    title = " …"
+                }
+                break
+            }
+            DispatchQueue.main.async { self?.statusItem.button?.title = title }
+        }.resume()
+    }
+
+    func showWindow() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        showWindow()
+        return true
     }
 
     func startEngine() {
@@ -68,7 +178,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             for line in text.split(separator: "\n") where line.hasPrefix("LUMPY_URL ") {
                 loaded.value = true
                 if let url = URL(string: String(line.dropFirst("LUMPY_URL ".count))) {
-                    DispatchQueue.main.async { self?.web.load(URLRequest(url: url)) }
+                    DispatchQueue.main.async {
+                        self?.engineURL = url
+                        self?.web.load(URLRequest(url: url))
+                    }
                 }
             }
         }
@@ -107,7 +220,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         NSApp.terminate(nil)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    // Closing the window leaves Lumpy in the menu bar: logging drives,
+    // publishing the status page, finishing jobs. Quit is in the menu.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if web.url != nil, hasRunningJobs() {
@@ -149,7 +264,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let action = body["action"] as? String,
               let id = body["id"] as? Int else { return }
+        let from = message.webView
         switch action {
+        case "openApp":
+            popover.performClose(nil)
+            showWindow()
+            if let again = body["again"] as? Int {
+                web.evaluateJavaScript("window.lumpyRunAgain && window.lumpyRunAgain(\(again))")
+            }
+            resolve(id, true, in: from)
+        case "quit":
+            resolve(id, true, in: from)
+            popover.performClose(nil)
+            NSApp.terminate(nil)
+        case "resize":
+            if let h = body["height"] as? Double {
+                popover.contentSize = NSSize(width: 380, height: min(max(h + 2, 120), 640))
+            }
+            resolve(id, true, in: from)
         case "pickFolder":
             let panel = NSOpenPanel()
             panel.canChooseDirectories = true
@@ -163,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 panel.directoryURL = URL(fileURLWithPath: "/Volumes")
             }
             panel.beginSheetModal(for: window) { response in
-                self.resolve(id, response == .OK ? panel.url?.path : nil)
+                self.resolve(id, response == .OK ? panel.url?.path : nil, in: from)
             }
         case "saveFile":
             let panel = NSSavePanel()
@@ -171,19 +303,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             panel.allowedContentTypes = [.commaSeparatedText]
             panel.canCreateDirectories = true
             panel.beginSheetModal(for: window) { response in
-                guard response == .OK, let url = panel.url else { return self.resolve(id, nil) }
+                guard response == .OK, let url = panel.url else { return self.resolve(id, nil, in: from) }
                 do {
                     try (body["content"] as? String ?? "").write(to: url, atomically: true, encoding: .utf8)
-                    self.resolve(id, url.lastPathComponent)
+                    self.resolve(id, url.lastPathComponent, in: from)
                 } catch {
-                    self.resolve(id, nil)
+                    self.resolve(id, nil, in: from)
                 }
             }
         case "reveal":
             if let path = body["path"] as? String {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
             }
-            resolve(id, true)
+            resolve(id, true, in: from)
         case "relaunch":
             // After an update: quit, and have a detached shell reopen the
             // (now replaced) bundle once this process has gone.
@@ -192,20 +324,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             sh.executableURL = URL(fileURLWithPath: "/bin/sh")
             sh.arguments = ["-c", "sleep 1.5; open -n \"$0\"", app]
             try? sh.run()
-            resolve(id, true)
+            resolve(id, true, in: from)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
         default:
-            resolve(id, nil)
+            resolve(id, nil, in: from)
         }
     }
 
-    func resolve(_ id: Int, _ value: Any?) {
+    func resolve(_ id: Int, _ value: Any?, in view: WKWebView? = nil) {
         var json = "null"
         if let value = value, let data = try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed),
            let s = String(data: data, encoding: .utf8) {
             json = s
         }
-        web.evaluateJavaScript("window.lumpyNative.resolve(\(id), \(json))")
+        (view ?? web).evaluateJavaScript("window.lumpyNative.resolve(\(id), \(json))")
     }
 
     // MARK: JavaScript alert() and confirm()
@@ -269,6 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         view.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
 
         let win = NSMenu(title: "Window")
+        win.addItem(item("Show Lumpy", #selector(showWindowAction), "0"))
         win.addItem(item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"))
         win.addItem(item("Zoom", #selector(NSWindow.performZoom(_:)), ""))
         NSApp.windowsMenu = win
@@ -282,6 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     @objc func reload() { web.reload() }
+    @objc func showWindowAction() { showWindow() }
 }
 
 let app = NSApplication.shared

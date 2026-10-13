@@ -275,6 +275,17 @@ on one copy and every copy has them. **Export CSV…** writes the current
 list with every column; a project page has the same button for just its
 clips.
 
+### Menu bar
+
+Lumpy.app also lives in the menu bar: the NAS glyph shows the running
+job's percentage beside it, and clicking it drops a panel with the job's
+progress (speed, time left, Cancel), the last finished job (**Run
+again**), how many drives are plugged in and in the library, how many
+clips, each plugged-in drive's free space and backup state, and **Open
+Lumpy** / **Quit**. Closing the window leaves Lumpy running in the menu
+bar — logging drives, finishing jobs, publishing the status page; the
+Dock icon, the menu bar panel or ⌘0 bring the window back.
+
 ### Settings
 
 Under the gear: **Drives** (hide the Mac's internal volumes and mounted
