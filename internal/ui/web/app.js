@@ -1828,7 +1828,7 @@ function mapModel() {
 // the right, each project level with the drives it uses. Dragged
 // positions win.
 function mapLayout(m) {
-  const GAP = 94, X = { mac: 40, project: 360, drive: 720 };
+  const GAP = 94, X = { mac: 40, project: 900, drive: 430 };
   const drives = m.nodes.filter((n) => n.type === "drive");
   drives.forEach((n, i) => { n.x = X.drive; n.y = 40 + i * GAP; });
   const yOf = Object.fromEntries(drives.map((n) => [n.id, n.y]));
@@ -1847,6 +1847,26 @@ function mapLayout(m) {
   for (const n of m.nodes) { const p = MAP.pos[n.id]; if (p) { n.x = p.x; n.y = p.y; } [n.w, n.h] = NODE[n.type]; }
 }
 
+// edgeGeom picks a connector on each node (left or right, or top and
+// bottom when they overlap sideways) so a wire leaves one node and
+// enters the other on the facing sides, never under either.
+function edgeGeom(a, b) {
+  if (!a || !b) return null;
+  let p0, p1, n0, n1;
+  if (b.x >= a.x + a.w + 16) { p0 = [a.x + a.w, a.y + a.h / 2]; n0 = [1, 0]; p1 = [b.x, b.y + b.h / 2]; n1 = [-1, 0]; }
+  else if (b.x + b.w <= a.x - 16) { p0 = [a.x, a.y + a.h / 2]; n0 = [-1, 0]; p1 = [b.x + b.w, b.y + b.h / 2]; n1 = [1, 0]; }
+  else if (b.y >= a.y) { p0 = [a.x + a.w / 2, a.y + a.h]; n0 = [0, 1]; p1 = [b.x + b.w / 2, b.y]; n1 = [0, -1]; }
+  else { p0 = [a.x + a.w / 2, a.y]; n0 = [0, -1]; p1 = [b.x + b.w / 2, b.y + b.h]; n1 = [0, 1]; }
+  const k = Math.max(48, Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / 2);
+  const c0 = [p0[0] + n0[0] * k, p0[1] + n0[1] * k], c1 = [p1[0] + n1[0] * k, p1[1] + n1[1] * k];
+  const r = (v) => Math.round(v * 10) / 10;
+  return {
+    x0: r(p0[0]), y0: r(p0[1]), x1: r(p1[0]), y1: r(p1[1]),
+    mx: r((p0[0] + 3 * c0[0] + 3 * c1[0] + p1[0]) / 8), my: r((p0[1] + 3 * c0[1] + 3 * c1[1] + p1[1]) / 8),
+    d: `M${r(p0[0])} ${r(p0[1])} C${r(c0[0])} ${r(c0[1])}, ${r(c1[0])} ${r(c1[1])}, ${r(p1[0])} ${r(p1[1])}`,
+  };
+}
+
 function renderMap() {
   const main = $("#main");
   if (!S.projects) { main.innerHTML = loadingGlyph("Reading the library…"); loadProjects(); return; }
@@ -1858,15 +1878,14 @@ function renderMap() {
   if (sel) { hot.add(sel); for (const e of m.edges) { if (e.from === sel) hot.add(e.to); if (e.to === sel) hot.add(e.from); } }
   const at = (id) => m.nodes.find((n) => n.id === id);
   const edgeSVG = (e) => {
-    const a = at(e.from), b = at(e.to);
-    if (!a || !b) return "";
-    const x0 = a.x + a.w, y0 = a.y + a.h / 2, x1 = b.x, y1 = b.y + b.h / 2, mx = (x0 + x1) / 2;
-    return `<g class="edge-g ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}"><path d="M${x0} ${y0} C${mx} ${y0}, ${mx} ${y1}, ${x1} ${y1}"/><circle cx="${x0}" cy="${y0}" r="3"/><circle cx="${x1}" cy="${y1}" r="3"/></g>`;
+    const g = edgeGeom(at(e.from), at(e.to));
+    if (!g) return "";
+    return `<g class="edge-g ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>`;
   };
   const edgeLabel = (e) => {
-    const a = at(e.from), b = at(e.to);
-    if (!a || !b) return "";
-    return `<div class="e-lbl ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}" style="left:${(a.x + a.w + b.x) / 2}px;top:${(a.y + a.h / 2 + b.y + b.h / 2) / 2}px">${esc(e.label)}</div>`;
+    const g = edgeGeom(at(e.from), at(e.to));
+    if (!g) return "";
+    return `<div class="e-lbl ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}" style="left:${g.mx}px;top:${g.my}px">${esc(e.label)}</div>`;
   };
   const live = S.state.drives.filter((d) => d.connected);
   const node = (n) => {
@@ -1973,7 +1992,7 @@ function wireMap(m) {
       d.node.style.left = d.n.x + "px"; d.node.style.top = d.n.y + "px";
       // Redraw just this node's edges.
       MAP.pos[d.n.id] = { x: d.n.x, y: d.n.y };
-      world.querySelector(".map-edges").innerHTML = m.edges.map((e2) => { const a = m.nodes.find((x) => x.id === e2.from), b = m.nodes.find((x) => x.id === e2.to); if (!a || !b) return ""; const x0 = a.x + a.w, y0 = a.y + a.h / 2, x1 = b.x, y1 = b.y + b.h / 2, mx = (x0 + x1) / 2; return `<g class="edge-g ${e2.cls}"><path d="M${x0} ${y0} C${mx} ${y0}, ${mx} ${y1}, ${x1} ${y1}"/><circle cx="${x0}" cy="${y0}" r="3"/><circle cx="${x1}" cy="${y1}" r="3"/></g>`; }).join("");
+      world.querySelector(".map-edges").innerHTML = m.edges.map((e2) => { const g = edgeGeom(m.nodes.find((x) => x.id === e2.from), m.nodes.find((x) => x.id === e2.to)); return g ? `<g class="edge-g ${e2.cls}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>` : ""; }).join("");
       world.querySelectorAll(".e-lbl").forEach((el) => el.remove());
     } else { MAP.x = d.x + dx; MAP.y = d.y + dy; applyMap(); }
   };
@@ -1984,11 +2003,11 @@ function wireMap(m) {
     box.classList.remove("panning");
     if (d.node) {
       if (d.moved) { localSet("map.pos", JSON.stringify(MAP.pos)); renderMap(); }
-      else { MAP.sel = MAP.sel === d.n.id ? null : d.n.id; renderMap(); }
+      else if (MAP.last && MAP.last.id === d.n.id && Date.now() - MAP.last.at < 400) { MAP.last = null; openNode(d.n.id); }
+      else { MAP.last = { id: d.n.id, at: Date.now() }; MAP.sel = d.n.id; renderMap(); }
     } else if (!d.moved && MAP.sel) { MAP.sel = null; renderMap(); }
     else if (MAP.dirty) { MAP.dirty = false; renderMap(); }
   };
-  box.ondblclick = (e) => { const node = e.target.closest(".node"); if (node) openNode(node.dataset.node); };
   for (const b of box.querySelectorAll("[data-map]")) b.onclick = () => {
     const r = box.getBoundingClientRect();
     if (b.dataset.map === "in") mapZoom(1.25, r.width / 2, r.height / 2);

@@ -604,6 +604,10 @@ main.map-main { padding: 0; overflow: hidden; }
 .node { position: absolute; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 13px; cursor: pointer;
   background: linear-gradient(color-mix(in srgb, var(--pc, var(--accent)) 12%, transparent), color-mix(in srgb, var(--pc, var(--accent)) 12%, transparent)), var(--panel);
   border: 1px solid color-mix(in srgb, var(--pc, var(--accent)) 45%, var(--line)); box-shadow: 0 8px 24px rgba(0,0,0,.45); transition: box-shadow .15s, border-color .15s, opacity .2s; }
+/* Connectors: a socket on each side; a wire's end dot lands on one. */
+.node::before, .node::after { content: ""; position: absolute; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--bg); border: 1.5px solid color-mix(in srgb, var(--pc, var(--accent)) 60%, var(--line-2)); }
+.node::before { left: -5px; }
+.node::after { right: -5px; }
 .node:hover { border-color: color-mix(in srgb, var(--pc, var(--accent)) 85%, var(--line)); box-shadow: 0 10px 28px rgba(0,0,0,.5), 0 0 22px color-mix(in srgb, var(--pc, var(--accent)) 35%, transparent); }
 .node.sel { border-color: color-mix(in srgb, var(--pc, var(--accent)) 100%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc, var(--accent)) 30%, transparent), 0 10px 28px rgba(0,0,0,.5); }
 .n-tag { width: 24px; height: 24px; border-radius: 7px; background: var(--pc, var(--accent)); display: grid; place-items: center; color: #fff; flex: none; box-shadow: 0 0 12px color-mix(in srgb, var(--pc, var(--accent)) 50%, transparent); }
