@@ -141,9 +141,12 @@ main { flex: 1; overflow: auto; padding: 20px; }
 .path { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
 .bar { height: 5px; background: var(--line-2); border-radius: 99px; overflow: hidden; margin-top: 4px; }
 .bar > i { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
-/* Capacity: one gradient, no judgement; the free-space text warns when nearly full. */
-.bar.cap > i { background: linear-gradient(90deg, #3b7bff, #9b5cff 60%, #d46bff); }
-.cap .low { color: var(--orange); }
+/* Capacity: the gradient is sized to the whole track (background-size
+   is set inline), so the fill reveals only the used part of it: blue
+   while there is room, yellow past three quarters, red only in the last
+   10%. */
+.bar.cap > i { background: linear-gradient(90deg, #3b7bff 0%, #4fa3ff 45%, #ffcc4d 75%, #ff9f43 85%, #ff5c5c 90%, #ff5c5c 100%) no-repeat left / 100% 100%; border-radius: 99px 0 0 99px; }
+.cap .low { color: var(--bad); font-weight: 600; }
 
 /* Backup state: one bar, one meaning. */
 .bbar { display: flex; align-items: center; gap: 10px; margin-top: 6px; }

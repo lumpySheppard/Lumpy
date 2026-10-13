@@ -200,10 +200,15 @@ function backupBar(backed, total, unknown, opts = {}) {
     <div class="track">${backed > 0 ? `<i class="${fill}" style="width:${((backed / t) * 100).toFixed(2)}%"></i>` : ""}${unknown > 0 ? `<i class="fill-unknown" style="width:${((unknown / t) * 100).toFixed(2)}%"></i>` : ""}</div>
     <span class="lbl">${st === "full" ? ICON.check : st === "none" ? ICON.warn : ""}${esc(label)}</span></div>`;
 }
-// capBar is the plain capacity gradient.
+// capBar shows how full a drive is against a fixed blue→yellow→red
+// gradient; the element inside masks the free part.
 function capBar(used, size) {
-  return `<div class="bar cap"><i style="width:${size ? Math.min(100, (used / size) * 100).toFixed(1) : 0}%"></i></div>`;
+  const pct = size ? Math.max(0, Math.min(100, (used / size) * 100)) : 0;
+  if (pct < 0.5) return `<div class="bar cap" title="${size ? "empty" : ""}"></div>`;
+  // The gradient covers the full track: stretch it by the inverse of the fill.
+  return `<div class="bar cap" title="${Math.round(pct)}% used"><i style="width:${pct.toFixed(1)}%;background-size:${(10000 / pct).toFixed(1)}% 100%"></i></div>`;
 }
+function lowSpace(d) { return d.size > 0 && d.free < d.size * 0.1; }
 
 
 function backupBadge(d) {
@@ -262,7 +267,7 @@ function driveCard(d) {
     ${l.contact ? `<div class="meta-line">${ICON.mail}<span>${hl(l.contact)}</span></div>` : ""}
     <div class="path" title="${esc(d.mount || d.lastMount)}">${esc(d.mount || d.lastMount)}</div>
     ${capBar(used, d.size)}
-    <div class="cap">${bytes(d.size)}<span class="sep">•</span><span class="${d.size && d.free < d.size * 0.05 ? "low" : ""}">Free ${bytes(d.free)}</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
+    <div class="cap">${bytes(d.size)}<span class="sep">•</span><span class="${lowSpace(d) ? "low" : ""}">Free ${bytes(d.free)}</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
     ${sum ? `<div class="summary">${esc(sum)}</div><button class="more" data-act="open">More</button>` : ""}
     <div class="badges">${backupBadge(d)}${checkBadge(d)}${projectBadges(d)}</div>
     <div class="card-foot"><span>${d.connected ? "Plugged in now" : "Last seen • " + when(d.lastSeen)}</span>
@@ -352,7 +357,7 @@ function drivesHTML(ds) {
         return `<tr class="row" data-drive="${esc(d.id)}"><td><div class="name"><span class="dot" style="background:${d.connected ? "var(--ok)" : COLORS[d.labels.color] || "var(--muted)"}"></span>${hl(d.title)}${d.labels.nickname ? ` <small>${esc(d.name)}</small>` : ""}</div></td>
           <td>${esc([d.labels.client, d.labels.project].filter(Boolean).join(" · "))}</td>
           <td class="num">${bytes(d.size)}</td><td>${capBar(used, d.size)}</td>
-          <td class="num">${bytes(d.free)}</td><td class="num">${d.files.toLocaleString()}</td>
+          <td class="num ${lowSpace(d) ? "cap" : ""}"><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)}</span></td><td class="num">${d.files.toLocaleString()}</td>
           <td>${backupBadge(d)}</td><td>${checkBadge(d) || '<span class="badge">Never</span>'}</td>
           <td>${d.connected ? '<span class="badge live">Plugged in</span>' : short(d.lastSeen)}</td></tr>`;
       }).join("")}</tbody></table>`;
@@ -485,7 +490,7 @@ async function openDetail(id, refresh, focusLabels) {
         </div></div></div>
 
       <div class="sec"><div class="sec-title">${ICON.gauge}Capacity</div>
-        <div class="box"><dl class="kv"><dt>Total</dt><dd>${bytes(d.size)}</dd><dt>Used</dt><dd>${bytes(used)}</dd><dt>Free</dt><dd>${bytes(d.free)}</dd></dl>
+        <div class="box"><dl class="kv"><dt>Total</dt><dd>${bytes(d.size)}</dd><dt>Used</dt><dd>${bytes(used)}</dd><dt>Free</dt><dd class="cap"><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)}${lowSpace(d) ? " · under 10%" : ""}</span></dd></dl>
         <div style="margin-top:10px">${capBar(used, d.size).replace('class="bar cap"', 'class="bar cap" style="height:7px"')}</div></div></div>
 
       <div class="sec"><div class="sec-title">${ICON.shield}Backups &amp; checks
