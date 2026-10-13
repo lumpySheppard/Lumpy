@@ -279,6 +279,8 @@ type DriveView struct {
 	LastVerifyOK    bool                   `json:"lastVerifyOk"`
 	VerifyRequested int64                  `json:"verifyRequested"`
 	Busy            bool                   `json:"busy"`
+	SolidState      bool                   `json:"solidState"`
+	Bus             string                 `json:"bus"`
 	Projects        []int64                `json:"projects"`
 	TopFolders      []string               `json:"topFolders"`
 	TopFiles        []string               `json:"topFiles"`
@@ -362,10 +364,11 @@ func (s *Server) view(d *catalog.Drive, ex *driveExtra) DriveView {
 		FSType: d.FSType, FirstSeen: ts(d.FirstSeen), LastSeen: ts(d.LastSeen), LastMount: d.LastMount,
 		Files: d.Files, Bytes: d.Bytes, Hashed: d.Hashed, Damaged: d.Damaged, LastScan: ts(d.LastScan),
 		LastVerify: ts(d.LastVerify), LastVerifyOK: d.LastVerifyOK, VerifyRequested: ts(d.VerifyRequested),
-		Busy: s.jobs.Busy(d.ID),
+		Busy: s.jobs.Busy(d.ID), SolidState: d.SolidState, Bus: d.Bus,
 	}
 	if m := s.mountOf(d.ID); m != nil {
 		v.Connected, v.Mount, v.Free = true, m.Mount, m.Free
+		v.SolidState, v.Bus = m.SolidState, m.Bus
 	}
 	if ex != nil {
 		v.TopFolders, v.TopFiles, v.Backups = ex.topFolders, ex.topFiles, ex.backups
@@ -375,13 +378,15 @@ func (s *Server) view(d *catalog.Drive, ex *driveExtra) DriveView {
 
 // VolumeView is a plugged-in volume, logged or not.
 type VolumeView struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Mount  string `json:"mount"`
-	Size   int64  `json:"size"`
-	Free   int64  `json:"free"`
-	FSType string `json:"fstype"`
-	Logged bool   `json:"logged"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Mount      string `json:"mount"`
+	Size       int64  `json:"size"`
+	Free       int64  `json:"free"`
+	FSType     string `json:"fstype"`
+	Logged     bool   `json:"logged"`
+	SolidState bool   `json:"solidState"`
+	Bus        string `json:"bus"`
 }
 
 func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
@@ -398,7 +403,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	vols := []VolumeView{}
 	for _, v := range s.mounted() {
-		vols = append(vols, VolumeView{v.ID, v.Name, v.Mount, v.Size, v.Free, v.FSType, logged[v.ID]})
+		vols = append(vols, VolumeView{v.ID, v.Name, v.Mount, v.Size, v.Free, v.FSType, logged[v.ID], v.SolidState, v.Bus})
 	}
 	running := 0
 	for _, j := range s.jobs.List(0) {
@@ -482,6 +487,11 @@ func (s *Server) setLabels(w http.ResponseWriter, r *http.Request) (any, error) 
 	l := d.Labels
 	if err := json.NewDecoder(r.Body).Decode(&l); err != nil {
 		return nil, badRequest("bad labels: %v", err)
+	}
+	switch l.Icon {
+	case "", "hdd", "ssd", "card", "raid":
+	default:
+		return nil, badRequest("icon must be hdd, ssd, card, raid or empty")
 	}
 	if err := s.db.SetLabels(d.ID, l); err != nil {
 		return nil, err

@@ -175,6 +175,9 @@ func Open(path string) (*DB, error) {
 		`drives ADD COLUMN color TEXT NOT NULL DEFAULT ''`,
 		`drives ADD COLUMN never_log INTEGER NOT NULL DEFAULT 0`,
 		`drives ADD COLUMN no_backups INTEGER NOT NULL DEFAULT 0`,
+		`drives ADD COLUMN solid_state INTEGER NOT NULL DEFAULT 0`,
+		`drives ADD COLUMN bus TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
 	} {
 		s.Exec(`ALTER TABLE ` + col)
 	}
@@ -202,6 +205,8 @@ type Drive struct {
 	LastVerifyOK    bool
 	VerifyRequested time.Time // zero if no check is queued
 	Free            int64     // bytes free when last seen
+	SolidState      bool      // an SSD or NVMe drive, when macOS said so
+	Bus             string    // USB, Thunderbolt, SATA… as diskutil names it
 	Labels
 	Files   int
 	Bytes   int64
@@ -221,6 +226,9 @@ type Labels struct {
 	// NoBackups keeps project plans from copying onto this drive: camera
 	// cards that get wiped, loaners, the edit SSD.
 	NoBackups bool `json:"noBackups"`
+	// Icon overrides the picture the card shows: "" (from what macOS
+	// says about the drive), hdd, ssd, card or raid.
+	Icon string `json:"icon"`
 }
 
 // Title is the nickname if the drive has one, else its volume name.
@@ -248,6 +256,7 @@ func nullTime(t time.Time) any {
 const driveCols = `d.id, d.name, d.size, d.fstype, d.first_seen, d.last_seen, d.last_mount,
 	d.last_scan, d.last_verify, d.last_verify_ok, d.verify_requested,
 	d.free, d.nickname, d.client, d.project, d.contact, d.notes, d.color, d.never_log, d.no_backups,
+	d.solid_state, d.bus, d.icon,
 	COUNT(f.path), COALESCE(SUM(f.size), 0), COUNT(f.xxh64), COUNT(f.bad_hash)`
 
 func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
@@ -257,6 +266,7 @@ func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 	if err := row.Scan(&d.ID, &d.Name, &d.Size, &d.FSType, &first, &last, &d.LastMount,
 		&scanAt, &verAt, &verOK, &req,
 		&d.Free, &d.Nickname, &d.Client, &d.Project, &d.Contact, &d.Notes, &d.Color, &d.NeverLog, &d.NoBackups,
+		&d.SolidState, &d.Bus, &d.Icon,
 		&d.Files, &d.Bytes, &d.Hashed, &d.Damaged); err != nil {
 		return nil, err
 	}
@@ -270,11 +280,12 @@ func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 // and updating its name and mount point if they changed.
 func (db *DB) SaveDrive(v *volume.Volume) error {
 	now := time.Now().Unix()
-	_, err := db.sql.Exec(`INSERT INTO drives (id, name, size, free, fstype, first_seen, last_seen, last_mount)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := db.sql.Exec(`INSERT INTO drives (id, name, size, free, fstype, first_seen, last_seen, last_mount, solid_state, bus)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET name = excluded.name, size = excluded.size, free = excluded.free,
-			fstype = excluded.fstype, last_seen = excluded.last_seen, last_mount = excluded.last_mount`,
-		v.ID, v.Name, v.Size, v.Free, v.FSType, now, now, v.Mount)
+			fstype = excluded.fstype, last_seen = excluded.last_seen, last_mount = excluded.last_mount,
+			solid_state = excluded.solid_state, bus = excluded.bus`,
+		v.ID, v.Name, v.Size, v.Free, v.FSType, now, now, v.Mount, v.SolidState, v.Bus)
 	return err
 }
 

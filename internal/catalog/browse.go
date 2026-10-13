@@ -8,9 +8,9 @@ import (
 // SetLabels replaces a drive's labels.
 func (db *DB) SetLabels(id string, l Labels) error {
 	_, err := db.sql.Exec(`UPDATE drives SET nickname = ?, client = ?, project = ?, contact = ?,
-		notes = ?, color = ?, never_log = ?, no_backups = ? WHERE id = ?`,
+		notes = ?, color = ?, never_log = ?, no_backups = ?, icon = ? WHERE id = ?`,
 		strings.TrimSpace(l.Nickname), strings.TrimSpace(l.Client), strings.TrimSpace(l.Project),
-		strings.TrimSpace(l.Contact), strings.TrimSpace(l.Notes), l.Color, l.NeverLog, l.NoBackups, id)
+		strings.TrimSpace(l.Contact), strings.TrimSpace(l.Notes), l.Color, l.NeverLog, l.NoBackups, l.Icon, id)
 	return err
 }
 

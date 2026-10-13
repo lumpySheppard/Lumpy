@@ -33,7 +33,12 @@ Write down anything that looks wrong, slow or confusing. For problems, the
 right name, capacity and free space. In **Details**, *Volume UUID* is a
 long ID like `A1B2C3D4-…`, not `name:…`.
 
-3. Open a drive's **Details** and give it a display name, client, project
+3. Each card shows a picture of the drive: a hard drive, an SSD, a
+   camera card (DCIM, CLIPS, PRIVATE… at the root) or a RAID enclosure,
+   with its light on while plugged in, and a ring for how full it is.
+   **Expect:** the pictures match the hardware; if one doesn't, change
+   it under **Details → Labels → Picture on the card**.
+4. Open a drive's **Details** and give it a display name, client, project
    and color. Close and reopen the app: the labels are kept.
 
 ## 2. A normal offload

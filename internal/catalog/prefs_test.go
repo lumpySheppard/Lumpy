@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
 func TestPrefsAndLibraryUpkeep(t *testing.T) {
@@ -75,5 +77,24 @@ func TestPrefsAndLibraryUpkeep(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "Library", "Application Support", "Lumpy", "location")); err == nil {
 		t.Fatal("location file should be gone")
+	}
+}
+
+func TestDriveHardwareAndIcon(t *testing.T) {
+	db := openTest(t)
+	if err := db.SaveDrive(&volume.Volume{ID: "x", Name: "X", Mount: "/Volumes/X", Size: 10, Free: 5, SolidState: true, Bus: "USB"}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.Drive("x")
+	if err != nil || !d.SolidState || d.Bus != "USB" || d.Icon != "" {
+		t.Fatalf("saved: %+v %v", d, err)
+	}
+	l := d.Labels
+	l.Icon = "card"
+	if err := db.SetLabels("x", l); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ = db.Drive("x"); d.Icon != "card" {
+		t.Errorf("icon: %q", d.Icon)
 	}
 }

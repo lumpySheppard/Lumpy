@@ -301,6 +301,55 @@ function hl(text) {
   return esc(text.slice(0, i)) + "<mark>" + esc(text.slice(i, i + q.length)) + "</mark>" + esc(text.slice(i + q.length));
 }
 
+// ---------- drive pictures ----------
+// Every drive gets a picture: a hard drive, an SSD, a camera card or a
+// RAID enclosure, from what macOS says about it (or the label's Icon),
+// tinted with the card's colour.
+const KINDS = { hdd: "Hard drive", ssd: "SSD", card: "Camera card", raid: "RAID or enclosure" };
+function driveKind(d) {
+  const l = d.labels || {};
+  if (l.icon && KINDS[l.icon]) return l.icon;
+  const name = ((d.title || "") + " " + (d.name || "")).toLowerCase();
+  const tops = (d.topFolders || []).map((x) => x.toUpperCase());
+  if (/\braid\b|\bnas\b|pegasus|promise|areca|thunderbay|synology|qnap|enclosure/.test(name)) return "raid";
+  if (tops.some((x) => ["DCIM", "PRIVATE", "CLIPS", "XDROOT", "BPAV", "M4ROOT", "AVCHD", "CONTENTS"].includes(x)) || /secure digital|sd card|cfexpress|cfast/i.test(d.bus || "")) return "card";
+  if (d.size >= 16e12 && !d.solidState) return "raid";
+  return d.solidState ? "ssd" : "hdd";
+}
+const PIC = {
+  hdd: `<g class="body"><path d="M10 10h40l6 7v23a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V17z" fill="#34343d" stroke="#5c5c68"/><path d="M10 10h40l6 7H4z" fill="#4a4a55"/></g>
+    <g class="platter"><circle cx="24" cy="30" r="9.5" fill="#17171c" stroke="#6a6a77"/><circle cx="24" cy="30" r="6" fill="none" stroke="#2c2c34"/><circle cx="24" cy="30" r="2.2" fill="#8a8a96"/><path d="M24 20.5a9.5 9.5 0 0 1 9.5 9.5" fill="none" stroke="#a9a9b6" stroke-width="1.2" stroke-linecap="round"/></g>
+    <path class="arm" d="M44 22l-11 8.5" stroke="#b9b9c4" stroke-width="2" stroke-linecap="round"/><circle cx="44" cy="22" r="2" fill="#6b6b78"/>
+    <rect x="38" y="30" width="13" height="7" rx="1.5" fill="var(--pc, #8a5cf6)"/>
+    <circle class="led" cx="53" cy="39.5" r="1.7"/>`,
+  ssd: `<rect x="5" y="14" width="54" height="24" rx="5" fill="#34343d" stroke="#5c5c68"/><path d="M5 19a5 5 0 0 1 5-5h44a5 5 0 0 1 5 5v3H5z" fill="var(--pc, #8a5cf6)"/>
+    <g fill="#4a4a55" stroke="#55555f" stroke-width=".8"><rect x="11" y="26" width="8" height="7" rx="1"/><rect x="22" y="26" width="8" height="7" rx="1"/><rect x="33" y="26" width="8" height="7" rx="1"/></g>
+    <path d="M12 29.5h6M23 29.5h6M34 29.5h6" stroke="#8a8a96" stroke-width="1"/><path d="M46 25.5h8M46 29h8M46 32.5h5" stroke="#6b6b78" stroke-width="1.2" stroke-linecap="round"/>
+    <circle class="led" cx="55" cy="35" r="1.6"/>`,
+  card: `<path d="M22 5h22a3 3 0 0 1 3 3v33a3 3 0 0 1-3 3H20a3 3 0 0 1-3-3V13l3-3z" fill="#34343d" stroke="#5c5c68"/><path d="M17 13l5-5v7h-5z" fill="#4a4a55"/>
+    <g fill="#d9b24a"><rect x="24" y="7" width="2.6" height="6" rx=".6"/><rect x="28" y="7" width="2.6" height="6" rx=".6"/><rect x="32" y="7" width="2.6" height="6" rx=".6"/><rect x="36" y="7" width="2.6" height="6" rx=".6"/><rect x="40" y="7" width="2.6" height="6" rx=".6"/></g>
+    <rect x="21" y="21" width="22" height="16" rx="2" fill="var(--pc, #8a5cf6)"/><path d="M24 26h12M24 30h8" stroke="rgba(0,0,0,.35)" stroke-width="2" stroke-linecap="round"/>
+    <circle class="led" cx="41" cy="40.5" r="1.4"/>`,
+  raid: `<rect x="12" y="3" width="40" height="42" rx="5" fill="#34343d" stroke="#5c5c68"/><rect x="12" y="3" width="40" height="7" rx="3" fill="var(--pc, #8a5cf6)"/>
+    <g fill="#1c1c22" stroke="#62626e" stroke-width=".8"><rect x="17" y="14" width="24" height="5.5" rx="1.2"/><rect x="17" y="21.5" width="24" height="5.5" rx="1.2"/><rect x="17" y="29" width="24" height="5.5" rx="1.2"/><rect x="17" y="36.5" width="24" height="5.5" rx="1.2"/></g>
+    <g class="leds"><circle class="led" cx="46" cy="16.75" r="1.5"/><circle class="led" cx="46" cy="24.25" r="1.5"/><circle class="led" cx="46" cy="31.75" r="1.5"/><circle class="led" cx="46" cy="39.25" r="1.5"/></g>`,
+};
+function drivePic(kind, color, on) {
+  return `<svg class="pic ${on ? "on" : ""}" viewBox="0 0 64 48" style="--pc:${color || "var(--muted)"}" aria-hidden="true">${PIC[kind] || PIC.hdd}</svg>`;
+}
+// capRing is how full a drive is, as a ring: pale until 70%, then
+// yellow, then red in the last 10%.
+function capRing(used, size) {
+  const pct = size ? Math.max(0, Math.min(100, (used / size) * 100)) : 0;
+  const r = 24, c = 2 * Math.PI * r;
+  const col = pct >= 90 ? "var(--bad)" : pct >= 85 ? "var(--orange)" : pct >= 70 ? "var(--warn)" : "var(--ring)";
+  return `<div class="ring" title="${pct.toFixed(0)}% full"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="${r}" class="track"/><circle cx="30" cy="30" r="${r}" class="fill" style="stroke:${col};stroke-dasharray:${c.toFixed(2)};stroke-dashoffset:${(c * (1 - pct / 100)).toFixed(2)}"/></svg><span class="pct" style="color:${pct >= 70 ? col : "var(--text)"}">${Math.round(pct)}<small>%</small></span></div>`;
+}
+// loadingGlyph is a hard drive being read, for every "loading" state.
+function loadingGlyph(text, small) {
+  return `<div class="loading ${small ? "small" : ""}"><svg class="pic reading" viewBox="0 0 64 48" aria-hidden="true">${PIC.hdd}</svg>${text ? `<p>${esc(text)}</p>` : ""}</div>`;
+}
+
 function driveCard(d) {
   const l = d.labels;
   const color = cardColor(d);
@@ -310,23 +359,23 @@ function driveCard(d) {
   const pct = d.size ? Math.min(100, (used / d.size) * 100) : 0;
   const who = [l.client, l.project].filter(Boolean);
   const sum = summaryText(d);
-  return `<article class="card ${S.selecting && S.selected.has(d.id) ? "picked" : ""}" style="--tint:${tint}" data-drive="${esc(d.id)}">
-    <div class="card-top">
-      <span class="dot" style="background:${dot}" title="${d.connected ? "Plugged in" : "Not plugged in"}"></span>
-      <span class="drive-ico">${ICON.drive}</span>
-      ${d.connected ? `<span class="badge live">Plugged in</span>` : ""}
-      ${S.selecting ? `<input type="checkbox" class="pick" data-pick="${esc(d.id)}" ${S.selected.has(d.id) ? "checked" : ""}>` : `<button class="icon-btn card-edit" data-act="edit" title="Edit labels">${ICON.edit}</button>`}
+  const kind = driveKind(d);
+  return `<article class="card ${S.selecting && S.selected.has(d.id) ? "picked" : ""} ${d.connected ? "live" : ""}" style="--tint:${tint}" data-drive="${esc(d.id)}" title="${esc(KINDS[kind])}${d.connected ? " · plugged in" : ""}">
+    <div class="card-head">
+      <div class="card-pic">${drivePic(kind, color || dot, d.connected)}</div>
+      <div class="card-main">
+        <div class="card-title"><h3>${hl(d.title)}</h3>${l.nickname ? `<span class="vol">(${hl(d.name)})</span>` : ""}</div>
+        ${who.length ? `<div class="meta-line">${ICON.person}<span>${who.map(hl).join(" &nbsp;·&nbsp; ")}</span></div>` : ""}
+        ${l.contact ? `<div class="meta-line">${ICON.mail}<span>${hl(l.contact)}</span></div>` : ""}
+        <div class="path" title="${esc(d.mount || d.lastMount)}">${esc(d.mount || d.lastMount)}</div>
+      </div>
+      ${capRing(used, d.size)}
     </div>
-    <div class="card-title"><h3>${hl(d.title)}</h3>${l.nickname ? `<span class="vol">(${hl(d.name)})</span>` : ""}</div>
-    ${who.length ? `<div class="meta-line">${ICON.person}<span>${who.map(hl).join(" &nbsp;·&nbsp; ")}</span></div>` : ""}
-    ${l.contact ? `<div class="meta-line">${ICON.mail}<span>${hl(l.contact)}</span></div>` : ""}
-    <div class="path" title="${esc(d.mount || d.lastMount)}">${esc(d.mount || d.lastMount)}</div>
-    ${capBar(used, d.size)}
-    <div class="cap">${bytes(d.size)}<span class="sep">•</span><span class="${lowSpace(d) ? "low" : ""}">Free ${bytes(d.free)}</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
+    <div class="cap"><b>${bytes(d.size)}</b><span class="sep">•</span><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)} free</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
     ${sum ? `<div class="summary">${esc(sum)}</div><button class="more" data-act="open">More</button>` : ""}
     <div class="badges">${backupBadge(d)}${checkBadge(d)}${projectBadges(d)}</div>
-    <div class="card-foot"><span>${d.connected ? "Plugged in now" : "Last seen • " + when(d.lastSeen)}</span>
-      <button class="btn small" data-act="open">Details</button></div>
+    <div class="card-foot"><span><i class="dot ${d.connected ? "live" : ""}" style="background:${dot};color:${dot}"></i>${d.connected ? "Plugged in now" : "Last seen • " + when(d.lastSeen)}</span>
+      <span class="card-acts">${S.selecting ? `<input type="checkbox" class="pick" data-pick="${esc(d.id)}" ${S.selected.has(d.id) ? "checked" : ""}>` : `<button class="icon-btn card-edit" data-act="edit" title="Edit labels">${ICON.edit}</button><button class="btn small" data-act="open">Details</button>`}</span></div>
   </article>`;
 }
 
@@ -483,11 +532,10 @@ function renderConnected() {
   const extra = [...unlogged.map((v) => ({ v, never: false })), ...neverLog.filter((d) => !logged.includes(d)).map((d) => ({ v: st.volumes.find((x) => x.id === d.id), never: true }))];
   if (extra.length) {
     html += `<div class="section-head"><h2>Not logged</h2><span>${extra.length}</span></div><div class="grid">`;
-    html += extra.map(({ v, never }) => `<article class="card"><div class="card-top"><span class="dot" style="background:var(--ok)"></span><span class="drive-ico">${ICON.drive}</span></div>
-      <div class="card-title"><h3>${esc(v.name)}</h3></div><div class="path">${esc(v.mount)}</div>
-      ${capBar(v.size - v.free, v.size)}
-      <div class="cap">${bytes(v.size)}<span class="sep">•</span>Free ${bytes(v.free)}</div>
-      <div class="card-foot"><span>${never ? "Set to never log" : "Being logged…"}</span>
+    html += extra.map(({ v, never }) => `<article class="card live"><div class="card-head"><div class="card-pic">${drivePic(driveKind({ name: v.name, title: v.name, size: v.size, solidState: v.solidState, bus: v.bus }), "", true)}</div>
+      <div class="card-main"><div class="card-title"><h3>${esc(v.name)}</h3></div><div class="path">${esc(v.mount)}</div></div>${capRing(v.size - v.free, v.size)}</div>
+      <div class="cap"><b>${bytes(v.size)}</b><span class="sep">•</span>${bytes(v.free)} free</div>
+      <div class="card-foot"><span><i class="dot live" style="background:var(--ok);color:var(--ok)"></i>${never ? "Set to never log" : "Being logged…"}</span>
       <button class="btn small primary" data-log="${esc(v.id)}">Log now</button></div></article>`).join("");
     html += "</div>";
   }
@@ -551,6 +599,7 @@ async function openDetail(id, refresh, focusLabels) {
           <div class="field"><label>Contact</label><input data-label="contact" value="${esc(l.contact)}" placeholder="Producer: name@company.com"></div>
           <div class="field"><label>Client</label><input data-label="client" value="${esc(l.client)}" placeholder="Client"></div>
           <div class="field"><label>Project</label><input data-label="project" value="${esc(l.project)}" placeholder="Project or show"></div>
+          <div class="field"><label>Picture on the card</label><select class="plain" data-label="icon"><option value="" ${l.icon ? "" : "selected"}>Automatic (${KINDS[driveKind({ ...d, labels: { ...l, icon: "" } })]}${d.bus ? ", " + esc(d.bus) : ""})</option>${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${l.icon === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
           <div class="field wide"><label>Notes</label><textarea data-label="notes" placeholder="Where it lives, who has it, what's on it…">${esc(l.notes)}</textarea></div>
           <div class="field wide"><label>Card colour (used when the drive is in no project, or when colouring by drive label)</label><div class="swatches">
             <button class="swatch none ${l.color ? "" : "on"}" data-color="" title="None"></button>
@@ -599,7 +648,7 @@ async function openDetail(id, refresh, focusLabels) {
       <div class="sec"><div class="sec-title">${ICON.folder}Browse drive <span style="color:var(--muted);font-weight:400;font-size:12px">Indexed • ${d.files.toLocaleString()} files${d.lastScan ? " • " + when(d.lastScan) : ""}</span></div>
         <div class="legend-line"><span><i class="sdot full"></i>Everything inside has a verified duplicate on another drive</span><span><i class="sdot partial"></i>Some of it does</span><span><i class="sdot likely"></i>Probably: same name and size elsewhere, not checksummed yet</span><span><i class="sdot none"></i>None of it does, or nothing known</span></div>
         <div class="search"><span class="search-icon">${ICON.search}</span><input id="tree-filter" type="search" placeholder="Filter by name…"></div>
-        <div class="tree" id="tree"><div class="tree-note">Loading…</div></div></div>
+        <div class="tree" id="tree">${loadingGlyph("", true)}</div></div>
 
       <div class="sec"><div class="sec-title">${ICON.history}History</div>
         <div class="history">${data.events.map((e) => `<div><span class="when">${short(e.at)}</span><span class="kind">${esc(e.kind)}</span><span class="${e.failures ? "fail" : ""}">${esc(e.summary)}</span></div>`).join("") || '<span style="color:var(--muted)">Nothing yet.</span>'}</div></div>
@@ -695,7 +744,7 @@ async function loadTree(id, dir, container, depth, filter) {
       const kids = row.nextElementSibling;
       const open = row.classList.toggle("open");
       kids.hidden = !open;
-      if (open && !kids.dataset.loaded) { kids.dataset.loaded = "1"; kids.innerHTML = `<div class="tree-note" style="padding-left:${28 + depth * 18}px">Loading…</div>`; loadTree(id, row.dataset.path, kids, depth + 1); }
+      if (open && !kids.dataset.loaded) { kids.dataset.loaded = "1"; kids.innerHTML = `<div style="padding-left:${28 + depth * 18}px">${loadingGlyph("", true)}</div>`; loadTree(id, row.dataset.path, kids, depth + 1); }
     };
   }
 }
@@ -722,7 +771,7 @@ async function loadProjects() {
 function renderProjects() {
   if (S.project) return renderProjectPage();
   const main = $("#main");
-  if (!S.projects) { main.innerHTML = `<div class="empty"><p>Loading…</p></div>`; loadProjects(); return; }
+  if (!S.projects) { main.innerHTML = loadingGlyph("Reading the library…"); loadProjects(); return; }
   const ps = S.projects;
   if (!ps.length) {
     main.innerHTML = `<div class="empty">${ICON.film}<h2>No projects yet</h2>
@@ -755,7 +804,7 @@ function renderProjectPage() {
   const main = $("#main");
   const data = S.projectData;
   if (!data || data.project.id !== S.project) {
-    main.innerHTML = `<div class="empty"><p>Loading…</p></div>`;
+    main.innerHTML = loadingGlyph("Reading the project…");
     loadProject(S.project);
     return;
   }
@@ -1233,7 +1282,7 @@ function jobShell(j) {
     <div class="job-progress"><div class="bar"><i></i></div><div class="job-stats"></div><div class="job-current"></div></div>
     <div class="job-outcome"></div>
     <details class="term-wrap" ${j.state === "running" ? "open" : ""}><summary>Terminal</summary>
-      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span class="term-title"></span><button class="term-copy" title="Copy the log">${ICON.copy}</button></div>
+      <div class="term"><div class="term-bar"><span class="term-title"></span><button class="term-copy" title="Copy the log">${ICON.copy}</button></div>
       <div class="term-body"><div class="t-prompt"><span class="ps">$</span> <span class="cmd"></span></div><div class="t-lines"></div><span class="cursor"></span></div></div>
     </details>`;
   el._count = 0;
@@ -1423,7 +1472,7 @@ function renderMedia() {
   let t;
   $("#m-q").oninput = (e) => { m.q = e.target.value; clearTimeout(t); t = setTimeout(loadMedia, 220); };
   $("#m-export").onclick = () => downloadCSV("/api/media.csv?" + mediaQuery(), `lumpy-clips-${new Date().toISOString().slice(0, 10)}.csv`);
-  if (S.mediaData) renderMediaTable(); else { $("#media-body").innerHTML = `<div class="empty"><p>Loading…</p></div>`; loadMedia(); }
+  if (S.mediaData) renderMediaTable(); else { $("#media-body").innerHTML = loadingGlyph("Reading the clips…"); loadMedia(); }
 }
 const CLIP_KEY = {
   name: (f) => f.path.split("/").pop().toLowerCase(), path: (f) => f.path.toLowerCase(), size: (f) => f.size, format: (f) => (f.container || "") + " " + (f.videoCodec || f.audioCodec || ""),
@@ -1750,8 +1799,6 @@ $("#refresh").innerHTML = ICON.refresh;
 $("#settings").innerHTML = ICON.gear;
 $("#activity-btn").insertAdjacentHTML("afterbegin", ICON.activity);
 $("#activity-btn").onclick = () => toggleActivity();
-$("#activity-close").innerHTML = ICON.x;
-$("#activity-close").onclick = () => toggleActivity(false);
 document.addEventListener("click", (e) => { if (!$("#activity-pop").hidden && !e.target.closest("#activity-pop, #activity-btn")) toggleActivity(false); });
 $("#settings").onclick = () => openSettings();
 $("#update-pill").onclick = () => openSettings("updates");

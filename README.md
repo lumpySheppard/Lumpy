@@ -153,6 +153,13 @@ both drives at once. No manifest is needed.
 
 ### Drive library
 
+Every drive is a card with a picture of what it is (a hard drive, an
+SSD, a camera card or a RAID enclosure, from what macOS says about it;
+change it under **Details → Labels → Picture on the card**), its light on
+when it is plugged in, and a ring showing how full it is: pale until
+70%, yellow after, red in the last 10%. Cards are tinted with the
+project's colour.
+
 Lumpy keeps a library of every drive it has seen in
 `~/Library/Application Support/Lumpy/catalog.db`. Drives are recognised by
 their volume UUID, so a renamed drive is still the same drive, and two cards
