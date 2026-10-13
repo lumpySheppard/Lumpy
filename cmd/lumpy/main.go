@@ -19,7 +19,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/job"
 )
 
-var version = "0.6.0"
+var version = "0.6.1"
 
 const usage = `Lumpy copies camera cards and drives to backup drives, verifies every copy,
 and keeps a library of every drive it has seen.
