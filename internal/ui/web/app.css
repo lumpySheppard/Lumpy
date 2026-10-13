@@ -263,6 +263,11 @@ table.list .name { display: flex; align-items: center; gap: 9px; font-weight: 60
 table.list .name small { color: var(--muted); font-weight: 400; }
 td .bar, td .hbar { width: 110px; margin: 0; }
 table.list.compact td { padding: 6px 10px; }
+table.grouped tr.grp td { background: rgba(255,255,255,.035); border-top: 1px solid var(--line-2); }
+table.grouped tr.grp:first-child td { border-top: 0; }
+table.grouped tr.grp .name small { color: var(--muted); font-weight: 400; margin-left: 2px; }
+table.grouped tr.sub td { padding-top: 4px; padding-bottom: 4px; color: var(--text-2); }
+table.grouped tr.sub td:first-child { width: 22px; padding-right: 0; }
 
 .section-head { display: flex; align-items: baseline; gap: 10px; margin: 26px 0 12px; }
 .section-head:first-child { margin-top: 0; }

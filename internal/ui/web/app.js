@@ -749,7 +749,19 @@ function renderProjectPage() {
   const connected = (id) => { const d = driveOf(id); return d && d.connected; };
   const dest = new Set(p.destIds);
   const anyDest = p.destIds.length === 0;
-  const groupRows = (gs, color, extra) => gs.map((g) => `<tr><td><div class="name" style="font-weight:500"><span class="dot" style="background:${connected(p.sources[g.source].driveId) ? "var(--ok)" : "var(--muted)"}"></span><span>${sourceLabel(p.sources[g.source])}</span></div></td><td class="mono">${g.folder === "." ? '<span class="hint">(top level)</span>' : esc(g.folder)}</td><td class="num">${g.files.toLocaleString()}</td><td class="num" style="color:${color}">${bytes(g.bytes)}</td>${extra ? extra(g) : ""}</tr>`).join("");
+  // One block per drive (or folder) in the project, its folders listed
+  // underneath, largest first.
+  const groupRows = (gs, color, extra) => {
+    const bySrc = new Map();
+    for (const g of gs) { if (!bySrc.has(g.source)) bySrc.set(g.source, []); bySrc.get(g.source).push(g); }
+    return [...bySrc.entries()].map(([si, list]) => ({ si, list, files: list.reduce((a, g) => a + g.files, 0), total: list.reduce((a, g) => a + g.bytes, 0) }))
+      .sort((a, b) => b.total - a.total)
+      .map(({ si, list, files, total }) => {
+        const src = p.sources[si];
+        return `<tr class="grp"><td colspan="2"><div class="name" style="font-weight:600"><span class="dot" style="background:${connected(src.driveId) ? "var(--ok)" : "var(--muted)"}"></span><span>${sourceLabel(src)}</span><small>${list.length} folder${list.length === 1 ? "" : "s"}</small></div></td><td class="num">${files.toLocaleString()}</td><td class="num" style="color:${color};font-weight:600">${bytes(total)}</td>${extra ? extra(src) : ""}</tr>`
+          + list.map((g) => `<tr class="sub"><td></td><td class="mono">${g.folder === "." ? '<span class="hint">(top level)</span>' : esc(g.folder)}</td><td class="num">${g.files.toLocaleString()}</td><td class="num">${bytes(g.bytes)}</td>${extra ? "<td></td>" : ""}</tr>`).join("");
+      }).join("");
+  };
 
   main.innerHTML = `
     <div class="phead">
@@ -797,10 +809,10 @@ function renderProjectPage() {
       </section>
 
       ${data.sole.length ? `<section class="panel"><h2>Files with too few copies</h2><p class="hint">Where the ${bytes(bad)} that isn't backed up enough lives, by folder.</p>
-        <table class="list compact"><thead><tr><th>In</th><th>Folder</th><th class="num">Files</th><th class="num">Size</th></tr></thead><tbody>${groupRows(data.sole, "var(--bad)")}</tbody></table></section>` : ""}
+        <table class="list compact grouped"><thead><tr><th colspan="2">Drive · folder</th><th class="num">Files</th><th class="num">Size</th></tr></thead><tbody>${groupRows(data.sole, "var(--bad)")}</tbody></table></section>` : ""}
 
       ${data.unknown.length ? `<section class="panel"><h2>Files with no checksum</h2><p class="hint">These can't be counted as copies of anything until they're checksummed. Plug the drive in and checksum its new files.</p>
-        <table class="list compact"><thead><tr><th>In</th><th>Folder</th><th class="num">Files</th><th class="num">Size</th><th></th></tr></thead><tbody>${groupRows(data.unknown, "var(--warn)", (g) => { const id = p.sources[g.source].driveId; return `<td class="num">${connected(id) ? `<button class="btn small" data-hash="${esc(id)}" ${driveOf(id).busy ? "disabled" : ""}>Checksum now</button>` : `<span class="hint">not plugged in</span>`}</td>`; })}</tbody></table></section>` : ""}
+        <table class="list compact grouped"><thead><tr><th colspan="2">Drive · folder</th><th class="num">Files</th><th class="num">Size</th><th></th></tr></thead><tbody>${groupRows(data.unknown, "var(--warn)", (src) => { const id = src.driveId; return `<td class="num">${connected(id) ? `<button class="btn small" data-hash="${esc(id)}" ${driveOf(id).busy ? "disabled" : ""}>Checksum now</button>` : `<span class="hint">not plugged in</span>`}</td>`; })}</tbody></table></section>` : ""}
     </div>
 
     <div>
