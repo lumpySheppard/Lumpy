@@ -88,9 +88,9 @@ func Check(ctx context.Context, token string) (*Release, error) {
 	case http.StatusOK:
 	case http.StatusNotFound:
 		if token == "" {
-			return nil, errors.New("no release found: the repository is private, so a GitHub token with read access to it is needed in Settings, or no version has been released yet")
+			return nil, errors.New("no version has been released yet (or the repository is private, in which case a GitHub token with read access to it goes in Settings)")
 		}
-		return nil, errors.New("no release found yet, or the token cannot see the repository")
+		return nil, errors.New("no version has been released yet, or the token cannot see the repository")
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return nil, fmt.Errorf("GitHub refused the token (HTTP %d)", res.StatusCode)
 	default:

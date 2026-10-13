@@ -100,7 +100,7 @@ func TestCheckAndInstallBundle(t *testing.T) {
 
 	// Without a token the private repository looks empty, and the error
 	// says what to do.
-	if _, err := Check(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "token") {
+	if _, err := Check(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "token") || !strings.Contains(err.Error(), "no version") {
 		t.Fatalf("expected a token hint, got %v", err)
 	}
 	rel, err := Check(context.Background(), "tok")
