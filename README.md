@@ -311,8 +311,9 @@ private, the check needs a GitHub token that can read it: Settings →
 **GitHub token**, or `lumpy update token TOKEN`; a fine-grained token with
 *Contents: read* on this repository is enough.)
 
-To publish a version: `git tag v0.6.0 && git push origin v0.6.0`. The
-Release workflow builds the app, attaches `Lumpy-macOS.zip`,
+To publish a version: GitHub → **Actions** → **Release** → *Run
+workflow* → enter the version (e.g. `0.6.0`). The workflow tags the
+commit, builds the app, attaches `Lumpy-macOS.zip`,
 `lumpy-macos-universal.zip` and `SHA256SUMS`, and writes the notes from
 the merged pull requests.
 

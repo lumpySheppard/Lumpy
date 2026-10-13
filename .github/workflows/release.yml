@@ -1,17 +1,29 @@
 name: Release
 
-# Tag a version to publish it: git tag v0.6.0 && git push origin v0.6.0
-# The app's "Install update" and `lumpy update` read these releases.
+# Publishes a version: Actions → Release → "Run workflow" → version
+# (e.g. 0.6.0). The run tags the commit, builds Lumpy.app and the bare
+# binary, and attaches them with SHA256SUMS to a GitHub Release. The
+# app's "Install update" and `lumpy update` read these releases.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, without the v (e.g. 0.6.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: macos-latest
+    env:
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -20,7 +32,7 @@ jobs:
       - run: go test ./...
       - name: Build Lumpy.app and the bare binary
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
           macos/build-app.sh "$VERSION"
           dist/Lumpy.app/Contents/Resources/lumpy version | grep -q "$VERSION"
           ditto -c -k --keepParent dist/Lumpy.app Lumpy-macOS.zip
@@ -30,7 +42,9 @@ jobs:
           cat SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
-          name: Lumpy ${{ github.ref_name }}
+          tag_name: v${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Lumpy ${{ inputs.version }}
           generate_release_notes: true
           files: |
             Lumpy-macOS.zip

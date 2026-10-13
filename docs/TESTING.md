@@ -209,9 +209,9 @@ reload once more: it updated again on the way out.
 
 ## 11. Updating in place
 
-Needs a release to exist: `git tag v0.6.0 && git push origin v0.6.0`
-(CI publishes it in a few minutes). The repository is public, so no
-token is needed.
+Needs a release to exist: GitHub → Actions → **Release** → *Run
+workflow* → `0.6.0` (published in a few minutes). The repository is
+public, so no token is needed.
 
 1. Gear → **Check now**.
 
