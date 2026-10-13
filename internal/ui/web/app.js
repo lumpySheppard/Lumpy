@@ -1119,12 +1119,21 @@ function updateJob(el, j) {
   badge.textContent = label;
   el.querySelector(".job-head .when").textContent = short(j.started) + (j.ended ? " · " + duration(j.ended - j.started || 1) : "");
   const actions = el.querySelector(".job-head .actions");
-  const wantCancel = running ? "1" : "";
+  const wantCancel = running ? "1" : j.params ? "again" : "";
   if (actions.dataset.cancel !== wantCancel) {
     actions.dataset.cancel = wantCancel;
-    actions.innerHTML = running ? `<button class="btn small" data-cancel="${j.id}">${ICON.x}Cancel</button>` : "";
+    actions.innerHTML = running ? `<button class="btn small" data-cancel="${j.id}">${ICON.x}Cancel</button>`
+      : j.params ? `<button class="btn small" title="Fill the offload form with this job's source and destinations">${ICON.refresh}Run again</button>` : "";
     const b = actions.querySelector("button");
-    if (b) b.onclick = async () => { try { await api(`/api/jobs/${j.id}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, true); } };
+    if (b && running) b.onclick = async () => { try { await api(`/api/jobs/${j.id}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, true); } };
+    else if (b) b.onclick = () => {
+      // Same source, same destinations: a disconnected card or a
+      // cancelled run is picked up where it stopped.
+      S.offload = { source: j.params.source || "", dests: (j.params.dests || []).slice(), name: j.params.name || "", sourceCheck: j.params.sourceCheck !== false };
+      toggleActivity(false);
+      S.tab = "offload"; S.project = null; localSet("tab", S.tab); render();
+      toast("Offload form filled in from that job. Check it and press Start offload.");
+    };
   }
 
   const prog = el.querySelector(".job-progress");

@@ -28,6 +28,9 @@ type Job struct {
 	Failures int
 	Warnings int
 	Error    string
+	// Params are what started the job, so it can be run again: an
+	// offload's source, destinations and name.
+	Params map[string]any
 
 	mu     sync.Mutex
 	lines  []string
@@ -68,6 +71,7 @@ type JobView struct {
 	Warnings int                `json:"warnings"`
 	Error    string             `json:"error,omitempty"`
 	Progress *job.ProgressState `json:"progress"`
+	Params   map[string]any     `json:"params,omitempty"`
 	Lines    []string           `json:"lines"`
 	// LineCount is how many lines the job has written in all; Lines are
 	// the last of them.
@@ -81,7 +85,7 @@ func (j *Job) view(tail int) JobView {
 		lines = lines[len(lines)-tail:]
 	}
 	v := JobView{ID: j.ID, Kind: j.Kind, Title: j.Title, Command: j.Command, DriveID: j.DriveID, State: j.State, LineCount: j.count,
-		Started: j.Started, Ended: j.Ended, Failures: j.Failures, Warnings: j.Warnings, Error: j.Error,
+		Started: j.Started, Ended: j.Ended, Failures: j.Failures, Warnings: j.Warnings, Error: j.Error, Params: j.Params,
 		Lines: append([]string(nil), lines...)}
 	running := j.State == "running"
 	rep := j.report // set once in Start, never changed

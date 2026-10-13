@@ -726,10 +726,14 @@ func (s *Server) offload(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	s.db.RememberOffload(body.Source, body.Dests)
 	title := fmt.Sprintf("Offload %s to %d drive(s)", name, len(body.Dests))
+	params := map[string]any{"source": body.Source, "dests": body.Dests, "name": body.Name, "sourceCheck": !skip}
 	j := s.jobs.Start("offload", title, strings.Join(cmd, " "), "", func(ctx context.Context, rep *job.Report) error {
 		return job.Offload(ctx, job.OffloadOptions{Source: body.Source, Dests: body.Dests, Name: body.Name,
 			Meta: s.meta, Library: s.db, SkipSourceVerify: skip}, rep)
 	})
+	j.mu.Lock()
+	j.Params = params
+	j.mu.Unlock()
 	return map[string]any{"job": j.ID}, nil
 }
 
