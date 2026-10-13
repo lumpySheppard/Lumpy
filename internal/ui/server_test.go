@@ -122,8 +122,13 @@ func TestOffloadAndLibraryThroughAPI(t *testing.T) {
 	}
 	var entries []catalog.Entry
 	call(t, s, ts, "GET", "/api/drives/"+card.ID+"/list?dir=CLIPS", "", &entries)
-	if len(entries) != 1 || entries[0].Name != "C001.mov" || entries[0].XXH64 == "" {
+	if len(entries) != 1 || entries[0].Name != "C001.mov" || entries[0].XXH64 == "" || entries[0].Copies != 1 || entries[0].Backed != 1 {
 		t.Fatalf("list: %+v", entries)
+	}
+	// The folder above rolls its contents up: 1 of 1 files backed up.
+	call(t, s, ts, "GET", "/api/drives/"+card.ID+"/list", "", &entries)
+	if len(entries) != 1 || !entries[0].Folder || entries[0].Files != 1 || entries[0].Backed != 1 || entries[0].BackedBytes != 7 {
+		t.Fatalf("top list: %+v", entries)
 	}
 
 	// A drive that is not plugged in gets its check queued.

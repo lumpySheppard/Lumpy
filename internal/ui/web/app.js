@@ -174,30 +174,47 @@ async function loadJobs() {
 }
 
 // ---------- rendering ----------
-// ratioBar draws bytes by backup state: green has enough copies, yellow
-// has some but not enough, red is a sole copy, grey has no checksum.
-function ratioBar(parts, total, withKey) {
-  total = total || 1;
-  const order = [["backed", "Backed up"], ["short", "Not enough copies"], ["sole", "Sole copy"], ["likely", "Probably backed up"], ["unknown", "No checksum"], ["damaged", "Damaged"]];
-  const bar = `<div class="hbar ${withKey ? "" : "thin"}">${order.map(([k]) => parts[k] ? `<i class="${k}" style="width:${((parts[k] / total) * 100).toFixed(2)}%" title="${k}: ${bytes(parts[k])}"></i>` : "").join("")}</div>`;
-  if (!withKey) return bar;
-  return bar + `<div class="hkey">${order.filter(([k]) => parts[k]).map(([k, label]) => `<span><i class="${k}" style="background:${{ backed: "var(--ok)", short: "var(--warn)", sole: "var(--bad)", likely: "var(--blue)", unknown: "#4a4a52", damaged: "#8a1c1c" }[k]}"></i>${label} <b>${bytes(parts[k])}</b> (${Math.round((parts[k] / total) * 100)}%)</span>`).join("")}</div>`;
+// backupState sums up how well something is backed up: "full" when every
+// checksummed file has a copy on another drive and nothing is unproven,
+// "partial" when some do, "none" when nothing does, "unknown" when no
+// file has a checksum yet, "empty" when there are no files.
+function backupState(backed, total, unknown) {
+  if (!total) return "empty";
+  if (unknown >= total) return "unknown";
+  if (backed <= 0) return "none";
+  if (backed >= total - unknown && !unknown) return "full";
+  return "partial";
+}
+const STATE_LABEL = { full: "Verified backup", partial: "", none: "No backup", unknown: "No checksums yet", empty: "Empty" };
+// backupBar draws one bar for a backup state: green fill when complete,
+// yellow fill for the backed-up share, red label when there is none, a
+// hatched grey share for files without a checksum.
+function backupBar(backed, total, unknown, opts = {}) {
+  const st = backupState(backed, total, unknown);
+  const t = total || 1;
+  const fill = st === "full" ? "fill-full" : "fill-partial";
+  const label = opts.label !== undefined ? opts.label : st === "partial"
+    ? `${opts.unit === "files" ? backed.toLocaleString() + " of " + total.toLocaleString() + " files" : bytes(backed) + " of " + bytes(total)} backed up${unknown ? ` · ${opts.unit === "files" ? unknown.toLocaleString() + " unproven" : bytes(unknown) + " unproven"}` : ""}`
+    : STATE_LABEL[st];
+  return `<div class="bbar s-${st} ${opts.size || ""}" title="${esc(st === "full" ? "Every file here has a checksum-matched copy on another drive" : st === "none" ? "No file here has a copy on another drive" : st === "unknown" ? "Files have no checksum yet, so copies can't be proven" : "")}">
+    <div class="track">${backed > 0 ? `<i class="${fill}" style="width:${((backed / t) * 100).toFixed(2)}%"></i>` : ""}${unknown > 0 ? `<i class="fill-unknown" style="width:${((unknown / t) * 100).toFixed(2)}%"></i>` : ""}</div>
+    <span class="lbl">${st === "full" ? ICON.check : st === "none" ? ICON.warn : ""}${esc(label)}</span></div>`;
+}
+// capBar is the plain capacity gradient.
+function capBar(used, size) {
+  return `<div class="bar cap"><i style="width:${size ? Math.min(100, (used / size) * 100).toFixed(1) : 0}%"></i></div>`;
 }
 
-function capClass(used, size) {
-  const p = size ? used / size : 0;
-  return p > 0.95 ? "full" : p > 0.85 ? "hi" : p > 0.6 ? "mid" : "lo";
-}
 
 function backupBadge(d) {
   const b = d.backups;
   if (d.damaged) return `<span class="badge bad">${ICON.warn}${d.damaged} damaged</span>`;
   if (!b || !d.files) return "";
-  const missing = b.short + b.none + b.unknown;
-  if (b.minCopies < 0) return `<span class="badge">${ICON.dash}No checksums yet</span>`;
-  if (missing > 0) return `<span class="badge bad">${ICON.warn}${missing.toLocaleString()} not backed up</span>`;
-  if (b.likely > 0) return `<span class="badge warn">${ICON.warn}${b.likely.toLocaleString()} unproven</span>`;
-  return `<span class="badge ok">${ICON.check}${b.minCopies}× backed up</span>`;
+  const st = backupState(b.enough + b.short, b.files, b.unknown + b.likely);
+  if (st === "unknown") return `<span class="badge">${ICON.dash}No checksums yet</span>`;
+  if (st === "none") return `<span class="badge bad">${ICON.warn}No backup</span>`;
+  if (st === "full") return `<span class="badge ok">${ICON.check}Verified backup</span>`;
+  return `<span class="badge warn">${(b.enough + b.short).toLocaleString()} of ${b.files.toLocaleString()} files backed up</span>`;
 }
 function checkBadge(d) {
   if (d.busy) return `<span class="badge info">${ICON.clock}Working…</span>`;
@@ -244,8 +261,8 @@ function driveCard(d) {
     ${who.length ? `<div class="meta-line">${ICON.person}<span>${who.map(hl).join(" &nbsp;·&nbsp; ")}</span></div>` : ""}
     ${l.contact ? `<div class="meta-line">${ICON.mail}<span>${hl(l.contact)}</span></div>` : ""}
     <div class="path" title="${esc(d.mount || d.lastMount)}">${esc(d.mount || d.lastMount)}</div>
-    <div class="bar ${capClass(used, d.size)}"><i style="width:${pct.toFixed(1)}%"></i></div>
-    <div class="cap">${bytes(d.size)}<span class="sep">•</span>Free ${bytes(d.free)}<span class="sep">•</span>${d.files.toLocaleString()} files</div>
+    ${capBar(used, d.size)}
+    <div class="cap">${bytes(d.size)}<span class="sep">•</span><span class="${d.size && d.free < d.size * 0.05 ? "low" : ""}">Free ${bytes(d.free)}</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
     ${sum ? `<div class="summary">${esc(sum)}</div><button class="more" data-act="open">More</button>` : ""}
     <div class="badges">${backupBadge(d)}${checkBadge(d)}${projectBadges(d)}</div>
     <div class="card-foot"><span>${d.connected ? "Plugged in now" : "Last seen • " + when(d.lastSeen)}</span>
@@ -334,7 +351,7 @@ function drivesHTML(ds) {
         const used = Math.max(0, d.size - d.free);
         return `<tr class="row" data-drive="${esc(d.id)}"><td><div class="name"><span class="dot" style="background:${d.connected ? "var(--ok)" : COLORS[d.labels.color] || "var(--muted)"}"></span>${hl(d.title)}${d.labels.nickname ? ` <small>${esc(d.name)}</small>` : ""}</div></td>
           <td>${esc([d.labels.client, d.labels.project].filter(Boolean).join(" · "))}</td>
-          <td class="num">${bytes(d.size)}</td><td><div class="bar ${capClass(used, d.size)}"><i style="width:${d.size ? ((used / d.size) * 100).toFixed(1) : 0}%"></i></div></td>
+          <td class="num">${bytes(d.size)}</td><td>${capBar(used, d.size)}</td>
           <td class="num">${bytes(d.free)}</td><td class="num">${d.files.toLocaleString()}</td>
           <td>${backupBadge(d)}</td><td>${checkBadge(d) || '<span class="badge">Never</span>'}</td>
           <td>${d.connected ? '<span class="badge live">Plugged in</span>' : short(d.lastSeen)}</td></tr>`;
@@ -395,7 +412,7 @@ function renderConnected() {
     html += `<div class="section-head"><h2>Not logged</h2><span>${extra.length}</span></div><div class="grid">`;
     html += extra.map(({ v, never }) => `<article class="card"><div class="card-top"><span class="dot" style="background:var(--ok)"></span><span class="drive-ico">${ICON.drive}</span></div>
       <div class="card-title"><h3>${esc(v.name)}</h3></div><div class="path">${esc(v.mount)}</div>
-      <div class="bar ${capClass(v.size - v.free, v.size)}"><i style="width:${v.size ? (((v.size - v.free) / v.size) * 100).toFixed(1) : 0}%"></i></div>
+      ${capBar(v.size - v.free, v.size)}
       <div class="cap">${bytes(v.size)}<span class="sep">•</span>Free ${bytes(v.free)}</div>
       <div class="card-foot"><span>${never ? "Set to never log" : "Being logged…"}</span>
       <button class="btn small primary" data-log="${esc(v.id)}">Log now</button></div></article>`).join("");
@@ -469,7 +486,7 @@ async function openDetail(id, refresh, focusLabels) {
 
       <div class="sec"><div class="sec-title">${ICON.gauge}Capacity</div>
         <div class="box"><dl class="kv"><dt>Total</dt><dd>${bytes(d.size)}</dd><dt>Used</dt><dd>${bytes(used)}</dd><dt>Free</dt><dd>${bytes(d.free)}</dd></dl>
-        <div class="bar ${capClass(used, d.size)}" style="height:7px;margin-top:10px"><i style="width:${d.size ? ((used / d.size) * 100).toFixed(1) : 0}%;background:var(--accent)"></i></div></div></div>
+        <div style="margin-top:10px">${capBar(used, d.size).replace('class="bar cap"', 'class="bar cap" style="height:7px"')}</div></div></div>
 
       <div class="sec"><div class="sec-title">${ICON.shield}Backups &amp; checks
           <div class="right">
@@ -477,7 +494,7 @@ async function openDetail(id, refresh, focusLabels) {
             ${d.connected ? `<button class="btn small" id="hash" ${d.busy ? "disabled" : ""}>Checksum new files</button>` : ""}
             <button class="btn small primary" id="verify" ${d.busy || (d.verifyRequested && !d.connected) ? "disabled" : ""}>${d.connected ? "Check drive now" : d.verifyRequested ? "Check queued" : "Queue check"}</button>
           </div></div>
-        ${ratioBar({ backed: b.enoughBytes, short: b.shortBytes, sole: b.noneBytes, likely: b.likelyBytes, unknown: b.unknownBytes, damaged: b.damagedBytes }, b.bytes, true)}
+        ${backupBar(b.enoughBytes + b.shortBytes, b.bytes, b.likelyBytes + b.unknownBytes, { size: "big" })}
         <div class="stat-row" style="margin-top:12px">
           <div class="stat ${missing ? "bad" : b.minCopies > 0 ? "ok" : ""}"><div class="v">${b.minCopies < 0 ? "—" : missing ? missing.toLocaleString() : b.minCopies + "×"}</div><div class="l">${b.minCopies < 0 ? "no checksums yet" : missing ? "files not backed up" : "fewest copies elsewhere"}</div></div>
           <div class="stat"><div class="v">${d.files ? Math.round((d.hashed / d.files) * 100) : 0}%</div><div class="l">${d.hashed.toLocaleString()} of ${d.files.toLocaleString()} checksummed</div></div>
@@ -489,13 +506,11 @@ async function openDetail(id, refresh, focusLabels) {
         ${b.problems && b.problems.length ? `<p class="hint" style="margin:12px 0 0;color:var(--text-2);font-weight:550">Needs attention${b.problems.length >= 200 ? " (first 200)" : ""}: not backed up${b.damaged ? ", or damaged on this drive" : ""}</p><div class="problems">${b.problems.map((p) => `<div>${esc(p)}</div>`).join("")}</div>` : ""}
       </div>
 
-      <div class="sec"><div class="sec-title">${ICON.pie}Contents by folder <span class="hint" style="font-weight:400">backed up elsewhere vs sole copy</span>
+      <div class="sec"><div class="sec-title">${ICON.pie}Contents by folder <span class="hint" style="font-weight:400">which top-level folders have a copy elsewhere</span>
           <div class="right">${d.connected ? `<button class="btn small" id="rescan" ${d.busy ? "disabled" : ""}>${ICON.refresh}Rescan</button>` : ""}</div></div>
-        ${folders.length ? `<table class="list compact"><thead><tr><th>Folder</th><th class="num">Size</th><th>Backed up</th><th class="num">Sole copy</th><th class="num">No checksum</th></tr></thead><tbody>
-          ${folders.map((f) => `<tr><td><div class="name" style="font-weight:500">${f.folder ? ICON.folder.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"') : ICON.file.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"')}${esc(f.name)}</div></td>
-            <td class="num">${bytes(f.bytes)}</td><td>${ratioBar({ backed: f.backedBytes, sole: f.soleBytes, unknown: f.unknownBytes }, f.bytes, false)}</td>
-            <td class="num" style="color:${f.soleBytes ? "var(--bad)" : "var(--muted)"}">${f.soleBytes ? bytes(f.soleBytes) : "—"}</td>
-            <td class="num" style="color:${f.unknownBytes ? "var(--warn)" : "var(--muted)"}">${f.unknownBytes ? bytes(f.unknownBytes) : "—"}</td></tr>`).join("")}</tbody></table>`
+        ${folders.length ? `<table class="list compact"><thead><tr><th>Folder</th><th class="num">Size</th><th style="width:45%">Backup</th></tr></thead><tbody>
+          ${folders.map((f) => { const st = backupState(f.backedBytes, f.bytes, f.unknownBytes); return `<tr><td><div class="name" style="font-weight:500"><span class="sdot ${st}"></span>${f.folder ? ICON.folder.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"') : ICON.file.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"')}${esc(f.name)}</div></td>
+            <td class="num">${bytes(f.bytes)}</td><td>${backupBar(f.backedBytes, f.bytes, f.unknownBytes, { size: "tiny" })}</td></tr>`; }).join("")}</tbody></table>`
           : `<span class="hint">No files recorded on this drive.</span>`}
       </div>
 
@@ -506,6 +521,7 @@ async function openDetail(id, refresh, focusLabels) {
       ${summaryText(d) ? `<div class="sec"><div class="sec-title">${ICON.search}Top-level summary</div><div style="color:var(--text-2)">${esc(summaryText(d))}</div></div>` : ""}
 
       <div class="sec"><div class="sec-title">${ICON.folder}Browse drive <span style="color:var(--muted);font-weight:400;font-size:12px">Indexed • ${d.files.toLocaleString()} files${d.lastScan ? " • " + when(d.lastScan) : ""}</span></div>
+        <div class="legend-line"><span><i class="sdot full"></i>Everything inside has a verified duplicate on another drive</span><span><i class="sdot partial"></i>Some of it does</span><span><i class="sdot none"></i>None of it does, or no checksums yet</span></div>
         <div class="search"><span class="search-icon">${ICON.search}</span><input id="tree-filter" type="search" placeholder="Filter by name…"></div>
         <div class="tree" id="tree"><div class="tree-note">Loading…</div></div></div>
 
@@ -564,11 +580,22 @@ function wireDetail(d) {
 }
 
 function statusIcon(e) {
-  if (e.damaged) return `<span class="bad" title="Failed its last check">${ICON.warn}</span>`;
+  if (e.damaged && !e.folder) return `<span class="bad" title="Failed its last check">${ICON.warn}</span>`;
   if (e.folder) return "";
   if (e.verified) return `<span class="ok" title="Read back and matched">${ICON.check}</span>`;
   if (e.xxh64) return `<span class="none" title="xxh64 ${esc(e.xxh64)}">${ICON.check}</span>`;
   return `<span class="none" title="No checksum yet">${ICON.dash}</span>`;
+}
+// entryDot is the backup dot for a folder (rolled up from its contents)
+// or a file, with a short count for folders.
+function entryDot(e) {
+  const st = e.folder ? backupState(e.backed, e.files, e.unknown) : (e.damaged ? "damaged" : e.copies > 0 ? "full" : e.unknown ? "unknown" : "none");
+  const title = e.folder
+    ? (st === "full" ? "Every file inside has a copy on another drive" : st === "partial" ? `${e.backed.toLocaleString()} of ${e.files.toLocaleString()} files have a copy elsewhere${e.unknown ? `, ${e.unknown.toLocaleString()} have no checksum` : ""}` : st === "unknown" ? "No checksums yet" : "No file inside has a copy on another drive")
+    : (st === "full" ? `Copy on ${e.copies} other drive${e.copies === 1 ? "" : "s"}` : st === "damaged" ? "Failed its last check" : st === "unknown" ? "No checksum yet" : "No copy on another drive");
+  const dot = `<span class="sdot ${st === "unknown" ? "none" : st}" title="${esc(title)}"></span>`;
+  const text = e.folder && e.files ? `<span class="bk ${st}">${st === "full" ? "all " + e.files.toLocaleString() : st === "none" || st === "unknown" ? "0 of " + e.files.toLocaleString() : e.backed.toLocaleString() + " of " + e.files.toLocaleString()}</span>` : `<span class="bk"></span>`;
+  return [dot, text];
 }
 
 async function loadTree(id, dir, container, depth, filter) {
@@ -576,10 +603,10 @@ async function loadTree(id, dir, container, depth, filter) {
   try { entries = await api(`/api/drives/${encodeURIComponent(id)}/list?dir=${encodeURIComponent(dir)}&filter=${encodeURIComponent(filter || "")}`); }
   catch (e) { container.innerHTML = `<div class="tree-note">${esc(e.message)}</div>`; return; }
   if (!entries.length) { container.innerHTML = `<div class="tree-note">${filter ? "No files match." : "Empty."}</div>`; return; }
-  container.innerHTML = entries.map((e) => `<div class="tree-row ${e.folder ? "folder" : ""}" data-path="${esc(e.path)}" style="padding-left:${10 + depth * 18}px">
-      <div class="nm">${e.folder ? ICON.chev + ICON.folder : '<span style="width:12px"></span>' + ICON.file}<span title="${esc(e.path)}">${esc(e.name)}</span></div>
-      <span class="sz">${bytes(e.bytes)}${e.folder ? ` · ${e.files.toLocaleString()}` : ""}</span><span class="st">${e.folder ? `<button class="icon-btn mini" data-addsrc="${esc(e.path)}" title="Add this folder to a project">${ICON.plus}</button>` : statusIcon(e)}</span></div>
-      ${e.folder ? `<div class="kids" hidden></div>` : ""}`).join("") + (entries.length >= 2000 ? `<div class="tree-note">Showing the first 2,000.</div>` : "");
+  container.innerHTML = entries.map((e) => { const [dot, bk] = entryDot(e); return `<div class="tree-row ${e.folder ? "folder" : ""}" data-path="${esc(e.path)}" style="padding-left:${10 + depth * 18}px">
+      <div class="nm">${e.folder ? ICON.chev : '<span style="width:12px"></span>'}${dot}${e.folder ? ICON.folder : ICON.file}<span title="${esc(e.path)}">${esc(e.name)}</span></div>
+      ${bk}<span class="sz">${bytes(e.bytes)}${e.folder ? ` · ${e.files.toLocaleString()}` : ""}</span><span class="st">${e.folder ? `<button class="icon-btn mini" data-addsrc="${esc(e.path)}" title="Add this folder to a project">${ICON.plus}</button>` : statusIcon(e)}</span></div>
+      ${e.folder ? `<div class="kids" hidden></div>` : ""}`; }).join("") + (entries.length >= 2000 ? `<div class="tree-note">Showing the first 2,000.</div>` : "");
   for (const b of container.querySelectorAll(":scope > .tree-row.folder [data-addsrc]")) b.onclick = (e) => {
     e.stopPropagation();
     addToProjectDialog([{ driveId: id, folder: b.dataset.addsrc }], () => openDetail(id, false));
@@ -596,9 +623,6 @@ async function loadTree(id, dir, container, depth, filter) {
 
 
 // ---------- projects ----------
-function healthParts(h) {
-  return { backed: h.backedBytes, short: h.shortBytes, sole: h.soleBytes, unknown: h.unknownBytes, damaged: h.lostBytes };
-}
 function driveTitle(id) {
   const d = (S.state.drives || []).find((x) => x.id === id);
   return d ? d.title : id;
@@ -633,9 +657,9 @@ function renderProjects() {
         return `<article class="card pcard" style="--tint:${COLORS[p.color] || "transparent"}" data-open-project="${p.id}">
           <div class="card-top"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span><span class="drive-ico">${ICON.film}</span></div>
           <div class="card-title"><h3>${esc(p.name)}</h3><span class="vol">${p.sources.length} folder${p.sources.length === 1 ? "" : "s"} · ${p.target} copies wanted</span></div>
-          ${ratioBar(healthParts(h), h.bytes, false)}
-          <div class="cap">${bytes(h.bytes)}<span class="sep">•</span>${h.contents.toLocaleString()} files</div>
-          <div class="badges">${bad ? `<span class="badge bad">${ICON.warn}${bytes(bad)} not backed up enough</span>` : h.bytes ? `<span class="badge ok">${ICON.check}Everything has ${p.target} copies</span>` : `<span class="badge">Empty</span>`}${h.unknownBytes ? `<span class="badge warn">${bytes(h.unknownBytes)} unproven</span>` : ""}${h.damaged ? `<span class="badge bad">${h.damaged} damaged</span>` : ""}</div>
+          ${backupBar(h.backedBytes, h.bytes, h.unknownBytes)}
+          <div class="cap">${bytes(h.bytes)}<span class="sep">•</span>${h.contents.toLocaleString()} files${bad ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(bad)} still to copy</span>` : ""}</div>
+          <div class="badges">${h.damaged ? `<span class="badge bad">${h.damaged} damaged</span>` : ""}</div>
           <div class="card-foot"><span>${p.sources.map((src) => driveTitle(src.driveId) + (src.folder ? "/" + src.folder : "")).join(", ") || "No folders yet"}</span><button class="btn small">Open</button></div></article>`;
       }).join("")}</div>`;
   }
@@ -679,7 +703,7 @@ function renderProjectPage() {
       <section class="panel">
         <h2>Health</h2>
         <p class="hint">Every distinct file in this project should be on at least ${p.target} different drive${p.target === 1 ? "" : "s"}. Copies anywhere in the library count. Files are matched by checksum, so the same clip in two folders counts once.</p>
-        ${h.bytes ? ratioBar(healthParts(h), h.bytes, true) : `<p class="hint">${p.sources.length ? "No files recorded in these folders yet." : "Add a folder or a drive on the right to get started."}</p>`}
+        ${h.bytes ? backupBar(h.backedBytes, h.bytes, h.unknownBytes, { size: "big" }) : `<p class="hint">${p.sources.length ? "No files recorded in these folders yet." : "Add a folder or a drive on the right to get started."}</p>`}
         <div class="stat-row" style="margin-top:14px">
           <div class="stat ${h.bytes && !bad ? "ok" : ""}"><div class="v">${h.bytes ? Math.round((h.backedBytes / h.bytes) * 100) : 0}%</div><div class="l">backed up (${bytes(h.backedBytes)}, ${h.backed.toLocaleString()} files)</div></div>
           <div class="stat ${h.soleBytes ? "bad" : "dim"}"><div class="v">${bytes(h.soleBytes)}</div><div class="l">sole copies (${h.sole.toLocaleString()} files)</div></div>
@@ -725,8 +749,8 @@ function renderProjectPage() {
           return `<div class="step-card" style="margin-bottom:10px">
             <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : (d && COLORS[d.labels.color]) || "var(--muted)"}"></span><b style="min-width:0;overflow:hidden;text-overflow:ellipsis">${sourceLabel(sh)}</b>
               <div class="right"><button class="btn small" data-drive-open="${esc(sh.driveId)}">Drive</button><button class="icon-btn" data-remove-src="${i}" title="Remove from project">${ICON.x}</button></div></div>
-            ${ratioBar({ backed: sh.backedBytes, short: sh.shortBytes, sole: sh.soleBytes, unknown: sh.unknownBytes }, sh.bytes || 1, false)}
-            <div class="cap">${sh.soleBytes ? `<span style="color:var(--bad)">${bytes(sh.soleBytes)} sole copies</span>` : `<span style="color:var(--ok)">no sole copies</span>`}<span class="sep">•</span>${bytes(sh.bytes)} · ${sh.files.toLocaleString()} files${sh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.extraBytes)} on more drives than needed</span>` : ""}${d && !d.connected ? `<span class="sep">•</span><span class="hint">last seen ${new Date(d.lastSeen * 1000).toLocaleDateString()}</span>` : ""}</div></div>`;
+            ${backupBar(sh.backedBytes, sh.bytes, sh.unknownBytes)}
+            <div class="cap">${bytes(sh.bytes)} · ${sh.files.toLocaleString()} files${sh.soleBytes + sh.shortBytes ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(sh.soleBytes + sh.shortBytes)} still to copy</span>` : ""}${sh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.extraBytes)} on more drives than needed</span>` : ""}${d && !d.connected ? `<span class="sep">•</span><span class="hint">last seen ${new Date(d.lastSeen * 1000).toLocaleDateString()}</span>` : ""}</div></div>`;
         }).join("")}
         <button class="btn" id="proj-add-src">${ICON.plus}Add a folder or drive…</button>
       </section>

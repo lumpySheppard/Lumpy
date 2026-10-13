@@ -53,12 +53,54 @@ type Entry struct {
 	XXH64    string `json:"xxh64,omitempty"`
 	Verified bool   `json:"verified,omitempty"`
 	Damaged  bool   `json:"damaged,omitempty"`
+	// Backup state, from copies elsewhere in the library: how many files
+	// inside (or this file, 0 or 1) have a copy on another drive, how
+	// many have no checksum, how many damaged copies, and the bytes of
+	// files with a copy.
+	Backed      int   `json:"backed"`
+	BackedBytes int64 `json:"backedBytes"`
+	Unknown     int   `json:"unknown"`
+	Copies      int   `json:"copies,omitempty"` // for a file: drives holding a copy
+}
+
+// FileState is what the library knows about one file's backups.
+type FileState struct {
+	Copies  int  // other drives holding a good copy
+	Unknown bool // no checksum
+	Damaged bool // failed its last check
+}
+
+// BackupStates returns the backup state of every file on a drive, by path.
+func (db *DB) BackupStates(driveID string) (map[string]FileState, error) {
+	cov, err := db.Coverage(driveID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]FileState, len(cov))
+	for _, c := range cov {
+		out[c.Path] = FileState{Copies: len(c.Copies), Unknown: c.XXH64 == "", Damaged: c.BadHash != ""}
+	}
+	return out, nil
 }
 
 // List returns what a folder of a drive holds, folders first. dir is a
 // drive-relative path; "" is the top of the drive. With filter set it
 // instead returns every file whose name contains filter (any case).
-func (db *DB) List(driveID, dir, filter string, limit int) ([]Entry, error) {
+// states, when given, fills in each entry's backup state.
+func (db *DB) List(driveID, dir, filter string, limit int, states map[string]FileState) ([]Entry, error) {
+	mark := func(e *Entry) {
+		st, ok := states[e.Path]
+		if !ok {
+			return
+		}
+		e.Copies = st.Copies
+		if st.Copies > 0 {
+			e.Backed, e.BackedBytes = 1, e.Bytes
+		}
+		if st.Unknown {
+			e.Unknown = 1
+		}
+	}
 	if filter != "" {
 		esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(filter)
 		rows, err := db.sql.Query(`SELECT path, size, COALESCE(xxh64, ''), verified_at IS NOT NULL, bad_hash IS NOT NULL
@@ -75,6 +117,7 @@ func (db *DB) List(driveID, dir, filter string, limit int) ([]Entry, error) {
 			}
 			e.Name = e.Path
 			e.Files = 1
+			mark(&e)
 			out = append(out, e)
 		}
 		return out, rows.Err()
@@ -112,9 +155,20 @@ func (db *DB) List(driveID, dir, filter string, limit int) ([]Entry, error) {
 			f.Bytes += size
 			f.Files++
 			f.Damaged = f.Damaged || bad
+			if st, ok := states[p]; ok {
+				if st.Copies > 0 {
+					f.Backed++
+					f.BackedBytes += size
+				}
+				if st.Unknown {
+					f.Unknown++
+				}
+			}
 			continue
 		}
-		files = append(files, Entry{Name: rest, Path: p, Bytes: size, Files: 1, XXH64: hash, Verified: ver, Damaged: bad})
+		e := Entry{Name: rest, Path: p, Bytes: size, Files: 1, XXH64: hash, Verified: ver, Damaged: bad}
+		mark(&e)
+		files = append(files, e)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

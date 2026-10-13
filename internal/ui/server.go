@@ -45,6 +45,7 @@ type Server struct {
 	volsAt   time.Time
 	cacheKey string
 	summary  map[string]*driveExtra
+	states   map[string]map[string]catalog.FileState // backup state per drive, until the library changes
 }
 
 type driveExtra struct {
@@ -280,8 +281,36 @@ func (s *Server) extras(ds []*catalog.Drive) map[string]*driveExtra {
 	}
 	s.mu.Lock()
 	s.cacheKey, s.summary = key.String(), m
+	s.states = map[string]map[string]catalog.FileState{}
 	s.mu.Unlock()
 	return m
+}
+
+// backupStates returns a drive's per-file backup state, cached until
+// anything in the library changes.
+func (s *Server) backupStates(driveID string) (map[string]catalog.FileState, error) {
+	ds, err := s.db.Drives()
+	if err != nil {
+		return nil, err
+	}
+	s.extras(ds) // refreshes the cache key, clearing stale states
+	s.mu.Lock()
+	st := s.states[driveID]
+	s.mu.Unlock()
+	if st != nil {
+		return st, nil
+	}
+	st, err = s.db.BackupStates(driveID)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	if s.states == nil {
+		s.states = map[string]map[string]catalog.FileState{}
+	}
+	s.states[driveID] = st
+	s.mu.Unlock()
+	return st, nil
 }
 
 func (s *Server) view(d *catalog.Drive, ex *driveExtra) DriveView {
@@ -433,7 +462,11 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) (any, error) {
 		return nil, err
 	}
 	q := r.URL.Query()
-	entries, err := s.db.List(d.ID, q.Get("dir"), strings.TrimSpace(q.Get("filter")), 2000)
+	states, err := s.backupStates(d.ID)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.db.List(d.ID, q.Get("dir"), strings.TrimSpace(q.Get("filter")), 2000, states)
 	if err != nil {
 		return nil, err
 	}
