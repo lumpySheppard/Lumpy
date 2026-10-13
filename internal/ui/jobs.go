@@ -12,6 +12,9 @@ import (
 
 // Job is a long-running command started from the app: an offload, a
 // drive check, hashing or a rescan. Its fields are guarded by mu.
+//
+// Lock order: the job's Report takes its own lock and then, through
+// Write, the job's mu. Nothing may hold mu while calling into report.
 type Job struct {
 	ID       int
 	Kind     string
@@ -73,7 +76,6 @@ type JobView struct {
 
 func (j *Job) view(tail int) JobView {
 	j.mu.Lock()
-	defer j.mu.Unlock()
 	lines := j.lines
 	if len(lines) > tail {
 		lines = lines[len(lines)-tail:]
@@ -81,9 +83,13 @@ func (j *Job) view(tail int) JobView {
 	v := JobView{ID: j.ID, Kind: j.Kind, Title: j.Title, Command: j.Command, DriveID: j.DriveID, State: j.State, LineCount: j.count,
 		Started: j.Started, Ended: j.Ended, Failures: j.Failures, Warnings: j.Warnings, Error: j.Error,
 		Lines: append([]string(nil), lines...)}
-	if j.State == "running" {
-		v.Progress = j.report.Now()
-		v.Failures, v.Warnings = j.report.Failures(), j.report.Warnings()
+	running := j.State == "running"
+	rep := j.report // set once in Start, never changed
+	j.mu.Unlock()
+	if running {
+		// Outside mu: the report may be writing a line to this job now.
+		v.Progress = rep.Now()
+		v.Failures, v.Warnings = rep.Failures(), rep.Warnings()
 	}
 	return v
 }
@@ -108,10 +114,11 @@ func (js *Jobs) Start(kind, title, command, driveID string, fn func(ctx context.
 
 	go func() {
 		err := fn(ctx, j.report)
+		failures, warnings := j.report.Failures(), j.report.Warnings()
 		j.mu.Lock()
 		defer j.mu.Unlock()
 		j.Ended = time.Now().Unix()
-		j.Failures, j.Warnings = j.report.Failures(), j.report.Warnings()
+		j.Failures, j.Warnings = failures, warnings
 		switch {
 		case errors.Is(err, context.Canceled):
 			j.State = "cancelled"
