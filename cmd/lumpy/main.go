@@ -19,7 +19,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/job"
 )
 
-var version = "0.3.0"
+var version = "0.4.0"
 
 const usage = `Lumpy copies camera cards and drives to backup drives, verifies every copy,
 and keeps a library of every drive it has seen.
@@ -53,6 +53,16 @@ Drive library (works for drives that are not plugged in):
   lumpy catalog [PATH...]         Log drives now (default: every mounted drive).
 
   DRIVE is a drive name, the start of its id, or a path on a mounted drive.
+
+Projects (a group of drives that should hold N copies of everything):
+  lumpy project list              Every project and how well it is backed up.
+  lumpy project show NAME         Health, each drive's share, and the plan:
+                                  which copies would get every file onto N
+                                  drives, and which steps can run now.
+  lumpy project transfer NAME --from DRIVE --to DRIVE [--folder NAME]
+                                  Run one step of the plan: copy the files
+                                  that need another copy, verify them, write
+                                  an MHL, and record them.
 
 Background agent (logs every drive you plug in, runs queued checks):
   lumpy agent install | uninstall | status
@@ -110,6 +120,8 @@ type cmdCtx struct {
 	appMode       bool
 	noSourceCheck bool
 	verbose       bool
+	from, to      string
+	folder        string
 }
 
 func usageErr(format string, a ...any) error {
@@ -145,6 +157,7 @@ var commands = map[string]command{
 	"find":    {1, 1, true, findCmd},
 	"catalog": {0, -1, true, catalogCmd},
 	"agent":   {1, 1, false, agentCmd},
+	"project": {1, 2, true, projectCmd},
 	"ui":      {0, 0, true, uiCmd},
 }
 
@@ -178,6 +191,9 @@ func run(args []string) int {
 	fs.BoolVar(&c.noSourceCheck, "no-source-check", false, "read the source only once (offload)")
 	fs.BoolVar(&c.verbose, "verbose", false, "print a line for every file")
 	fs.BoolVar(&c.verbose, "v", false, "print a line for every file")
+	fs.StringVar(&c.from, "from", "", "source drive (project transfer)")
+	fs.StringVar(&c.to, "to", "", "destination drive (project transfer)")
+	fs.StringVar(&c.folder, "folder", "", "folder on the destination (project transfer)")
 	fs.IntVar(&c.port, "port", 0, "port for `lumpy ui` (default: any free port)")
 	fs.BoolVar(&c.noBrowser, "no-browser", false, "do not open a browser (ui)")
 	fs.BoolVar(&c.appMode, "app", false, "run for Lumpy.app (ui)")

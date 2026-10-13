@@ -8,12 +8,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/job"
+	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
 func setup(t *testing.T) (*Server, *httptest.Server, string) {
@@ -111,11 +113,11 @@ func TestOffloadAndLibraryThroughAPI(t *testing.T) {
 		t.Fatalf("labels: %d", code)
 	}
 	var detail struct {
-		Drive     DriveView
-		Breakdown []catalog.Slice
+		Drive   DriveView
+		Folders []catalog.FolderHealth
 	}
 	call(t, s, ts, "GET", "/api/drives/"+card.ID, "", &detail)
-	if detail.Drive.Title != "Card A" || detail.Drive.Labels.Client != "CTD" || len(detail.Breakdown) != 1 || detail.Breakdown[0].Name != "CLIPS" {
+	if detail.Drive.Title != "Card A" || detail.Drive.Labels.Client != "CTD" || len(detail.Folders) != 1 || detail.Folders[0].Name != "CLIPS" || detail.Folders[0].BackedBytes != 7 {
 		t.Fatalf("detail: %+v", detail)
 	}
 	var entries []catalog.Entry
@@ -157,5 +159,110 @@ func TestOffloadAndLibraryThroughAPI(t *testing.T) {
 	res.Body.Close()
 	if !strings.Contains(string(csv), "Card A,A001,") {
 		t.Fatalf("csv:\n%s", csv)
+	}
+}
+
+func TestProjectsThroughAPI(t *testing.T) {
+	s, ts, vols := setup(t)
+	os.MkdirAll(filepath.Join(vols, "A001", "CLIPS"), 0o755)
+	os.WriteFile(filepath.Join(vols, "A001", "CLIPS", "C001.mov"), []byte("footage one"), 0o644)
+	os.Mkdir(filepath.Join(vols, "RAID"), 0o755)
+	os.Mkdir(filepath.Join(vols, "SPARE"), 0o755)
+	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
+	var st struct{ Drives []DriveView }
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	ids := map[string]string{}
+	for _, d := range st.Drives {
+		ids[d.Name] = d.ID
+	}
+	// Offload the card to RAID only, then make a project of RAID + SPARE.
+	var started struct{ Job int }
+	call(t, s, ts, "POST", "/api/offload", `{"source":"`+filepath.Join(vols, "A001")+`","dests":["`+filepath.Join(vols, "RAID", "Day01")+`"]}`, &started)
+	waitJobs(t, s, ts)
+
+	var p catalog.Project
+	if code := call(t, s, ts, "POST", "/api/projects", `{"name":"Feature","target":2,"driveIds":["`+ids["RAID"]+`","`+ids["SPARE"]+`"]}`, &p); code != 200 {
+		t.Fatalf("create: %d", code)
+	}
+	var detail struct {
+		Health    catalog.Health
+		Transfers []TransferView
+		Sole      []soleGroup
+	}
+	path := "/api/projects/" + strconv.FormatInt(p.ID, 10)
+	call(t, s, ts, "GET", path, "", &detail)
+	if detail.Health.Sole != 1 || len(detail.Transfers) != 1 || !detail.Transfers[0].Ready || len(detail.Sole) != 1 {
+		t.Fatalf("detail: %+v %+v", detail.Health, detail.Transfers)
+	}
+	tr := detail.Transfers[0]
+	var run struct{ Job int }
+	if code := call(t, s, ts, "POST", path+"/transfer", `{"sourceId":"`+tr.SourceID+`","destId":"`+tr.DestID+`"}`, &run); code != 200 {
+		t.Fatalf("transfer: %d", code)
+	}
+	jobs := waitJobs(t, s, ts)
+	if jobs[0].Kind != "transfer" || jobs[0].State != "ok" {
+		t.Fatalf("transfer job: %+v", jobs[0])
+	}
+	call(t, s, ts, "GET", path, "", &detail)
+	if detail.Health.Sole != 0 || detail.Health.Backed != 1 || len(detail.Transfers) != 0 {
+		t.Fatalf("after transfer: %+v", detail.Health)
+	}
+	if code := call(t, s, ts, "PATCH", path, `{"name":"Feature Film","target":3,"remove":["`+ids["SPARE"]+`"]}`, &p); code != 200 || p.Name != "Feature Film" || len(p.DriveIDs) != 1 {
+		t.Fatalf("update: %d %+v", code, p)
+	}
+	if code := call(t, s, ts, "DELETE", path, "", nil); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+}
+
+func waitJobs(t *testing.T, s *Server, ts *httptest.Server) []JobView {
+	t.Helper()
+	var jobs []JobView
+	for i := 0; i < 200; i++ {
+		call(t, s, ts, "GET", "/api/jobs", "", &jobs)
+		running := false
+		for _, j := range jobs {
+			running = running || j.State == "running"
+		}
+		if !running {
+			return jobs
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("jobs still running")
+	return nil
+}
+
+func TestPlanStepsShowRunningAndBusy(t *testing.T) {
+	s, ts, vols := setup(t)
+	for _, n := range []string{"A", "B", "C"} {
+		os.MkdirAll(filepath.Join(vols, n), 0o755)
+	}
+	os.WriteFile(filepath.Join(vols, "A", "clip.mov"), []byte("only here"), 0o644)
+	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
+	var st struct{ Drives []DriveView }
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	ids := map[string]string{}
+	for _, d := range st.Drives {
+		ids[d.Name] = d.ID
+	}
+	va, _ := volume.Of(filepath.Join(vols, "A"))
+	s.db.SaveHashes(va.ID, []catalog.HashUpdate{{Path: "clip.mov", Size: 9, XXH64: "abcd"}})
+	var p catalog.Project
+	call(t, s, ts, "POST", "/api/projects", `{"name":"P","target":3,"driveIds":["`+ids["A"]+`","`+ids["B"]+`","`+ids["C"]+`"]}`, &p)
+
+	// Hold a transfer A -> B open and look at the plan.
+	release := make(chan struct{})
+	j := s.jobs.Start("transfer", "t", "", ids["A"], func(ctx context.Context, r *job.Report) error { <-release; return nil })
+	s.jobs.mark(j, ids["B"])
+	var detail struct{ Transfers []TransferView }
+	call(t, s, ts, "GET", "/api/projects/"+strconv.FormatInt(p.ID, 10), "", &detail)
+	close(release)
+	got := map[string][2]bool{}
+	for _, tr := range detail.Transfers {
+		got[tr.DestID] = [2]bool{tr.Running, tr.Busy}
+	}
+	if got[ids["B"]] != [2]bool{true, false} || got[ids["C"]] != [2]bool{false, true} {
+		t.Fatalf("running/busy flags: %v", got)
 	}
 }

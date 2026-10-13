@@ -93,10 +93,13 @@ const ICON = {
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>',
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
   activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>',
+  film: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 5l-7 7 7 7"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12h16M13 5l7 7-7 7"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>',
   reveal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
 };
 const COLORS = { purple: "#a855f7", blue: "#3b82f6", green: "#34c759", yellow: "#f5b400", orange: "#f08a24", red: "#ff453a", pink: "#ec4899", teal: "#14b8a6", gray: "#8e8e93" };
-const SLICE_COLORS = ["#f08a24", "#3b82f6", "#c026d3", "#e5484d", "#34c759", "#2dd4bf", "#6366f1", "#facc15", "#b08968", "#94a3b8"];
 
 // ---------- native bridge (Lumpy.app) ----------
 const pending = new Map();
@@ -123,6 +126,11 @@ const S = {
   jobs: [],
   fileHits: null,
   detail: null, // id of open drive
+  project: null, // id of the open project page
+  projectData: null,
+  projects: null, // the list with health, fetched on the Projects tab
+  selecting: false,
+  selected: new Set(),
   offload: { source: "", dests: [""], name: "", sourceCheck: true },
 };
 
@@ -133,6 +141,7 @@ async function loadState() {
     S.state = await api("/api/state");
     // The offload form keeps what's being typed; only the counts refresh.
     if (!first && (S.tab === "offload" || S.tab === "activity")) renderCounts();
+    else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }
     else render();
   } catch (e) {
     if (!S.state) $("#main").innerHTML = `<div class="empty"><h2>Can't reach Lumpy</h2><p>${esc(e.message)}</p></div>`;
@@ -165,6 +174,16 @@ async function loadJobs() {
 }
 
 // ---------- rendering ----------
+// ratioBar draws bytes by backup state: green has enough copies, yellow
+// has some but not enough, red is a sole copy, grey has no checksum.
+function ratioBar(parts, total, withKey) {
+  total = total || 1;
+  const order = [["backed", "Backed up"], ["short", "Not enough copies"], ["sole", "Sole copy"], ["likely", "Probably backed up"], ["unknown", "No checksum"], ["damaged", "Damaged"]];
+  const bar = `<div class="hbar ${withKey ? "" : "thin"}">${order.map(([k]) => parts[k] ? `<i class="${k}" style="width:${((parts[k] / total) * 100).toFixed(2)}%" title="${k}: ${bytes(parts[k])}"></i>` : "").join("")}</div>`;
+  if (!withKey) return bar;
+  return bar + `<div class="hkey">${order.filter(([k]) => parts[k]).map(([k, label]) => `<span><i class="${k}" style="background:${{ backed: "var(--ok)", short: "var(--warn)", sole: "var(--bad)", likely: "var(--blue)", unknown: "#4a4a52", damaged: "#8a1c1c" }[k]}"></i>${label} <b>${bytes(parts[k])}</b> (${Math.round((parts[k] / total) * 100)}%)</span>`).join("")}</div>`;
+}
+
 function capClass(used, size) {
   const p = size ? used / size : 0;
   return p > 0.95 ? "full" : p > 0.85 ? "hi" : p > 0.6 ? "mid" : "lo";
@@ -188,6 +207,10 @@ function checkBadge(d) {
     ? `<span class="badge ok">${ICON.shield}Checked ${new Date(d.lastVerify * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>`
     : `<span class="badge bad">${ICON.warn}Check failed</span>`;
 }
+function projectBadges(d) {
+  const ps = (S.state.projects || []).filter((p) => (d.projects || []).includes(p.id));
+  return ps.map((p) => `<span class="badge proj" style="--pc:${COLORS[p.color] || "var(--accent)"}" data-open-project="${p.id}">${ICON.film}${esc(p.name)}</span>`).join("");
+}
 function summaryText(d) {
   const parts = [];
   if (d.topFolders && d.topFolders.length) parts.push("Folders: " + d.topFolders.join(", "));
@@ -210,12 +233,12 @@ function driveCard(d) {
   const pct = d.size ? Math.min(100, (used / d.size) * 100) : 0;
   const who = [l.client, l.project].filter(Boolean);
   const sum = summaryText(d);
-  return `<article class="card" style="--tint:${tint}" data-drive="${esc(d.id)}">
+  return `<article class="card ${S.selecting && S.selected.has(d.id) ? "picked" : ""}" style="--tint:${tint}" data-drive="${esc(d.id)}">
     <div class="card-top">
       <span class="dot" style="background:${dot}" title="${d.connected ? "Plugged in" : "Not plugged in"}"></span>
       <span class="drive-ico">${ICON.drive}</span>
       ${d.connected ? `<span class="badge live">Plugged in</span>` : ""}
-      <button class="icon-btn card-edit" data-act="edit" title="Edit labels">${ICON.edit}</button>
+      ${S.selecting ? `<input type="checkbox" class="pick" data-pick="${esc(d.id)}" ${S.selected.has(d.id) ? "checked" : ""}>` : `<button class="icon-btn card-edit" data-act="edit" title="Edit labels">${ICON.edit}</button>`}
     </div>
     <div class="card-title"><h3>${hl(d.title)}</h3>${l.nickname ? `<span class="vol">(${hl(d.name)})</span>` : ""}</div>
     ${who.length ? `<div class="meta-line">${ICON.person}<span>${who.map(hl).join(" &nbsp;·&nbsp; ")}</span></div>` : ""}
@@ -224,7 +247,7 @@ function driveCard(d) {
     <div class="bar ${capClass(used, d.size)}"><i style="width:${pct.toFixed(1)}%"></i></div>
     <div class="cap">${bytes(d.size)}<span class="sep">•</span>Free ${bytes(d.free)}<span class="sep">•</span>${d.files.toLocaleString()} files</div>
     ${sum ? `<div class="summary">${esc(sum)}</div><button class="more" data-act="open">More</button>` : ""}
-    <div class="badges">${backupBadge(d)}${checkBadge(d)}</div>
+    <div class="badges">${backupBadge(d)}${checkBadge(d)}${projectBadges(d)}</div>
     <div class="card-foot"><span>${d.connected ? "Plugged in now" : "Last seen • " + when(d.lastSeen)}</span>
       <button class="btn small" data-act="open">Details</button></div>
   </article>`;
@@ -267,6 +290,8 @@ function renderToolbar() {
   $("#sort-dir").innerHTML = S.desc ? ICON.down : ICON.up;
   for (const b of $("#view-seg").children) b.classList.toggle("on", b.dataset.view === S.view);
   $("#sort").value = S.sort;
+  $("#select-mode").classList.toggle("on", S.selecting);
+  $("#select-mode").textContent = S.selecting ? "Done" : "Select";
 }
 
 function visibleDrives() {
@@ -281,6 +306,7 @@ function renderCounts() {
   for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("on", b.dataset.tab === S.tab);
   $("#count-connected").textContent = st.volumes.length || "";
   $("#count-logged").textContent = st.drives.length || "";
+  $("#count-projects").textContent = (st.projects || []).length || "";
   const pill = $("#agent-pill");
   const agentOn = st.agent.startsWith("installed and running");
   pill.className = "agent-pill" + (agentOn ? " on" : "");
@@ -296,7 +322,8 @@ function render() {
   const keepScroll = main.scrollTop;
   if (S.tab === "offload") return renderOffload();
   if (S.tab === "activity") return renderActivity();
-  main.innerHTML = S.tab === "connected" ? renderConnected() : renderLogged();
+  if (S.tab === "projects") return renderProjects();
+  main.innerHTML = (S.tab === "connected" ? renderConnected() : renderLogged()) + selectionBar();
   main.scrollTop = keepScroll;
 }
 
@@ -328,6 +355,16 @@ function fileHitsHTML() {
       return `<tr class="row" data-drive="${esc(m.DriveID)}"><td><div class="name"><span class="dot" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(d ? d.title : m.DriveName)}</div></td>
         <td class="mono">${hl(m.Path)}</td><td class="num">${bytes(m.Size)}</td><td class="mono">${esc(m.XXH64 || "—")}</td></tr>`;
     }).join("")}</tbody></table>`;
+}
+
+function selectionBar() {
+  if (!S.selecting) return "";
+  const n = S.selected.size;
+  return `<div class="selbar"><b>${n}</b> drive${n === 1 ? "" : "s"} selected
+    <button class="btn primary" id="sel-add" ${n ? "" : "disabled"}>${ICON.film}Add to project…</button>
+    <button class="btn" id="sel-new" ${n ? "" : "disabled"}>${ICON.plus}New project from selection</button>
+    <button class="btn" id="sel-all">Select all shown</button>
+    <button class="btn" id="sel-none">Clear</button></div>`;
 }
 
 function renderLogged() {
@@ -389,10 +426,8 @@ async function openDetail(id, refresh, focusLabels) {
   S.detail = id;
   const d = data.drive, l = d.labels, b = data.backups;
   const used = Math.max(0, d.size - d.free);
-  const total = data.breakdown.reduce((a, s) => a + s.bytes, 0) || 1;
-  const slices = data.breakdown.slice(0, 9);
-  const rest = data.breakdown.slice(9).reduce((a, s) => a + s.bytes, 0);
-  if (rest) slices.push({ name: "Other", bytes: rest, folder: true });
+  const folders = data.folders || [];
+  const myProjects = new Set(data.projects || []);
   const missing = b.short + b.none + b.unknown;
   const holders = Object.entries(b.holders).sort((a, c) => c[1] - a[1]);
   const scroll = refresh ? ($(".sheet-body") || {}).scrollTop : 0;
@@ -441,7 +476,8 @@ async function openDetail(id, refresh, focusLabels) {
             ${d.connected ? `<button class="btn small" id="hash" ${d.busy ? "disabled" : ""}>Checksum new files</button>` : ""}
             <button class="btn small primary" id="verify" ${d.busy || (d.verifyRequested && !d.connected) ? "disabled" : ""}>${d.connected ? "Check drive now" : d.verifyRequested ? "Check queued" : "Queue check"}</button>
           </div></div>
-        <div class="stat-row">
+        ${ratioBar({ backed: b.enoughBytes, short: b.shortBytes, sole: b.noneBytes, likely: b.likelyBytes, unknown: b.unknownBytes, damaged: b.damagedBytes }, b.bytes, true)}
+        <div class="stat-row" style="margin-top:12px">
           <div class="stat ${missing ? "bad" : b.minCopies > 0 ? "ok" : ""}"><div class="v">${b.minCopies < 0 ? "—" : missing ? missing.toLocaleString() : b.minCopies + "×"}</div><div class="l">${b.minCopies < 0 ? "no checksums yet" : missing ? "files not backed up" : "fewest copies elsewhere"}</div></div>
           <div class="stat"><div class="v">${d.files ? Math.round((d.hashed / d.files) * 100) : 0}%</div><div class="l">${d.hashed.toLocaleString()} of ${d.files.toLocaleString()} checksummed</div></div>
           <div class="stat ${d.damaged ? "bad" : ""}"><div class="v">${d.damaged}</div><div class="l">damaged files</div></div>
@@ -452,13 +488,19 @@ async function openDetail(id, refresh, focusLabels) {
         ${b.problems && b.problems.length ? `<p class="hint" style="margin:12px 0 0;color:var(--text-2);font-weight:550">Needs attention${b.problems.length >= 200 ? " (first 200)" : ""}: not backed up${b.damaged ? ", or damaged on this drive" : ""}</p><div class="problems">${b.problems.map((p) => `<div>${esc(p)}</div>`).join("")}</div>` : ""}
       </div>
 
-      <div class="sec"><div class="sec-title">${ICON.pie}Storage breakdown
+      <div class="sec"><div class="sec-title">${ICON.pie}Contents by folder <span class="hint" style="font-weight:400">backed up elsewhere vs sole copy</span>
           <div class="right">${d.connected ? `<button class="btn small" id="rescan" ${d.busy ? "disabled" : ""}>${ICON.refresh}Rescan</button>` : ""}</div></div>
-        <div class="box">
-          ${data.breakdown.length ? `<div class="stack">${slices.map((s, i) => `<i style="width:${((s.bytes / total) * 100).toFixed(2)}%;background:${SLICE_COLORS[i % SLICE_COLORS.length]}" title="${esc(s.name)}"></i>`).join("")}</div>
-          <div class="legend">${slices.map((s, i) => `<span class="sw" style="background:${SLICE_COLORS[i % SLICE_COLORS.length]}"></span><span>${esc(s.name)}${s.folder ? "" : ' <small style="color:var(--muted)">(file)</small>'}</span><span class="num">${bytes(s.bytes)}</span><span class="num">${Math.round((s.bytes / total) * 100)}%</span>`).join("")}</div>`
-          : `<span style="color:var(--muted)">No files recorded on this drive.</span>`}
-        </div></div>
+        ${folders.length ? `<table class="list compact"><thead><tr><th>Folder</th><th class="num">Size</th><th>Backed up</th><th class="num">Sole copy</th><th class="num">No checksum</th></tr></thead><tbody>
+          ${folders.map((f) => `<tr><td><div class="name" style="font-weight:500">${f.folder ? ICON.folder.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"') : ICON.file.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"')}${esc(f.name)}</div></td>
+            <td class="num">${bytes(f.bytes)}</td><td>${ratioBar({ backed: f.backedBytes, sole: f.soleBytes, unknown: f.unknownBytes }, f.bytes, false)}</td>
+            <td class="num" style="color:${f.soleBytes ? "var(--bad)" : "var(--muted)"}">${f.soleBytes ? bytes(f.soleBytes) : "—"}</td>
+            <td class="num" style="color:${f.unknownBytes ? "var(--warn)" : "var(--muted)"}">${f.unknownBytes ? bytes(f.unknownBytes) : "—"}</td></tr>`).join("")}</tbody></table>`
+          : `<span class="hint">No files recorded on this drive.</span>`}
+      </div>
+
+      <div class="sec"><div class="sec-title">${ICON.film}Projects</div>
+        <div class="box">${(S.state.projects || []).length ? `<div class="checks">${S.state.projects.map((p) => `<label><input type="checkbox" data-project="${p.id}" ${myProjects.has(p.id) ? "checked" : ""}><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span>${esc(p.name)}<span class="hint">· needs ${p.target} copies of everything</span></label>`).join("")}</div>`
+          : `<span class="hint">No projects yet. Make one on the Projects tab to see how this drive and others back each other up.</span>`}</div></div>
 
       ${summaryText(d) ? `<div class="sec"><div class="sec-title">${ICON.search}Top-level summary</div><div style="color:var(--text-2)">${esc(summaryText(d))}</div></div>` : ""}
 
@@ -482,6 +524,10 @@ function wireDetail(d) {
   };
   $("#close").onclick = closeSheet;
   $("#never-log").onchange = (e) => save({ neverLog: e.target.checked });
+  for (const el of document.querySelectorAll("[data-project]")) el.onchange = async () => {
+    try { await api(`/api/projects/${el.dataset.project}`, { method: "PATCH", body: el.checked ? { add: [d.id] } : { remove: [d.id] } }); loadState(); }
+    catch (e) { toast(e.message, true); el.checked = !el.checked; }
+  };
   for (const el of document.querySelectorAll("[data-label]")) el.onchange = () => save({ [el.dataset.label]: el.value });
   for (const el of document.querySelectorAll("[data-color]")) el.onclick = () => {
     document.querySelectorAll("[data-color]").forEach((x) => x.classList.toggle("on", x === el));
@@ -540,6 +586,230 @@ async function loadTree(id, dir, container, depth, filter) {
       if (open && !kids.dataset.loaded) { kids.dataset.loaded = "1"; kids.innerHTML = `<div class="tree-note" style="padding-left:${28 + depth * 18}px">Loading…</div>`; loadTree(id, row.dataset.path, kids, depth + 1); }
     };
   }
+}
+
+
+// ---------- projects ----------
+function healthParts(h) {
+  return { backed: h.backedBytes, short: h.shortBytes, sole: h.soleBytes, unknown: h.unknownBytes };
+}
+function driveTitle(id) {
+  const d = (S.state.drives || []).find((x) => x.id === id);
+  return d ? d.title : id;
+}
+function driveOf(id) { return (S.state.drives || []).find((x) => x.id === id); }
+
+// The list needs each project's health, which costs a pass over its
+// files, so it is fetched when the tab is shown rather than with every
+// state poll.
+async function loadProjects() {
+  try { S.projects = await api("/api/projects"); } catch (e) { toast(e.message, true); return; }
+  if (S.tab === "projects" && !S.project) renderProjects();
+}
+
+function renderProjects() {
+  if (S.project) return renderProjectPage();
+  const main = $("#main");
+  if (!S.projects) { main.innerHTML = `<div class="empty"><p>Loading…</p></div>`; loadProjects(); return; }
+  const ps = S.projects;
+  if (!ps.length) {
+    main.innerHTML = `<div class="empty">${ICON.film}<h2>No projects yet</h2>
+      <p>A project is a group of drives that together hold one body of work. Lumpy shows how well they back each other up and plans the copies that get every file onto two drives.</p>
+      <p><button class="btn primary" id="new-project">${ICON.plus}New project</button></p></div>`;
+  } else {
+    main.innerHTML = `<div class="section-head"><h2>Projects</h2><span>${ps.length}</span><div class="right"><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
+      <div class="grid">${ps.map((p) => {
+        const h = p.health;
+        const bad = h.soleBytes + h.shortBytes;
+        return `<article class="card pcard" style="--tint:${COLORS[p.color] || "transparent"}" data-open-project="${p.id}">
+          <div class="card-top"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span><span class="drive-ico">${ICON.film}</span></div>
+          <div class="card-title"><h3>${esc(p.name)}</h3><span class="vol">${p.driveIds.length} drive${p.driveIds.length === 1 ? "" : "s"} · ${p.target} copies wanted</span></div>
+          ${ratioBar(healthParts(h), h.bytes, false)}
+          <div class="cap">${bytes(h.bytes)} of content<span class="sep">•</span>${h.contents.toLocaleString()} files</div>
+          <div class="badges">${bad ? `<span class="badge bad">${ICON.warn}${bytes(bad)} not backed up enough</span>` : h.bytes ? `<span class="badge ok">${ICON.check}Everything has ${p.target} copies</span>` : `<span class="badge">Empty</span>`}${h.unknownBytes ? `<span class="badge warn">${bytes(h.unknownBytes)} unproven</span>` : ""}${h.damaged ? `<span class="badge bad">${h.damaged} damaged</span>` : ""}</div>
+          <div class="card-foot"><span>${p.driveIds.map(driveTitle).join(", ")}</span><button class="btn small">Open</button></div></article>`;
+      }).join("")}</div>`;
+  }
+  $("#new-project").onclick = () => newProjectDialog([]);
+}
+
+async function loadProject(id, refresh) {
+  try { S.projectData = await api(`/api/projects/${id}`); }
+  catch (e) { toast(e.message, true); S.project = null; S.projectData = null; return render(); }
+  if (S.project === id) renderProjectPage();
+}
+
+function renderProjectPage() {
+  const main = $("#main");
+  const data = S.projectData;
+  if (!data || data.project.id !== S.project) {
+    main.innerHTML = `<div class="empty"><p>Loading…</p></div>`;
+    loadProject(S.project);
+    return;
+  }
+  const keepScroll = main.scrollTop;
+  const p = data.project, h = data.health;
+  const bad = h.soleBytes + h.shortBytes;
+  const inProject = new Set(p.driveIds);
+  const others = (S.state.drives || []).filter((d) => !inProject.has(d.id));
+  const byId = Object.fromEntries(h.drives.map((d) => [d.id, d]));
+  const connected = (id) => { const d = driveOf(id); return d && d.connected; };
+
+  main.innerHTML = `
+    <div class="phead">
+      <button class="icon-btn" id="proj-back" title="All projects">${ICON.back}</button>
+      <span class="dot" style="width:12px;height:12px;background:${COLORS[p.color] || "var(--accent)"}"></span>
+      <input class="inline-input" id="proj-name" value="${esc(p.name)}" title="Rename">
+      <label class="hint">Copies wanted <select class="plain" id="proj-target">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${p.target === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <div class="swatches">${Object.entries(COLORS).map(([k, c]) => `<button class="swatch ${p.color === k ? "on" : ""}" data-pcolor="${k}" style="background:${c}" title="${k}"></button>`).join("")}</div>
+      <div class="right"><button class="btn danger" id="proj-delete">Delete project</button></div>
+    </div>
+
+    <div class="pgrid">
+    <div>
+      <section class="panel">
+        <h2>Health</h2>
+        <p class="hint">Every distinct file should be on at least ${p.target} different drive${p.target === 1 ? "" : "s"}. Files are matched by checksum, so the same clip in different folders counts as one.</p>
+        ${h.bytes ? ratioBar(healthParts(h), h.bytes, true) : `<p class="hint">No files recorded on these drives yet.</p>`}
+        <div class="stat-row" style="margin-top:14px">
+          <div class="stat ${h.bytes && !bad ? "ok" : ""}"><div class="v">${h.bytes ? Math.round((h.backedBytes / h.bytes) * 100) : 0}%</div><div class="l">backed up (${bytes(h.backedBytes)}, ${h.backed.toLocaleString()} files)</div></div>
+          <div class="stat ${h.soleBytes ? "bad" : "dim"}"><div class="v">${bytes(h.soleBytes)}</div><div class="l">sole copies (${h.sole.toLocaleString()} files)</div></div>
+          ${p.target > 2 ? `<div class="stat ${h.shortBytes ? "warn" : "dim"}"><div class="v">${bytes(h.shortBytes)}</div><div class="l">fewer than ${p.target} copies (${h.short.toLocaleString()} files)</div></div>` : ""}
+          <div class="stat ${h.unknownBytes ? "warn" : "dim"}"><div class="v">${bytes(h.unknownBytes)}</div><div class="l">no checksum yet (${h.unknown.toLocaleString()} files)</div></div>
+          <div class="stat ${h.damaged ? "bad" : "dim"}"><div class="v">${h.damaged}</div><div class="l">damaged copies</div></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Plan to reach ${p.target} copies</h2>
+        <p class="hint">Each step copies only the files that need another copy, from one drive to another. Plug both in and run it. Files keep their paths inside a folder named after the source drive. ${bytes(data.reserve)} is kept free on every drive.</p>
+        ${!h.needs && !bad ? "" : ""}
+        ${data.transfers.length === 0 && !data.unplacedBytes ? `<div class="alert ok">${h.bytes ? `<b>Nothing to do.</b> Every checksummed file is on ${p.target} drives.` : "<b>Nothing to plan yet.</b> Add drives with files on them."}</div>` : ""}
+        ${data.transfers.map((t) => {
+          const ready = t.ready && !t.running && !t.busy;
+          const need = [t.sourceId, t.destId].filter((id) => !connected(id)).map(driveTitle);
+          return `<div class="step-card" data-transfer="${esc(t.sourceId)}|${esc(t.destId)}">
+            <div class="step-head"><span class="dot ${connected(t.sourceId) ? "live" : ""}" style="background:${connected(t.sourceId) ? "var(--ok)" : "var(--muted)"}"></span><b>${esc(driveTitle(t.sourceId))}</b><span class="arrow">${ICON.arrow}</span>
+              <span class="dot ${connected(t.destId) ? "live" : ""}" style="background:${connected(t.destId) ? "var(--ok)" : "var(--muted)"}"></span><b>${esc(driveTitle(t.destId))}</b>
+              <span class="hint">${bytes(t.bytes)} · ${t.fileCount.toLocaleString()} file${t.fileCount === 1 ? "" : "s"}</span>
+              <div class="right">${t.running ? `<span class="badge info">${ICON.clock}Running</span>` : t.busy ? `<span class="badge">${ICON.clock}Drive busy</span>` : ready ? `<button class="btn go small" data-run="${esc(t.sourceId)}|${esc(t.destId)}">${ICON.play}Run this step</button>` : `<span class="badge">${ICON.plug}Plug in ${esc(need.join(" and "))}</span>`}</div></div>
+            <div class="chips">${t.folderList.slice(0, 8).map((f) => `<span class="chip">${esc(f.name)}<small>${bytes(f.bytes)}</small></span>`).join("")}${t.folderList.length > 8 ? `<span class="chip">+${t.folderList.length - 8} more</span>` : ""}</div>
+            ${ready ? `<div class="step-run"><span class="hint">Copy into folder</span><input class="path-input" data-folder="${esc(t.sourceId)}|${esc(t.destId)}" value="${esc(driveTitle(t.sourceId))}" spellcheck="false"><span class="hint">on ${esc(driveTitle(t.destId))}</span></div>` : ""}
+          </div>`;
+        }).join("")}
+        ${data.unplacedBytes ? `<div class="alert bad" style="margin-top:10px"><b>${bytes(data.unplacedBytes)} has nowhere to go.</b> No drive in the project has room for these files (each needs a drive that doesn't already hold it). Add a drive with at least ${bytes(data.unplacedBytes + data.reserve)} free to the project, or free up space.
+          <div class="chips">${data.unplaced.map((g) => `<span class="chip">${esc(driveTitle(g.driveId))} / ${esc(g.folder)}<small>${bytes(g.bytes)}</small></span>`).join("")}</div></div>` : ""}
+      </section>
+
+      ${data.sole.length ? `<section class="panel"><h2>Files with too few copies</h2><p class="hint">Where the ${bytes(bad)} that isn't backed up enough lives, by drive and top-level folder.</p>
+        <table class="list compact"><thead><tr><th>Drive</th><th>Folder</th><th class="num">Files</th><th class="num">Size</th></tr></thead><tbody>
+        ${data.sole.map((g) => `<tr><td><div class="name" style="font-weight:500"><span class="dot" style="background:${connected(g.driveId) ? "var(--ok)" : "var(--muted)"}"></span>${esc(driveTitle(g.driveId))}</div></td><td class="mono">${esc(g.folder)}</td><td class="num">${g.files.toLocaleString()}</td><td class="num" style="color:var(--bad)">${bytes(g.bytes)}</td></tr>`).join("")}</tbody></table></section>` : ""}
+
+      ${data.unknown.length ? `<section class="panel"><h2>Files with no checksum</h2><p class="hint">These can't be counted as copies of anything until they're checksummed. Plug the drive in and checksum its new files.</p>
+        <table class="list compact"><thead><tr><th>Drive</th><th>Folder</th><th class="num">Files</th><th class="num">Size</th><th></th></tr></thead><tbody>
+        ${data.unknown.map((g) => `<tr><td><div class="name" style="font-weight:500"><span class="dot" style="background:${connected(g.driveId) ? "var(--ok)" : "var(--muted)"}"></span>${esc(driveTitle(g.driveId))}</div></td><td class="mono">${esc(g.folder)}</td><td class="num">${g.files.toLocaleString()}</td><td class="num" style="color:var(--warn)">${bytes(g.bytes)}</td>
+          <td class="num">${connected(g.driveId) ? `<button class="btn small" data-hash="${esc(g.driveId)}" ${driveOf(g.driveId).busy ? "disabled" : ""}>Checksum now</button>` : `<span class="hint">not plugged in</span>`}</td></tr>`).join("")}</tbody></table></section>` : ""}
+    </div>
+
+    <div>
+      <section class="panel">
+        <h2>Drives in this project</h2>
+        <p class="hint">${p.driveIds.length} drive${p.driveIds.length === 1 ? "" : "s"}. Each bar shows what the drive holds: backed up elsewhere in the project, sole copies, or unproven.</p>
+        ${p.driveIds.map((id) => {
+          const d = driveOf(id), dh = byId[id] || {};
+          if (!d) return "";
+          const used = Math.max(0, d.size - d.free);
+          return `<div class="step-card" style="margin-bottom:10px" data-drive="${esc(id)}">
+            <div class="step-head"><span class="dot ${d.connected ? "live" : ""}" style="background:${d.connected ? "var(--ok)" : COLORS[d.labels.color] || "var(--muted)"}"></span><b>${esc(d.title)}</b><span class="hint">${d.connected ? "plugged in" : "last seen " + new Date(d.lastSeen * 1000).toLocaleDateString()}</span>
+              <div class="right"><button class="btn small" data-act="open">Details</button><button class="icon-btn" data-remove-drive="${esc(id)}" title="Remove from project">${ICON.x}</button></div></div>
+            ${ratioBar({ backed: dh.backedBytes || 0, short: dh.shortBytes || 0, sole: dh.soleBytes || 0, unknown: dh.unknownBytes || 0 }, dh.bytes || 1, false)}
+            <div class="cap">${dh.soleBytes ? `<span style="color:var(--bad)">${bytes(dh.soleBytes)} sole copies</span>` : `<span style="color:var(--ok)">no sole copies</span>`}<span class="sep">•</span>${bytes(dh.bytes || 0)} in project${dh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(dh.extraBytes)} on more drives than needed</span>` : ""}</div>
+            <div class="bar ${capClass(used, d.size)}"><i style="width:${d.size ? ((used / d.size) * 100).toFixed(1) : 0}%"></i></div>
+            <div class="cap">${bytes(d.size)}<span class="sep">•</span>Free ${bytes(d.free)}</div></div>`;
+        }).join("")}
+        ${others.length ? `<div class="step-run" style="margin-top:6px"><select class="plain" id="proj-add"><option value="">Add a drive…</option>${others.map((d) => `<option value="${esc(d.id)}">${esc(d.title)}${d.connected ? " (plugged in)" : ""}</option>`).join("")}</select></div>` : ""}
+      </section>
+      <section class="panel"><h2>Notes</h2><textarea class="path-input" id="proj-notes" rows="4" placeholder="Where the drives live, who has what, what's still to come…">${esc(p.notes)}</textarea></section>
+    </div>
+    </div>`;
+  main.scrollTop = keepScroll;
+  wireProjectPage(p);
+}
+
+function wireProjectPage(p) {
+  const patch = async (body, then) => {
+    try { await api(`/api/projects/${p.id}`, { method: "PATCH", body }); await loadState(); await loadProject(p.id); if (then) then(); }
+    catch (e) { toast(e.message, true); }
+  };
+  $("#proj-back").onclick = () => { S.project = null; render(); };
+  $("#proj-name").onchange = (e) => patch({ name: e.target.value.trim() || p.name });
+  $("#proj-target").onchange = (e) => patch({ target: +e.target.value });
+  $("#proj-notes").onchange = (e) => patch({ notes: e.target.value });
+  for (const el of document.querySelectorAll("[data-pcolor]")) el.onclick = () => patch({ color: el.dataset.pcolor });
+  const add = $("#proj-add");
+  if (add) add.onchange = () => { if (add.value) patch({ add: [add.value] }); };
+  for (const el of document.querySelectorAll("[data-remove-drive]")) el.onclick = (e) => { e.stopPropagation(); patch({ remove: [el.dataset.removeDrive] }); };
+  $("#proj-delete").onclick = () => {
+    const box = document.createElement("div");
+    box.className = "confirm";
+    box.innerHTML = `<div><b>Delete ${esc(p.name)}?</b><br>The drives and everything recorded about them stay in the library.</div><div class="confirm-actions"><button class="btn" id="pd-no">Cancel</button><button class="btn danger-fill" id="pd-yes">Delete</button></div>`;
+    $(".phead").after(box);
+    $("#pd-no").onclick = () => box.remove();
+    $("#pd-yes").onclick = async () => { try { await api(`/api/projects/${p.id}`, { method: "DELETE" }); S.project = null; await loadState(); toast("Project deleted"); } catch (e) { toast(e.message, true); } };
+  };
+  for (const el of document.querySelectorAll("[data-run]")) el.onclick = async () => {
+    const [sourceId, destId] = el.dataset.run.split("|");
+    const folder = ($(`[data-folder="${CSS.escape(el.dataset.run)}"]`) || {}).value || "";
+    el.disabled = true;
+    try {
+      await api(`/api/projects/${p.id}/transfer`, { method: "POST", body: { sourceId, destId, folder } });
+      toast(`Copying ${driveTitle(sourceId)} → ${driveTitle(destId)}. Watch it in Activity.`);
+      await loadJobs();
+      loadProject(p.id);
+    } catch (e) { toast(e.message, true); el.disabled = false; }
+  };
+  for (const el of document.querySelectorAll("[data-hash]")) el.onclick = async () => {
+    try { await api(`/api/drives/${encodeURIComponent(el.dataset.hash)}/hash`, { method: "POST" }); toast("Checksumming new files… (see Activity)"); loadJobs(); } catch (e) { toast(e.message, true); }
+  };
+}
+
+function newProjectDialog(driveIds) {
+  const drives = S.state.drives || [];
+  openSheet(`<div class="sheet-head"><h2>New project</h2><div class="actions"><button class="icon-btn" id="np-close">${ICON.x}</button></div></div>
+    <div class="sheet-body" style="padding-top:14px">
+      <div class="fields"><div class="field"><label>Name</label><input id="np-name" placeholder="Feature film, Season 2, …" autofocus></div>
+        <div class="field"><label>Copies wanted of every file</label><select class="plain" id="np-target"><option value="2" selected>2 (RAID 1-style)</option><option value="3">3</option><option value="1">1 (just track it)</option></select></div></div>
+      <div class="sec"><div class="sec-title">Drives</div><div class="box checks">${drives.length ? drives.map((d) => `<label><input type="checkbox" data-np-drive="${esc(d.id)}" ${driveIds.includes(d.id) ? "checked" : ""}><span class="dot" style="background:${d.connected ? "var(--ok)" : COLORS[d.labels.color] || "var(--muted)"}"></span>${esc(d.title)}<span class="hint">${bytes(d.size)}</span></label>`).join("") : '<span class="hint">No drives logged yet.</span>'}</div></div>
+    </div>
+    <div class="sheet-foot"><button class="btn" id="np-cancel">Cancel</button><button class="btn primary" id="np-ok">Create</button></div>`, true);
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  $("#np-close").onclick = $("#np-cancel").onclick = close;
+  $("#np-ok").onclick = async () => {
+    const ids = [...document.querySelectorAll("[data-np-drive]:checked")].map((el) => el.dataset.npDrive);
+    try {
+      const p = await api("/api/projects", { method: "POST", body: { name: $("#np-name").value, target: +$("#np-target").value, driveIds: ids } });
+      close();
+      S.selecting = false; S.selected.clear();
+      S.tab = "projects"; S.project = p.id; localSet("tab", S.tab);
+      await loadState();
+    } catch (e) { toast(e.message, true); }
+  };
+  setTimeout(() => $("#np-name").focus(), 30);
+}
+
+function addToProjectDialog(driveIds) {
+  const ps = S.state.projects || [];
+  if (!ps.length) return newProjectDialog(driveIds);
+  openSheet(`<div class="sheet-head"><h2>Add ${driveIds.length} drive${driveIds.length === 1 ? "" : "s"} to a project</h2><div class="actions"><button class="icon-btn" id="ap-close">${ICON.x}</button></div></div>
+    <div class="sheet-body" style="padding-top:14px"><div class="picker-list">${ps.map((p) => `<button data-ap="${p.id}"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span>${esc(p.name)}<span class="hint">${p.driveIds.length} drives</span></button>`).join("")}
+      <button id="ap-new">${ICON.plus}New project…</button></div></div>`, true);
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  $("#ap-close").onclick = close;
+  $("#ap-new").onclick = () => { close(); newProjectDialog(driveIds); };
+  for (const el of document.querySelectorAll("[data-ap]")) el.onclick = async () => {
+    try { await api(`/api/projects/${el.dataset.ap}`, { method: "PATCH", body: { add: driveIds } }); close(); S.selecting = false; S.selected.clear(); toast("Added"); await loadState(); }
+    catch (e) { toast(e.message, true); }
+  };
 }
 
 // ---------- offload ----------
@@ -762,10 +1032,13 @@ function renderJobsInto() {
 document.querySelector(".tabs").onclick = (e) => {
   const b = e.target.closest("button[data-tab]");
   if (!b) return;
+  if (b.dataset.tab === "projects" && S.tab === "projects") S.project = null;
   S.tab = b.dataset.tab;
+  if (S.tab !== "projects") S.project = null;
   localSet("tab", S.tab);
   render();
 };
+$("#select-mode").onclick = () => { S.selecting = !S.selecting; if (!S.selecting) S.selected.clear(); render(); };
 $("#view-seg").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.view = b.dataset.view; localSet("view", S.view); render(); };
 $("#sort").onchange = (e) => { S.sort = e.target.value; localSet("sort", S.sort); render(); };
 $("#sort-dir").onclick = () => { S.desc = !S.desc; localSet("desc", S.desc ? "1" : "0"); render(); };
@@ -790,7 +1063,7 @@ $("#export").onclick = async () => {
 let searchTimer;
 $("#search").oninput = (e) => {
   S.query = e.target.value;
-  if (S.tab !== "logged" && S.tab !== "connected") { S.tab = "logged"; }
+  if (S.tab !== "logged" && S.tab !== "connected") { S.tab = "logged"; S.project = null; }
   render();
   clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
@@ -805,12 +1078,21 @@ $("#main").onclick = async (e) => {
     try { await api("/api/catalog", { method: "POST", body: { id: logBtn.dataset.log } }); toast("Logging drive…"); loadJobs(); } catch (err) { toast(err.message, true); }
     return;
   }
+  const openP = e.target.closest("[data-open-project]");
+  if (openP) { e.stopPropagation(); S.tab = "projects"; S.project = +openP.dataset.openProject; localSet("tab", S.tab); render(); return; }
+  if (e.target.id === "sel-add") return addToProjectDialog([...S.selected]);
+  if (e.target.id === "sel-new") return newProjectDialog([...S.selected]);
+  if (e.target.id === "sel-all") { visibleDrives().filter(matchesQuery).forEach((d) => S.selected.add(d.id)); return render(); }
+  if (e.target.id === "sel-none") { S.selected.clear(); return render(); }
+  const pick = e.target.closest("[data-pick]");
+  if (pick) { pick.checked ? S.selected.add(pick.dataset.pick) : S.selected.delete(pick.dataset.pick); return render(); }
   const card = e.target.closest("[data-drive]");
   if (!card) return;
+  if (S.selecting) { S.selected.has(card.dataset.drive) ? S.selected.delete(card.dataset.drive) : S.selected.add(card.dataset.drive); return render(); }
   const act = e.target.closest("[data-act]");
   openDetail(card.dataset.drive, false, act && act.dataset.act === "edit");
 };
-$("#scrim").onclick = () => { if (S.detail) closeSheet(); };
+$("#scrim").onclick = () => { closeSheet(); };
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("#sheet").hidden && S.detail) closeSheet();
   if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); $("#search").focus(); }

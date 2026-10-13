@@ -167,3 +167,67 @@ func TestOffloadThroughSymlinkRecordsDrivePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestTransferFixesSoleCopies(t *testing.T) {
+	vols, db := library(t)
+	// A card copied to one drive only, then a project with a second
+	// drive that has room.
+	write(t, filepath.Join(vols, "A001", "CLIPS", "C001.mov"), []byte("clip one"))
+	write(t, filepath.Join(vols, "A001", "CLIPS", "C002.mov"), []byte("clip two!"))
+	os.Mkdir(filepath.Join(vols, "RAID"), 0o755)
+	os.Mkdir(filepath.Join(vols, "SPARE"), 0o755)
+	ctx := context.Background()
+	run(t, func(r *Report) error { return AgentRun(ctx, db, r, func(string, string) {}) })
+	run(t, func(r *Report) error {
+		return Offload(ctx, OffloadOptions{Source: filepath.Join(vols, "A001"), Dests: []string{filepath.Join(vols, "RAID", "Day01")}, Library: db}, r)
+	})
+	// Take the card out of the picture: the RAID copy is now the only one.
+	os.Rename(filepath.Join(vols, "A001"), filepath.Join(t.TempDir(), "A001"))
+	raid, spare := drive(t, db, "RAID"), drive(t, db, "SPARE")
+	db.Forget(drive(t, db, "A001").ID)
+
+	h, err := db.ProjectHealth([]string{raid.ID, spare.ID}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Sole != 2 || h.Backed != 0 {
+		t.Fatalf("before: %+v", h)
+	}
+	plan := catalog.MakePlan(h, []catalog.DriveSpace{{ID: raid.ID, Free: 1 << 40, Connected: true}, {ID: spare.ID, Free: 1 << 40, Connected: true}})
+	if len(plan.Transfers) != 1 || plan.Transfers[0].SourceID != raid.ID || plan.Transfers[0].DestID != spare.ID || len(plan.Transfers[0].Files) != 2 {
+		t.Fatalf("plan: %+v", plan.Transfers)
+	}
+
+	vr, _ := volume.Of(filepath.Join(vols, "RAID"))
+	vs, _ := volume.Of(filepath.Join(vols, "SPARE"))
+	r, out := run(t, func(r *Report) error {
+		return Transfer(ctx, TransferOptions{Source: vr, Dest: vs, Files: plan.Transfers[0].Files, Library: db, Meta: Meta{Version: "t", Hostname: "t"}}, r)
+	})
+	if r.Failures() != 0 || !strings.Contains(out, "all 2 files copied and verified") {
+		t.Fatalf("transfer:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(vols, "SPARE", "RAID", "Day01", "A001", "CLIPS", "C001.mov")); err != nil {
+		t.Fatal("copy not where expected:", err)
+	}
+	if _, err := os.Stat(filepath.Join(vols, "SPARE", "RAID", "ascmhl")); err != nil {
+		t.Fatal("no MHL written in the destination folder")
+	}
+	h, _ = db.ProjectHealth([]string{raid.ID, spare.ID}, 2)
+	if h.Sole != 0 || h.Backed != 2 {
+		t.Fatalf("after: %+v", h)
+	}
+	plan = catalog.MakePlan(h, []catalog.DriveSpace{{ID: raid.ID, Free: 1 << 40}, {ID: spare.ID, Free: 1 << 40}})
+	if len(plan.Transfers) != 0 {
+		t.Fatal("plan should be empty once everything has two copies")
+	}
+
+	// Running the same transfer again is harmless: files exist already.
+	r, buf := quiet(t)
+	r.Verbose = true
+	if err := Transfer(ctx, TransferOptions{Source: vr, Dest: vs, Files: []catalog.PlanFile{{Path: "Day01/A001/CLIPS/C001.mov", Size: 8, XXH64: ""}}, Library: db}, r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Failures() != 0 || !strings.Contains(buf.String(), "exists") {
+		t.Fatalf("rerun:\n%s", buf)
+	}
+}

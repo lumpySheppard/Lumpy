@@ -159,6 +159,12 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/export.csv", s.export)
 	api("GET /api/browse", s.browse)
 	api("POST /api/offload", s.offload)
+	api("GET /api/projects", s.projects)
+	api("POST /api/projects", s.createProject)
+	api("GET /api/projects/{id}", s.projectDetail)
+	api("PATCH /api/projects/{id}", s.updateProject)
+	api("DELETE /api/projects/{id}", s.deleteProject)
+	api("POST /api/projects/{id}/transfer", s.runTransfer)
 	api("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) (any, error) { return s.jobs.List(400), nil })
 	api("POST /api/jobs/{id}/cancel", s.cancelJob)
 
@@ -229,6 +235,7 @@ type DriveView struct {
 	LastVerifyOK    bool                   `json:"lastVerifyOk"`
 	VerifyRequested int64                  `json:"verifyRequested"`
 	Busy            bool                   `json:"busy"`
+	Projects        []int64                `json:"projects"`
 	TopFolders      []string               `json:"topFolders"`
 	TopFiles        []string               `json:"topFiles"`
 	Backups         *catalog.BackupSummary `json:"backups"`
@@ -327,8 +334,19 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 			running++
 		}
 	}
+	projects, err := s.db.Projects()
+	if err != nil {
+		return nil, err
+	}
+	memberships, _ := s.db.DriveProjects()
+	for i := range drives {
+		drives[i].Projects = memberships[drives[i].ID]
+		if drives[i].Projects == nil {
+			drives[i].Projects = []int64{}
+		}
+	}
 	return map[string]any{
-		"drives": drives, "volumes": vols, "runningJobs": running,
+		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects,
 		"agent": agent.Status(), "version": s.meta.Version,
 	}, nil
 }
@@ -346,10 +364,11 @@ func (s *Server) driveDetail(w http.ResponseWriter, r *http.Request) (any, error
 	if err != nil {
 		return nil, err
 	}
-	breakdown, err := s.db.Breakdown(d.ID)
+	folders, err := s.db.FolderHealths(d.ID)
 	if err != nil {
 		return nil, err
 	}
+	memberships, _ := s.db.DriveProjects()
 	events, err := s.db.Events(d.ID, 50)
 	if err != nil {
 		return nil, err
@@ -374,10 +393,11 @@ func (s *Server) driveDetail(w http.ResponseWriter, r *http.Request) (any, error
 	}
 	ds, _ := s.db.Drives()
 	return map[string]any{
-		"drive":     s.view(d, s.extras(ds)[d.ID]),
-		"breakdown": breakdown,
-		"events":    evs,
-		"backups":   backups,
+		"drive":    s.view(d, s.extras(ds)[d.ID]),
+		"folders":  folders,
+		"events":   evs,
+		"backups":  backups,
+		"projects": memberships[d.ID],
 	}, nil
 }
 

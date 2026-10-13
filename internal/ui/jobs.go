@@ -18,6 +18,7 @@ type Job struct {
 	Title    string
 	Command  string // the equivalent lumpy command, for the log header
 	DriveID  string
+	DriveID2 string // a second drive the job occupies (transfers)
 	State    string // running, ok, failed, cancelled, error
 	Started  int64
 	Ended    int64
@@ -126,6 +127,30 @@ func (js *Jobs) Start(kind, title, command, driveID string, fn func(ctx context.
 	return j
 }
 
+// RunningPair reports whether a transfer between these two drives is
+// running now.
+func (js *Jobs) RunningPair(a, b string) bool {
+	js.mu.Lock()
+	all := append([]*Job(nil), js.all...)
+	js.mu.Unlock()
+	for _, j := range all {
+		j.mu.Lock()
+		hit := j.Kind == "transfer" && j.State == "running" && j.DriveID == a && j.DriveID2 == b
+		j.mu.Unlock()
+		if hit {
+			return true
+		}
+	}
+	return false
+}
+
+// mark records a second drive the job occupies.
+func (js *Jobs) mark(j *Job, driveID string) {
+	j.mu.Lock()
+	j.DriveID2 = driveID
+	j.mu.Unlock()
+}
+
 // Get returns a job by id.
 func (js *Jobs) Get(id int) *Job {
 	js.mu.Lock()
@@ -157,7 +182,7 @@ func (js *Jobs) Busy(driveID string) bool {
 	js.mu.Unlock()
 	for _, j := range all {
 		j.mu.Lock()
-		busy := j.DriveID == driveID && j.State == "running"
+		busy := (j.DriveID == driveID || j.DriveID2 == driveID) && j.State == "running"
 		j.mu.Unlock()
 		if busy {
 			return true

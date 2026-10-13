@@ -18,6 +18,11 @@ proving every copy is intact.
   that have no manifest.
 - **A Mac app** with drive cards, details, search, offloads and live
   progress, plus the same features on the command line.
+- **Projects**: group the drives that hold one film or series and see its
+  health as one bar: bytes with two or more copies, sole copies, and files
+  with no checksum yet. Lumpy plans the copies that get every file onto two
+  drives, using free space on the project's drives, and runs each step from
+  the app.
 - **Keep a drive library**: every drive you plug in is logged with its files
   and checksums, so you can see where a clip lives and whether a drive is
   properly backed up while it sits on a shelf, and queue a full check that
@@ -47,8 +52,11 @@ The app has four tabs:
   browser with each file's checksum status, its backup coverage, and its
   history. From there you can check the drive now, or queue a check for the
   next time it's plugged in.
+- **Projects**: select drives and group them. A project page shows the
+  health of the whole set, which drive holds the sole copies, a plan to
+  fix it, and a Run button on each step whose drives are plugged in.
 - **Offload**: pick a card and destinations (or click the drive chips), then
-  start. Progress, speed and time left are shown live.
+  start. Progress, speed and time left are shown live in a terminal view.
 - **Activity**: every offload, check and rescan with its full log.
 
 The command-line tool is inside the app. To use it in Terminal:
@@ -172,7 +180,41 @@ same xxh64 checksum and size. A copy that failed its last check doesn't
 count. Files with no checksum yet are matched by name and size, and
 reported as probable but not proven.
 
-#### Checking a drive
+#### Projects: the health of a whole storage setup
+
+A feature film rarely lives on one RAID. There are shuttle drives, an edit
+SSD with proxies, portable drives of odd sizes, and the camera originals
+and proxies are often in different places. A **project** groups those
+drives so Lumpy can look at them as one system.
+
+Every distinct file (matched by checksum, so a clip counts once however
+many folders it sits in) should be on at least the project's target number
+of drives, two by default. The project page shows:
+
+- **Health**: one bar for the whole project. Green is backed up (on two or
+  more drives), red is a sole copy, grey has no checksum yet so can't be
+  proven either way.
+- **Drives in this project**: what each drive holds, split the same way,
+  with its free space, and whether it's plugged in.
+- **Files with too few copies**, by drive and top-level folder.
+- **Plan to reach 2 copies**: the copies that would fix it, grouped into
+  steps of "from this drive to that drive". Each step lists its folders
+  and size. Lumpy prefers destinations that are plugged in now, keeps the
+  number of drive pairs small, and keeps 2 GB free on every drive. If no
+  drive has room for something, it says how much more space the project
+  needs.
+- **Run this step** appears when both drives are plugged in. It copies
+  only the files that need another copy, into a folder on the destination
+  named after the source drive (editable), keeping their paths. Each copy
+  is read back and checked, the source is read a second time, an MHL
+  manifest is written into the destination folder, and the library is
+  updated, so the health bar moves on the next refresh.
+
+Make a project from the Projects tab, or select drives on the Logged tab
+(**Select**) and choose **Add to project**. Files without checksums show as
+unproven until the drive is plugged in and checksummed.
+
+### Checking a drive
 
 ```sh
 lumpy drive verify SHUTTLE_1

@@ -134,7 +134,16 @@ func (db *DB) List(driveID, dir, filter string, limit int) ([]Entry, error) {
 
 // BackupSummary counts how well a drive's files are backed up elsewhere.
 type BackupSummary struct {
-	Files   int `json:"files"`
+	Files int   `json:"files"`
+	Bytes int64 `json:"bytes"`
+	// Byte totals of the categories below, for the ratio bar.
+	EnoughBytes  int64 `json:"enoughBytes"`
+	ShortBytes   int64 `json:"shortBytes"`
+	NoneBytes    int64 `json:"noneBytes"`
+	LikelyBytes  int64 `json:"likelyBytes"`
+	UnknownBytes int64 `json:"unknownBytes"`
+	DamagedBytes int64 `json:"damagedBytes"`
+
 	Enough  int `json:"enough"`  // checksummed, with at least Min copies
 	Short   int `json:"short"`   // checksummed, with fewer copies
 	None    int `json:"none"`    // checksummed, with no copy
@@ -166,26 +175,32 @@ func (db *DB) Backups(driveID string, min int) (*BackupSummary, error) {
 	s := &BackupSummary{Files: len(cov), Min: min, MinCopies: -1, Holders: map[string]int{}}
 	for _, c := range cov {
 		bad := false
+		s.Bytes += c.Size
 		if c.XXH64 != "" && (s.MinCopies < 0 || len(c.Copies) < s.MinCopies) {
 			s.MinCopies = len(c.Copies)
 		}
-		if c.BadHash != "" {
-			s.Damaged++
-			bad = true
-		}
 		switch {
+		case c.BadHash != "":
+			s.Damaged++
+			s.DamagedBytes += c.Size
+			bad = true
 		case c.XXH64 != "" && len(c.Copies) >= min:
 			s.Enough++
+			s.EnoughBytes += c.Size
 		case c.XXH64 != "" && len(c.Copies) > 0:
 			s.Short++
+			s.ShortBytes += c.Size
 			bad = true
 		case c.XXH64 != "":
 			s.None++
+			s.NoneBytes += c.Size
 			bad = true
 		case len(c.Likely) > 0:
 			s.Likely++
+			s.LikelyBytes += c.Size
 		default:
 			s.Unknown++
+			s.UnknownBytes += c.Size
 			bad = true
 		}
 		seen := map[string]bool{}

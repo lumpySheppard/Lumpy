@@ -59,6 +59,19 @@ CREATE TABLE IF NOT EXISTS mounted (
 	drive_id TEXT PRIMARY KEY,
 	mount    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS projects (
+	id      INTEGER PRIMARY KEY,
+	name    TEXT NOT NULL,
+	color   TEXT NOT NULL DEFAULT '',
+	notes   TEXT NOT NULL DEFAULT '',
+	target  INTEGER NOT NULL DEFAULT 2,
+	created INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_drives (
+	project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+	drive_id   TEXT NOT NULL REFERENCES drives(id) ON DELETE CASCADE,
+	PRIMARY KEY (project_id, drive_id)
+);
 `
 
 // Hash sources, from most to least trusted.

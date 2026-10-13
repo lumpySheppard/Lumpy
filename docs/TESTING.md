@@ -124,7 +124,37 @@ today's date.
 **Expect:** *2× backed up*, with copies listed on both drives. Type a clip
 name into the search box: it's found on all three.
 
-## 8. Logging without the app open
+## 8. A project: is the whole setup backed up?
+
+1. **Logged** → **Select** → tick the card and both drives → **New project
+   from selection**. Name it, leave *2 copies*, **Create**.
+
+**Expect:** the project page opens. The health bar is mostly green (the
+test footage is on three drives). Any folder that exists on only one of
+the three shows as a red *sole copy* slice, listed under *Files with too
+few copies*.
+
+2. Put something new on DRIVE_1 only: copy a small folder from your Mac
+   to `/Volumes/DRIVE_1/LUMPY_TEST/extra`. In the drive's **Details** click
+   **Rescan**, then **Checksum new files**.
+
+**Expect:** the project's sole-copy figure grows by that folder's size, and
+a plan step appears: *DRIVE_1 → DRIVE_2* (or the card, whichever has
+more room) with **Run this step**.
+
+3. Click **Run this step**.
+
+**Expect:** a job in **Activity** with the terminal; the files land in
+`/Volumes/DRIVE_2/<DRIVE_1's name>/LUMPY_TEST/extra/…` with an `ascmhl`
+folder beside them; back on the project page the step is gone and the
+sole-copy figure has dropped.
+
+4. Eject DRIVE_2 and look at the project page again.
+
+**Expect:** the drive shows *last seen …*; the plan still lists any step
+that needs it, as *Plug in DRIVE_2*.
+
+## 9. Logging without the app open
 
 ```sh
 lumpy agent install
