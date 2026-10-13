@@ -53,6 +53,12 @@ func (r *Report) Warn(format string, a ...any) {
 	r.line("WARN  "+format, a...)
 }
 
+func (r *Report) addFailures(n int) {
+	r.mu.Lock()
+	r.failures += n
+	r.mu.Unlock()
+}
+
 // Failures is the number of Fail calls so far.
 func (r *Report) Failures() int {
 	r.mu.Lock()

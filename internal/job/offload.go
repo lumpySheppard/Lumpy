@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/fsx"
 	"github.com/lumpysheppard/lumpy/internal/hashing"
 	"github.com/lumpysheppard/lumpy/internal/mhl"
@@ -29,6 +30,9 @@ type OffloadOptions struct {
 	Dests  []string // drives or folders to copy it into
 	Name   string   // folder created in each destination; defaults to the source's name
 	Meta   Meta
+	// Library, when set, records every drive involved and the checksums
+	// of the files copied to it.
+	Library *catalog.DB
 }
 
 // Offload copies Source into every destination at once, reading the source
@@ -58,8 +62,14 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 		if err != nil {
 			return err
 		}
-		if st, err := os.Stat(d); err != nil || !st.IsDir() {
-			return fmt.Errorf("destination %s is not a folder (is the drive mounted?)", d)
+		// A destination may be a new folder, such as a shoot day, as long
+		// as the folder it goes in exists (so the drive is mounted).
+		if st, err := os.Stat(d); err == nil && !st.IsDir() {
+			return fmt.Errorf("destination %s is not a folder", d)
+		} else if err != nil {
+			if pst, perr := os.Stat(filepath.Dir(d)); perr != nil || !pst.IsDir() {
+				return fmt.Errorf("destination %s does not exist (is the drive mounted?)", d)
+			}
 		}
 		t := filepath.Join(d, name)
 		if within(t, src) || within(src, t) {
@@ -103,7 +113,7 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 				need += f.Size
 			}
 		}
-		free, err := fsx.FreeBytes(filepath.Dir(t))
+		free, err := fsx.FreeBytes(existingParent(t))
 		if err == nil && uint64(need)+64<<20 > free {
 			return fmt.Errorf("%s needs %s but its drive has %s free", t, Bytes(need), Bytes(int64(free)))
 		}
@@ -285,7 +295,20 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 			r.Info("BAD   %s  %d verified, %d failed", t, len(verifiedAt[i]), bad)
 		}
 	}
+	if o.Library != nil {
+		recordOffload(o.Library, src, targets, res.Files, srcHashes, verifiedAt, r)
+	}
 	return nil
+}
+
+// existingParent returns p or its nearest folder that exists.
+func existingParent(p string) string {
+	for {
+		if _, err := os.Stat(p); err == nil || filepath.Dir(p) == p {
+			return p
+		}
+		p = filepath.Dir(p)
+	}
 }
 
 // within reports whether p is base or inside it.

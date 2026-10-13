@@ -14,6 +14,10 @@ proving every copy is intact.
   schema and its reference `ascmhl` tool.
 - **Re-check** a drive later against its manifest, or **compare** two copies
   that have no manifest.
+- **Keep a drive library**: every drive you plug in is logged with its files
+  and checksums, so you can see where a clip lives and whether a drive is
+  properly backed up while it sits on a shelf, and queue a full check that
+  runs by itself the next time the drive is plugged in.
 
 ## Install
 
@@ -74,12 +78,70 @@ lumpy compare /Volumes/SHUTTLE_1/Day_04 /Volumes/RAID/Day_04
 Checks both folders hold the same files with identical contents, reading
 both drives at once. No manifest is needed.
 
+### Drive library
+
+Lumpy keeps a library of every drive it has seen in
+`~/Library/Application Support/Lumpy/catalog.db`. Drives are recognised by
+their volume UUID, so a renamed drive is still the same drive, and two cards
+both called `Untitled` are kept apart.
+
+Install the background agent once and every drive you plug in is logged
+automatically:
+
+```sh
+lumpy agent install
+```
+
+It runs whenever a drive is mounted, lists its files (fast: names, sizes and
+dates, no reading of footage), picks up checksums from any MHL manifests on
+it, and notices files that have disappeared since last time. If macOS asks
+whether `lumpy` may access removable volumes, allow it; adding the binary to
+System Settings → Privacy & Security → Full Disk Access stops the question.
+Its log is `~/Library/Logs/Lumpy/agent.log`.
+
+Offloads are recorded too: the card and every destination get the checksums
+Lumpy just verified, so their files count as proven copies straight away.
+
+```sh
+lumpy drives                    # every drive, when it was last seen and checked
+lumpy drive SHUTTLE_1           # one drive's details and history
+lumpy find A003C012             # which drives hold this clip
+lumpy backups A001              # does every file on card A001 have a copy elsewhere?
+lumpy backups --min 2 SHUTTLE_1 # ...at least two copies?
+```
+
+`backups` works entirely from the library, so the drive doesn't need to be
+plugged in. Files count as copies when another drive holds a file with the
+same xxh64 checksum and size. A copy that failed its last check doesn't
+count. Files with no checksum yet are matched by name and size, and
+reported as probable but not proven.
+
+#### Checking a drive
+
+```sh
+lumpy drive verify SHUTTLE_1
+```
+
+If the drive is plugged in, Lumpy re-reads every file and compares it with
+the library, reporting files that changed, were damaged, or disappeared. If
+it's on a shelf, the check is **queued**: the agent runs it the next time
+the drive is mounted and posts a notification when it's done (or tells you
+if the drive was unplugged part-way, in which case it stays queued).
+`lumpy drive cancel SHUTTLE_1` cancels a queued check.
+
+`lumpy drive hash SHUTTLE_1` checksums only the files that don't have a
+checksum yet, which is useful for drives filled by other tools without MHLs.
+`lumpy catalog` logs the mounted drives by hand if you don't use the agent.
+When a card is reformatted, `lumpy drive forget A001` removes it so it stops
+counting as a copy. (If it's plugged in again, the agent notices its files
+are gone anyway.)
+
 ### Reports and exit status
 
-Every command prints what it finds; add `--report day04.txt` to save a copy.
+Every command prints what it finds. Add `--report day04.txt` to save a copy.
 Problems are marked `FAIL`, and the run ends with `OK` or `BAD` per
 destination. The exit status is 0 when everything matched, 1 when any file
-failed, 2 for a usage or setup error, and 130 when interrupted, so Lumpy can
+failed or isn't backed up enough, 2 for a usage or setup error, and 130 when interrupted, so Lumpy can
 be scripted.
 
 ## Build
