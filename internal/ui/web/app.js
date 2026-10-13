@@ -187,30 +187,39 @@ async function loadJobs() {
 }
 
 // ---------- rendering ----------
-// backupState sums up how well something is backed up: "full" when every
-// checksummed file has a copy on another drive and nothing is unproven,
-// "partial" when some do, "none" when nothing does, "unknown" when no
-// file has a checksum yet, "empty" when there are no files.
-function backupState(backed, total, unknown) {
+// backupState sums up how well something is backed up. backed is what
+// has a checksum-matched copy on another drive; likely is what has no
+// checksum yet but the same name and size on another drive (the quick
+// look, before a checksum pass proves it); unknown has no checksum and
+// nothing like it elsewhere. "full" means everything is proven, "likely"
+// everything is proven or probable, "partial" some of it, "none" nothing,
+// "unknown" nothing can be told yet, "empty" no files.
+function backupState(backed, total, unknown, likely = 0) {
   if (!total) return "empty";
+  if (backed >= total) return "full";
+  if (likely > 0 && backed + likely >= total) return "likely";
   if (unknown >= total) return "unknown";
-  if (backed <= 0) return "none";
-  if (backed >= total - unknown && !unknown) return "full";
+  if (backed <= 0 && likely <= 0) return "none";
   return "partial";
 }
-const STATE_LABEL = { full: "Verified backup", partial: "", none: "No backup", unknown: "No checksums yet", empty: "Empty" };
+const STATE_LABEL = { full: "Verified backup", likely: "Probably backed up · checksum to prove", partial: "", none: "No backup", unknown: "No checksums yet", empty: "Empty" };
+const STATE_TITLE = { full: "Every file here has a checksum-matched copy on another drive", likely: "Every file here has either a verified copy or a same-name, same-size file on another drive. Checksum the drive to prove the copies.",
+  none: "No file here has a copy on another drive", unknown: "Files have no checksum yet and nothing like them was found elsewhere", partial: "", empty: "" };
 // backupBar draws one bar for a backup state: green fill when complete,
-// yellow fill for the backed-up share, red label when there is none, a
-// hatched grey share for files without a checksum.
-function backupBar(backed, total, unknown, opts = {}) {
-  const st = backupState(backed, total, unknown);
+// yellow fill for the proven share, hatched yellow for the probable
+// share (name and size match), hatched grey for files nothing is known
+// about, red label when there is nothing.
+function backupBar(backed, total, unknown, likely = 0, opts = {}) {
+  if (typeof likely === "object") { opts = likely; likely = 0; }
+  const st = backupState(backed, total, unknown, likely);
   const t = total || 1;
   const fill = st === "full" ? "fill-full" : "fill-partial";
+  const n = (v) => (opts.unit === "files" ? v.toLocaleString() : bytes(v));
   const label = opts.label !== undefined ? opts.label : st === "partial"
-    ? `${opts.unit === "files" ? backed.toLocaleString() + " of " + total.toLocaleString() + " files" : bytes(backed) + " of " + bytes(total)} backed up${unknown ? ` · ${opts.unit === "files" ? unknown.toLocaleString() + " unproven" : bytes(unknown) + " unproven"}` : ""}`
+    ? `${n(backed)} of ${n(total)}${opts.unit === "files" ? " files" : ""} backed up${likely ? ` · ${n(likely)} probably` : ""}${unknown ? ` · ${n(unknown)} unproven` : ""}`
     : STATE_LABEL[st];
-  return `<div class="bbar s-${st} ${opts.size || ""}" title="${esc(st === "full" ? "Every file here has a checksum-matched copy on another drive" : st === "none" ? "No file here has a copy on another drive" : st === "unknown" ? "Files have no checksum yet, so copies can't be proven" : "")}">
-    <div class="track">${backed > 0 ? `<i class="${fill}" style="width:${((backed / t) * 100).toFixed(2)}%"></i>` : ""}${unknown > 0 ? `<i class="fill-unknown" style="width:${((unknown / t) * 100).toFixed(2)}%"></i>` : ""}</div>
+  return `<div class="bbar s-${st} ${opts.size || ""}" title="${esc(STATE_TITLE[st] || (likely ? "Probably: a file with the same name and size is on another drive; checksum to prove it" : ""))}">
+    <div class="track">${backed > 0 ? `<i class="${fill}" style="width:${((backed / t) * 100).toFixed(2)}%"></i>` : ""}${likely > 0 ? `<i class="fill-likely" style="width:${((likely / t) * 100).toFixed(2)}%"></i>` : ""}${unknown > 0 ? `<i class="fill-unknown" style="width:${((unknown / t) * 100).toFixed(2)}%"></i>` : ""}</div>
     <span class="lbl">${st === "full" ? ICON.check : st === "none" ? ICON.warn : ""}${esc(label)}</span></div>`;
 }
 // capBar shows how full a drive is against a fixed blue→yellow→red
@@ -228,7 +237,7 @@ function backupBadge(d) {
   const b = d.backups;
   if (d.damaged) return `<span class="badge bad">${ICON.warn}${d.damaged} damaged</span>`;
   if (!b || !d.files) return "";
-  const st = backupState(b.enough + b.short, b.files, b.unknown + b.likely);
+  const st = backupState(b.enough + b.short, b.files, b.unknown, b.likely);
   if (st === "unknown") return `<span class="badge">${ICON.dash}No checksums yet</span>`;
   if (st === "none") return `<span class="badge bad">${ICON.warn}No backup</span>`;
   if (st === "full") return `<span class="badge ok">${ICON.check}Verified backup</span>`;
@@ -258,7 +267,7 @@ function cardColor(d) {
       const b = d.backups;
       if (d.damaged) return "var(--bad)";
       if (!b || !d.files) return null;
-      return { full: "var(--ok)", partial: "var(--warn)", none: "var(--bad)", unknown: "#6b6b74", empty: null }[backupState(b.enough + b.short, b.files, b.unknown + b.likely)];
+      return { full: "var(--ok)", likely: "var(--warn)", partial: "var(--warn)", none: "var(--bad)", unknown: "#6b6b74", empty: null }[backupState(b.enough + b.short, b.files, b.unknown, b.likely)];
     }
     case "client": {
       const c = (d.labels.client || "").trim().toLowerCase();
@@ -555,7 +564,7 @@ async function openDetail(id, refresh, focusLabels) {
             ${d.connected ? `<button class="btn small" id="hash" ${d.busy ? "disabled" : ""}>Checksum new files</button>` : ""}
             <button class="btn small primary" id="verify" ${d.busy || (d.verifyRequested && !d.connected) ? "disabled" : ""}>${d.connected ? "Check drive now" : d.verifyRequested ? "Check queued" : "Queue check"}</button>
           </div></div>
-        ${backupBar(b.enoughBytes + b.shortBytes, b.bytes, b.likelyBytes + b.unknownBytes, { size: "big" })}
+        ${backupBar(b.enoughBytes + b.shortBytes, b.bytes, b.unknownBytes, b.likelyBytes, { size: "big" })}
         <div class="stat-row" style="margin-top:12px">
           <div class="stat ${missing ? "bad" : b.minCopies > 0 ? "ok" : ""}"><div class="v">${b.minCopies < 0 ? "—" : missing ? missing.toLocaleString() : b.minCopies + "×"}</div><div class="l">${b.minCopies < 0 ? "no checksums yet" : missing ? "files not backed up" : "fewest copies elsewhere"}</div></div>
           <div class="stat"><div class="v">${d.files ? Math.round((d.hashed / d.files) * 100) : 0}%</div><div class="l">${d.hashed.toLocaleString()} of ${d.files.toLocaleString()} checksummed</div></div>
@@ -570,8 +579,8 @@ async function openDetail(id, refresh, focusLabels) {
       <div class="sec"><div class="sec-title">${ICON.pie}Contents by folder <span class="hint" style="font-weight:400">which top-level folders have a copy elsewhere</span>
           <div class="right">${d.connected ? `<button class="btn small" id="probe" ${d.busy ? "disabled" : ""} title="Read codec, frame rate, timecode and camera from clips that have none yet">${ICON.clapper}Read metadata</button><button class="btn small" id="rescan" ${d.busy ? "disabled" : ""}>${ICON.refresh}Rescan</button>` : ""}</div></div>
         ${folders.length ? `<table class="list compact"><thead><tr><th>Folder</th><th class="num">Size</th><th style="width:45%">Backup</th></tr></thead><tbody>
-          ${folders.map((f) => { const st = backupState(f.backedBytes, f.bytes, f.unknownBytes); return `<tr><td><div class="name" style="font-weight:500"><span class="sdot ${st}"></span>${f.folder ? ICON.folder.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"') : ICON.file.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"')}${esc(f.name)}</div></td>
-            <td class="num">${bytes(f.bytes)}</td><td>${backupBar(f.backedBytes, f.bytes, f.unknownBytes, { size: "tiny" })}</td></tr>`; }).join("")}</tbody></table>`
+          ${folders.map((f) => { const st = backupState(f.backedBytes, f.bytes, f.unknownBytes - (f.likelyBytes || 0), f.likelyBytes || 0); return `<tr><td><div class="name" style="font-weight:500"><span class="sdot ${st}"></span>${f.folder ? ICON.folder.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"') : ICON.file.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"')}${esc(f.name)}</div></td>
+            <td class="num">${bytes(f.bytes)}</td><td>${backupBar(f.backedBytes, f.bytes, f.unknownBytes - (f.likelyBytes || 0), f.likelyBytes || 0, { size: "tiny" })}</td></tr>`; }).join("")}</tbody></table>`
           : `<span class="hint">No files recorded on this drive.</span>`}
       </div>
 
@@ -582,7 +591,7 @@ async function openDetail(id, refresh, focusLabels) {
       ${summaryText(d) ? `<div class="sec"><div class="sec-title">${ICON.search}Top-level summary</div><div style="color:var(--text-2)">${esc(summaryText(d))}</div></div>` : ""}
 
       <div class="sec"><div class="sec-title">${ICON.folder}Browse drive <span style="color:var(--muted);font-weight:400;font-size:12px">Indexed • ${d.files.toLocaleString()} files${d.lastScan ? " • " + when(d.lastScan) : ""}</span></div>
-        <div class="legend-line"><span><i class="sdot full"></i>Everything inside has a verified duplicate on another drive</span><span><i class="sdot partial"></i>Some of it does</span><span><i class="sdot none"></i>None of it does, or no checksums yet</span></div>
+        <div class="legend-line"><span><i class="sdot full"></i>Everything inside has a verified duplicate on another drive</span><span><i class="sdot partial"></i>Some of it does</span><span><i class="sdot likely"></i>Probably: same name and size elsewhere, not checksummed yet</span><span><i class="sdot none"></i>None of it does, or nothing known</span></div>
         <div class="search"><span class="search-icon">${ICON.search}</span><input id="tree-filter" type="search" placeholder="Filter by name…"></div>
         <div class="tree" id="tree"><div class="tree-note">Loading…</div></div></div>
 
@@ -651,12 +660,12 @@ function statusIcon(e) {
 // entryDot is the backup dot for a folder (rolled up from its contents)
 // or a file, with a short count for folders.
 function entryDot(e) {
-  const st = e.folder ? backupState(e.backed, e.files, e.unknown) : (e.damaged ? "damaged" : e.copies > 0 ? "full" : e.unknown ? "unknown" : "none");
+  const st = e.folder ? backupState(e.backed, e.files, e.unknown - (e.likely || 0), e.likely || 0) : (e.damaged ? "damaged" : e.copies > 0 ? "full" : e.unknown && e.likely ? "likely" : e.unknown ? "unknown" : "none");
   const title = e.folder
-    ? (st === "full" ? "Every file inside has a copy on another drive" : st === "partial" ? `${e.backed.toLocaleString()} of ${e.files.toLocaleString()} files have a copy elsewhere${e.unknown ? `, ${e.unknown.toLocaleString()} have no checksum` : ""}` : st === "unknown" ? "No checksums yet" : "No file inside has a copy on another drive")
-    : (st === "full" ? `Copy on ${e.copies} other drive${e.copies === 1 ? "" : "s"}` : st === "damaged" ? "Failed its last check" : st === "unknown" ? "No checksum yet" : "No copy on another drive");
+    ? (st === "full" ? "Every file inside has a copy on another drive" : st === "likely" ? "Every file inside has a verified copy or a same-name, same-size file on another drive; checksum to prove it" : st === "partial" ? `${e.backed.toLocaleString()} of ${e.files.toLocaleString()} files have a copy elsewhere${e.likely ? `, ${e.likely.toLocaleString()} probably (same name and size)` : ""}${e.unknown - (e.likely || 0) ? `, ${(e.unknown - (e.likely || 0)).toLocaleString()} unproven` : ""}` : st === "unknown" ? "No checksums yet" : "No file inside has a copy on another drive")
+    : (st === "full" ? `Copy on ${e.copies} other drive${e.copies === 1 ? "" : "s"}` : st === "likely" ? "Probably backed up: a file with the same name and size is on another drive. Checksum to prove it" : st === "damaged" ? "Failed its last check" : st === "unknown" ? "No checksum yet" : "No copy on another drive");
   const dot = `<span class="sdot ${st === "unknown" ? "none" : st}" title="${esc(title)}"></span>`;
-  const text = e.folder && e.files ? `<span class="bk ${st}">${st === "full" ? "all " + e.files.toLocaleString() : st === "none" || st === "unknown" ? "0 of " + e.files.toLocaleString() : e.backed.toLocaleString() + " of " + e.files.toLocaleString()}</span>` : `<span class="bk"></span>`;
+  const text = e.folder && e.files ? `<span class="bk ${st}">${st === "full" ? "all " + e.files.toLocaleString() : st === "likely" ? "~all " + e.files.toLocaleString() : st === "none" || st === "unknown" ? "0 of " + e.files.toLocaleString() : (e.backed + (e.likely ? "+" + e.likely + "?" : "")) + " of " + e.files.toLocaleString()}</span>` : `<span class="bk"></span>`;
   return [dot, text];
 }
 
@@ -720,7 +729,7 @@ function renderProjects() {
         return `<article class="card pcard" style="--tint:${COLORS[p.color] || "transparent"}" data-open-project="${p.id}">
           <div class="card-top"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span><span class="drive-ico">${ICON.film}</span></div>
           <div class="card-title"><h3>${esc(p.name)}</h3><span class="vol">${p.sources.length} folder${p.sources.length === 1 ? "" : "s"} · ${p.target} copies wanted</span></div>
-          ${backupBar(h.backedBytes, h.bytes, h.unknownBytes)}
+          ${backupBar(h.backedBytes, h.bytes, h.unknownBytes, h.likelyBytes || 0)}
           <div class="cap">${bytes(h.bytes)}<span class="sep">•</span>${h.contents.toLocaleString()} files${bad ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(bad)} still to copy</span>` : ""}</div>
           <div class="badges">${h.damaged ? `<span class="badge bad">${h.damaged} damaged</span>` : ""}</div>
           <div class="card-foot"><span>${p.sources.map((src) => driveTitle(src.driveId) + (src.folder ? "/" + src.folder : "")).join(", ") || "No folders yet"}</span><button class="btn small">Open</button></div></article>`;
@@ -778,11 +787,12 @@ function renderProjectPage() {
       <section class="panel">
         <h2>Health</h2>
         <p class="hint">Every distinct file in this project should be on at least ${p.target} different drive${p.target === 1 ? "" : "s"}. Copies anywhere in the library count. Files are matched by checksum, so the same clip in two folders counts once.</p>
-        ${h.bytes ? backupBar(h.backedBytes, h.bytes, h.unknownBytes, { size: "big" }) : `<p class="hint">${p.sources.length ? "No files recorded in these folders yet." : "Add a folder or a drive on the right to get started."}</p>`}
+        ${h.bytes ? backupBar(h.backedBytes, h.bytes, h.unknownBytes, h.likelyBytes || 0, { size: "big" }) : `<p class="hint">${p.sources.length ? "No files recorded in these folders yet." : "Add a folder or a drive on the right to get started."}</p>`}
         <div class="stat-row" style="margin-top:14px">
           <div class="stat ${h.bytes && !bad ? "ok" : ""}"><div class="v">${h.bytes ? Math.round((h.backedBytes / h.bytes) * 100) : 0}%</div><div class="l">backed up (${bytes(h.backedBytes)}, ${h.backed.toLocaleString()} files)</div></div>
           <div class="stat ${h.soleBytes ? "bad" : "dim"}"><div class="v">${bytes(h.soleBytes)}</div><div class="l">sole copies (${h.sole.toLocaleString()} files)</div></div>
           ${p.target > 2 ? `<div class="stat ${h.shortBytes ? "warn" : "dim"}"><div class="v">${bytes(h.shortBytes)}</div><div class="l">fewer than ${p.target} copies (${h.short.toLocaleString()} files)</div></div>` : ""}
+          ${h.likelyBytes ? `<div class="stat warn" title="No checksum yet, but a file with the same name and size is on enough drives. Checksum to prove it."><div class="v">${bytes(h.likelyBytes)}</div><div class="l">probably backed up, by name (${h.likely.toLocaleString()} files)</div></div>` : ""}
           <div class="stat ${h.unknownBytes ? "warn" : "dim"}"><div class="v">${bytes(h.unknownBytes)}</div><div class="l">no checksum yet (${h.unknown.toLocaleString()} files)</div></div>
           <div class="stat ${h.damaged || h.lost ? "bad" : "dim"}"><div class="v">${h.damaged}</div><div class="l">damaged copies${h.lost ? ` · ${h.lost} with no good copy left` : ""}</div></div>
         </div>
@@ -824,7 +834,7 @@ function renderProjectPage() {
           return `<div class="step-card" style="margin-bottom:10px">
             <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : (d && COLORS[d.labels.color]) || "var(--muted)"}"></span><b style="min-width:0;overflow:hidden;text-overflow:ellipsis">${sourceLabel(sh)}</b>
               <div class="right"><button class="btn small" data-drive-open="${esc(sh.driveId)}">Drive</button><button class="icon-btn" data-remove-src="${i}" title="Remove from project">${ICON.x}</button></div></div>
-            ${backupBar(sh.backedBytes, sh.bytes, sh.unknownBytes)}
+            ${backupBar(sh.backedBytes, sh.bytes, sh.unknownBytes, sh.likelyBytes || 0)}
             <div class="cap">${bytes(sh.bytes)} · ${sh.files.toLocaleString()} files${sh.soleBytes + sh.shortBytes ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(sh.soleBytes + sh.shortBytes)} still to copy</span>` : ""}${sh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.extraBytes)} on more drives than needed</span>` : ""}${d && !d.connected ? `<span class="sep">•</span><span class="hint">last seen ${new Date(d.lastSeen * 1000).toLocaleDateString()}</span>` : ""}</div></div>`;
         }).join("")}
         <button class="btn" id="proj-add-src">${ICON.plus}Add a folder or drive…</button>

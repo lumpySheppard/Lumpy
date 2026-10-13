@@ -189,10 +189,11 @@ main { flex: 1; overflow: auto; padding: 20px; }
 .bbar .track .fill-full { background: var(--ok); }
 .bbar .track .fill-partial { background: var(--warn); }
 .bbar .track .fill-unknown { background: repeating-linear-gradient(90deg, #4a4a52 0 4px, #333339 4px 8px); }
+.bbar .track .fill-likely { background: repeating-linear-gradient(90deg, #d9ad3f 0 4px, #7a6224 4px 8px); }
 .bbar .lbl { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); }
 .bbar .lbl svg { width: 12px; height: 12px; }
 .bbar.s-full .lbl { color: var(--ok); font-weight: 600; }
-.bbar.s-partial .lbl { color: var(--warn); }
+.bbar.s-partial .lbl, .bbar.s-likely .lbl { color: var(--warn); }
 .bbar.s-none .lbl { color: var(--bad); font-weight: 600; }
 .bbar.s-unknown .lbl, .bbar.s-empty .lbl { color: var(--muted); }
 .bbar.big .track { height: 12px; }
@@ -204,6 +205,7 @@ main { flex: 1; overflow: auto; padding: 20px; }
 .sdot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; background: var(--muted); }
 .sdot.full { background: var(--ok); box-shadow: 0 0 5px rgba(61,220,132,.6); }
 .sdot.partial { background: var(--warn); }
+.sdot.likely { background: repeating-linear-gradient(45deg, #e0b94a 0 2px, #6b5a1e 2px 4px); }
 .sdot.none { background: #4a4a52; }
 .sdot.damaged { background: var(--bad); }
 .legend-line { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin: 6px 0 2px; }
@@ -345,7 +347,7 @@ table.grouped tr.sub td:first-child { width: 22px; padding-right: 0; }
 .tree { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; max-height: 360px; overflow: auto; background: var(--panel-2); }
 .tree-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .tree-row .bk { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 70px; text-align: right; }
-.tree-row .bk.full { color: var(--ok); } .tree-row .bk.partial { color: var(--warn); }
+.tree-row .bk.full { color: var(--ok); } .tree-row .bk.partial, .tree-row .bk.likely { color: var(--warn); }
 .tree-row:last-child { border-bottom: 0; }
 .tree-row .nm { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tree-row .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

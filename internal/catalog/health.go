@@ -69,6 +69,8 @@ type SourceHealth struct {
 	SoleBytes    int64 `json:"soleBytes"`
 	Unknown      int   `json:"unknown"`
 	UnknownBytes int64 `json:"unknownBytes"`
+	Likely       int   `json:"likely"`
+	LikelyBytes  int64 `json:"likelyBytes"`
 	Damaged      int   `json:"damaged"`
 	// Extra counts files with more than Target copies: space that could
 	// be reclaimed if needed.
@@ -86,6 +88,9 @@ type FolderHealth struct {
 	SoleBytes    int64  `json:"soleBytes"`
 	UnknownBytes int64  `json:"unknownBytes"`
 	Damaged      int    `json:"damaged"`
+	// LikelyBytes, within UnknownBytes, have a same-name, same-size file on
+	// another drive: probably backed up, unproven.
+	LikelyBytes int64 `json:"likelyBytes"`
 }
 
 // Health is how well a project is backed up: every distinct file in its
@@ -102,11 +107,15 @@ type Health struct {
 	ShortBytes   int64 `json:"shortBytes"`
 	Sole         int   `json:"sole"` // on one drive only
 	SoleBytes    int64 `json:"soleBytes"`
-	Unknown      int   `json:"unknown"` // no checksum, so copies cannot be proven
+	Unknown      int   `json:"unknown"` // no checksum and nothing like it elsewhere
 	UnknownBytes int64 `json:"unknownBytes"`
-	Damaged      int   `json:"damaged"` // copies in the folders that failed their last check
-	Lost         int   `json:"lost"`    // files whose every known copy is damaged
-	LostBytes    int64 `json:"lostBytes"`
+	// Likely are unchecksummed files whose name and size appear on Target
+	// drives: probably backed up, unproven until checksummed.
+	Likely      int   `json:"likely"`
+	LikelyBytes int64 `json:"likelyBytes"`
+	Damaged     int   `json:"damaged"` // copies in the folders that failed their last check
+	Lost        int   `json:"lost"`    // files whose every known copy is damaged
+	LostBytes   int64 `json:"lostBytes"`
 
 	Sources []SourceHealth `json:"sources"`
 	// Needs are the contents with fewer than Target copies, largest first.
@@ -231,6 +240,8 @@ func (db *DB) ProjectHealth(sources []Source, target int) (*Health, error) {
 
 	class := func(c *Content) string {
 		switch {
+		case c.Unhashed && c.Copies() >= target:
+			return "likely"
 		case c.Unhashed:
 			return "unknown"
 		case c.Copies() == 0:
@@ -247,6 +258,10 @@ func (db *DB) ProjectHealth(sources []Source, target int) (*Health, error) {
 		h.Contents++
 		h.Bytes += c.Size
 		switch class(c) {
+		case "likely":
+			h.Likely++
+			h.LikelyBytes += c.Size
+			h.Unhashed = append(h.Unhashed, c)
 		case "unknown":
 			h.Unknown++
 			h.UnknownBytes += c.Size
@@ -273,6 +288,9 @@ func (db *DB) ProjectHealth(sources []Source, target int) (*Health, error) {
 			sh.Files++
 			sh.Bytes += c.Size
 			switch class(c) {
+			case "likely":
+				sh.Likely++
+				sh.LikelyBytes += c.Size
 			case "unknown":
 				sh.Unknown++
 				sh.UnknownBytes += c.Size
@@ -323,6 +341,9 @@ func (db *DB) FolderHealths(driveID string) ([]FolderHealth, error) {
 		switch {
 		case c.BadHash != "":
 			f.Damaged++
+		case c.XXH64 == "" && len(c.Likely) > 0:
+			f.UnknownBytes += c.Size
+			f.LikelyBytes += c.Size
 		case c.XXH64 == "":
 			f.UnknownBytes += c.Size
 		case len(c.Copies) > 0:

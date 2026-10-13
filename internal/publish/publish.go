@@ -136,6 +136,7 @@ type Drive struct {
 	Backup       string         `json:"backup"`
 	BackedBytes  int64          `json:"backedBytes"`
 	UnknownBytes int64          `json:"unknownBytes"`
+	LikelyBytes  int64          `json:"likelyBytes"` // no checksum, but the same name and size elsewhere
 	Holders      map[string]int `json:"holders,omitempty"`
 	LastCheck    time.Time      `json:"lastCheck"`
 	LastCheckOK  bool           `json:"lastCheckOk"`
@@ -172,17 +173,21 @@ type Step struct {
 	Ready bool   `json:"ready"` // both drives are plugged in now
 }
 
-// backupState mirrors the app's card logic.
-func backupState(backed, total, unknown int64) string {
+// backupState mirrors the app's card logic: unknown is bytes with no
+// checksum and nothing like them elsewhere; likely is bytes with no
+// checksum but a same-name, same-size file on another drive.
+func backupState(backed, total, unknown, likely int64) string {
 	switch {
 	case total == 0:
 		return "empty"
+	case backed >= total:
+		return "full"
+	case likely > 0 && backed+likely >= total:
+		return "likely"
 	case unknown >= total:
 		return "unknown"
-	case backed <= 0:
+	case backed <= 0 && likely <= 0:
 		return "none"
-	case backed >= total-unknown && unknown == 0:
-		return "full"
 	}
 	return "partial"
 }
@@ -232,8 +237,9 @@ func Build(db *catalog.DB, host, version, title string, files bool) (*Status, er
 		}
 		if b, err := db.Backups(d.ID, 1); err == nil {
 			out.BackedBytes = b.EnoughBytes + b.ShortBytes
-			out.UnknownBytes = b.LikelyBytes + b.UnknownBytes
-			out.Backup = backupState(out.BackedBytes, b.Bytes, out.UnknownBytes)
+			out.UnknownBytes = b.UnknownBytes
+			out.LikelyBytes = b.LikelyBytes
+			out.Backup = backupState(out.BackedBytes, b.Bytes, out.UnknownBytes, out.LikelyBytes)
 			out.Holders = b.Holders
 		}
 		if fs, err := db.Files(d.ID); err == nil {

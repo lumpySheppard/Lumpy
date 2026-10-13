@@ -59,13 +59,16 @@ type Entry struct {
 	// files with a copy.
 	Backed      int   `json:"backed"`
 	BackedBytes int64 `json:"backedBytes"`
-	Unknown     int   `json:"unknown"`
+	Unknown     int   `json:"unknown"` // no checksum (Likely among them)
+	Likely      int   `json:"likely"`  // no checksum, but a same-name, same-size file on another drive
+	LikelyBytes int64 `json:"likelyBytes"`
 	Copies      int   `json:"copies,omitempty"` // for a file: drives holding a copy
 }
 
 // FileState is what the library knows about one file's backups.
 type FileState struct {
 	Copies  int  // other drives holding a good copy
+	Likely  int  // other drives holding a same-name, same-size file, for a file with no checksum
 	Unknown bool // no checksum
 	Damaged bool // failed its last check
 }
@@ -78,7 +81,7 @@ func (db *DB) BackupStates(driveID string) (map[string]FileState, error) {
 	}
 	out := make(map[string]FileState, len(cov))
 	for _, c := range cov {
-		out[c.Path] = FileState{Copies: len(c.Copies), Unknown: c.XXH64 == "", Damaged: c.BadHash != ""}
+		out[c.Path] = FileState{Copies: len(c.Copies), Likely: len(c.Likely), Unknown: c.XXH64 == "", Damaged: c.BadHash != ""}
 	}
 	return out, nil
 }
@@ -99,6 +102,9 @@ func (db *DB) List(driveID, dir, filter string, limit int, states map[string]Fil
 		}
 		if st.Unknown {
 			e.Unknown = 1
+			if st.Likely > 0 {
+				e.Likely, e.LikelyBytes = 1, e.Bytes
+			}
 		}
 	}
 	if filter != "" {
@@ -162,6 +168,10 @@ func (db *DB) List(driveID, dir, filter string, limit int, states map[string]Fil
 				}
 				if st.Unknown {
 					f.Unknown++
+					if st.Likely > 0 {
+						f.Likely++
+						f.LikelyBytes += size
+					}
 				}
 			}
 			continue
