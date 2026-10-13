@@ -1,13 +1,16 @@
 package job
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
+	"github.com/lumpysheppard/lumpy/internal/hashing"
 	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
@@ -232,5 +235,52 @@ func TestTransferFixesSoleCopies(t *testing.T) {
 	}
 	if r.Failures() != 0 || !strings.Contains(buf.String(), "exists") {
 		t.Fatalf("rerun:\n%s", buf)
+	}
+}
+
+// Several files are read at once on solid-state drives; the results are
+// the same as one at a time, and a later check still matches them.
+func TestHashDriveWithWorkers(t *testing.T) {
+	t.Setenv("LUMPY_HASH_WORKERS", "4")
+	vols, db := library(t)
+	want := map[string]string{}
+	for i := 0; i < 25; i++ {
+		data := bytes.Repeat([]byte{byte(i)}, 1000+i*37)
+		p := filepath.Join(vols, "SSD", "DAY", fmt.Sprintf("C%03d.mov", i))
+		write(t, p, data)
+		h := hashing.New(hashing.XXH64)
+		h.Write(data)
+		want[fmt.Sprintf("DAY/C%03d.mov", i)] = h.Hex()
+	}
+	var ssd *volume.Volume
+	mounted, _ := volume.Mounted()
+	for _, v := range mounted {
+		if v.Name == "SSD" {
+			ssd = v
+		}
+	}
+	r, out := quiet(t)
+	if _, err := CatalogDrive(context.Background(), db, ssd, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := HashDrive(context.Background(), db, ssd, false, r); err != nil || r.Failures() != 0 {
+		t.Fatalf("hash: %v\n%s", err, out)
+	}
+	if !strings.Contains(out.String(), "Reading 4 files at a time") {
+		t.Fatalf("workers not used:\n%s", out)
+	}
+	files, _ := db.Files(ssd.ID)
+	if len(files) != 25 {
+		t.Fatalf("%d files", len(files))
+	}
+	for _, f := range files {
+		if f.XXH64 != want[f.Path] {
+			t.Fatalf("%s: %s, want %s", f.Path, f.XXH64, want[f.Path])
+		}
+	}
+	// A full check reads them all again, in parallel, and matches.
+	r, out = quiet(t)
+	if err := HashDrive(context.Background(), db, ssd, true, r); err != nil || r.Failures() != 0 || !strings.Contains(out.String(), "25 matched") {
+		t.Fatalf("check: %v\n%s", err, out)
 	}
 }

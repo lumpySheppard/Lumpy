@@ -38,7 +38,18 @@ func identify(mount string) (*Volume, error) {
 	} else {
 		v.ID = "name:" + v.Name + ":" + itoa(v.Size)
 	}
+	v.SolidState = plistBool(p, "SolidState")
 	return v, nil
+}
+
+// plistBool reads a <true/> or <false/> value from diskutil's plist.
+func plistBool(p, key string) bool {
+	i := strings.Index(p, "<key>"+key+"</key>")
+	if i < 0 {
+		return false
+	}
+	rest := strings.TrimSpace(p[i+len("<key>"+key+"</key>"):])
+	return strings.HasPrefix(rest, "<true/>")
 }
 
 // skipFS are filesystems that are not drives you plug in.

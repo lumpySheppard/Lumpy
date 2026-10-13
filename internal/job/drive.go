@@ -9,7 +9,9 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
@@ -222,15 +224,61 @@ func HashDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, all bool, 
 		return err
 	}
 	matched, mismatched, fresh := 0, 0, 0
-	for _, f := range todo {
-		got, n, err := hashFile(ctx, filepath.Join(v.Mount, filepath.FromSlash(f.Path)), hashing.XXH64, prog)
+	// Reading is the whole cost (xxh64 keeps up with any drive), so a
+	// spinning disk is read one file at a time to avoid seeking, while an
+	// SSD or RAID reads several files at once.
+	workers := hashWorkers(v)
+	if workers > 1 {
+		r.Info("Reading %d files at a time (solid-state drive)", workers)
+	}
+	type result struct {
+		f   catalog.File
+		got string
+		n   int64
+		err error
+	}
+	hctx, stop := context.WithCancel(ctx)
+	defer stop()
+	jobs := make(chan catalog.File)
+	results := make(chan result)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for f := range jobs {
+				got, n, err := hashFile(hctx, filepath.Join(v.Mount, filepath.FromSlash(f.Path)), hashing.XXH64, prog)
+				select {
+				case results <- result{f, got, n, err}:
+				case <-hctx.Done():
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		for _, f := range todo {
+			select {
+			case jobs <- f:
+			case <-hctx.Done():
+				break
+			}
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+	for res := range results {
+		f, got, n, err := res.f, res.got, res.n, res.err
 		if errors.Is(err, context.Canceled) {
+			stop()
 			prog.Finish()
 			flush()
-			return err
+			return ctx.Err()
 		}
 		if err != nil {
 			if _, serr := os.Stat(v.Mount); serr != nil {
+				stop()
 				prog.Finish()
 				flush()
 				return fmt.Errorf("%s was disconnected during the check", v.Name)
@@ -262,10 +310,16 @@ func HashDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, all bool, 
 		}
 		if len(batch) >= 200 {
 			if err := flush(); err != nil {
+				stop()
 				prog.Finish()
 				return err
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		prog.Finish()
+		flush()
+		return err
 	}
 	took := prog.Finish()
 	if err := flush(); err != nil {
@@ -483,4 +537,16 @@ func recordOffload(db *catalog.DB, src string, srcVerified bool, sourceBad map[s
 	if read > 0 {
 		r.Info("Metadata     read for %d clips", read)
 	}
+}
+
+// hashWorkers is how many files a drive is read from at once:
+// LUMPY_HASH_WORKERS when set, 4 for a solid-state drive, else 1.
+func hashWorkers(v *volume.Volume) int {
+	if n, err := strconv.Atoi(os.Getenv("LUMPY_HASH_WORKERS")); err == nil && n > 0 && n <= 16 {
+		return n
+	}
+	if v.SolidState {
+		return 4
+	}
+	return 1
 }

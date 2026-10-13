@@ -19,6 +19,9 @@ type Volume struct {
 	Size   int64  // capacity in bytes
 	Free   int64  // bytes free now
 	FSType string
+	// SolidState is true for SSDs and NVMe drives (where macOS says so):
+	// they read several files at once faster than one after another.
+	SolidState bool
 }
 
 // MountPoint returns the root of the mounted volume that holds path.
