@@ -126,13 +126,13 @@ name into the search box: it's found on all three.
 
 ## 8. A project: is the whole setup backed up?
 
-1. **Logged** → **Select** → tick the card and both drives → **New project
-   from selection**. Name it, leave *2 copies*, **Create**.
+1. **Logged** → DRIVE_1 → **Details** → in *Browse drive*, hover the
+   `LUMPY_TEST` folder and click its **+** → **New project…**. Name it,
+   leave *2 copies*, **Create**.
 
-**Expect:** the project page opens. The health bar is mostly green (the
-test footage is on three drives). Any folder that exists on only one of
-the three shows as a red *sole copy* slice, listed under *Files with too
-few copies*.
+**Expect:** the project page opens with one folder in it. The health bar
+is green: the test footage is also on the card and on DRIVE_2, and copies
+anywhere in the library count.
 
 2. Put something new on DRIVE_1 only: copy a small folder from your Mac
    to `/Volumes/DRIVE_1/LUMPY_TEST/extra`. In the drive's **Details** click
@@ -140,14 +140,15 @@ few copies*.
 
 **Expect:** the project's sole-copy figure grows by that folder's size, and
 a plan step appears: *DRIVE_1 → DRIVE_2* (or the card, whichever has
-more room) with **Run this step**.
+more room) with **Run this step**. Under *Back up onto*, choose *Only
+these drives* and tick DRIVE_2 to make sure it goes there.
 
 3. Click **Run this step**.
 
 **Expect:** a job in **Activity** with the terminal; the files land in
-`/Volumes/DRIVE_2/<DRIVE_1's name>/LUMPY_TEST/extra/…` with an `ascmhl`
-folder beside them; back on the project page the step is gone and the
-sole-copy figure has dropped.
+`/Volumes/DRIVE_2/<project name>/extra/…` with an `ascmhl` folder beside
+them; back on the project page the step is gone and the sole-copy figure
+has dropped.
 
 4. Eject DRIVE_2 and look at the project page again.
 

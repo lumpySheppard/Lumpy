@@ -186,14 +186,16 @@ func TestTransferFixesSoleCopies(t *testing.T) {
 	raid, spare := drive(t, db, "RAID"), drive(t, db, "SPARE")
 	db.Forget(drive(t, db, "A001").ID)
 
-	h, err := db.ProjectHealth([]string{raid.ID, spare.ID}, 2)
+	sources := []catalog.Source{{DriveID: raid.ID, Folder: "Day01"}}
+	layout := catalog.ProjectLayout(sources, func(string) string { return "" })
+	h, err := db.ProjectHealth(sources, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if h.Sole != 2 || h.Backed != 0 {
 		t.Fatalf("before: %+v", h)
 	}
-	plan := catalog.MakePlan(h, []catalog.DriveSpace{{ID: raid.ID, Free: 1 << 40, Connected: true}, {ID: spare.ID, Free: 1 << 40, Connected: true}})
+	plan := catalog.MakePlan(h, []catalog.DriveSpace{{ID: raid.ID, Free: 1 << 40, Connected: true}, {ID: spare.ID, Free: 1 << 40, Connected: true}}, layout)
 	if len(plan.Transfers) != 1 || plan.Transfers[0].SourceID != raid.ID || plan.Transfers[0].DestID != spare.ID || len(plan.Transfers[0].Files) != 2 {
 		t.Fatalf("plan: %+v", plan.Transfers)
 	}
@@ -201,22 +203,23 @@ func TestTransferFixesSoleCopies(t *testing.T) {
 	vr, _ := volume.Of(filepath.Join(vols, "RAID"))
 	vs, _ := volume.Of(filepath.Join(vols, "SPARE"))
 	r, out := run(t, func(r *Report) error {
-		return Transfer(ctx, TransferOptions{Source: vr, Dest: vs, Files: plan.Transfers[0].Files, Library: db, Meta: Meta{Version: "t", Hostname: "t"}}, r)
+		return Transfer(ctx, TransferOptions{Source: vr, Dest: vs, Folder: "Day 01 job", Files: plan.Transfers[0].Files, Library: db, Meta: Meta{Version: "t", Hostname: "t"}}, r)
 	})
 	if r.Failures() != 0 || !strings.Contains(out, "all 2 files copied and verified") {
 		t.Fatalf("transfer:\n%s", out)
 	}
-	if _, err := os.Stat(filepath.Join(vols, "SPARE", "RAID", "Day01", "A001", "CLIPS", "C001.mov")); err != nil {
+	// A single-source project keeps paths relative to the source folder.
+	if _, err := os.Stat(filepath.Join(vols, "SPARE", "Day 01 job", "A001", "CLIPS", "C001.mov")); err != nil {
 		t.Fatal("copy not where expected:", err)
 	}
-	if _, err := os.Stat(filepath.Join(vols, "SPARE", "RAID", "ascmhl")); err != nil {
+	if _, err := os.Stat(filepath.Join(vols, "SPARE", "Day 01 job", "ascmhl")); err != nil {
 		t.Fatal("no MHL written in the destination folder")
 	}
-	h, _ = db.ProjectHealth([]string{raid.ID, spare.ID}, 2)
+	h, _ = db.ProjectHealth(sources, 2)
 	if h.Sole != 0 || h.Backed != 2 {
 		t.Fatalf("after: %+v", h)
 	}
-	plan = catalog.MakePlan(h, []catalog.DriveSpace{{ID: raid.ID, Free: 1 << 40}, {ID: spare.ID, Free: 1 << 40}})
+	plan = catalog.MakePlan(h, []catalog.DriveSpace{{ID: raid.ID, Free: 1 << 40}, {ID: spare.ID, Free: 1 << 40}}, layout)
 	if len(plan.Transfers) != 0 {
 		t.Fatal("plan should be empty once everything has two copies")
 	}
@@ -224,7 +227,7 @@ func TestTransferFixesSoleCopies(t *testing.T) {
 	// Running the same transfer again is harmless: files exist already.
 	r, buf := quiet(t)
 	r.Verbose = true
-	if err := Transfer(ctx, TransferOptions{Source: vr, Dest: vs, Files: []catalog.PlanFile{{Path: "Day01/A001/CLIPS/C001.mov", Size: 8, XXH64: ""}}, Library: db}, r); err != nil {
+	if err := Transfer(ctx, TransferOptions{Source: vr, Dest: vs, Folder: "Day 01 job", Files: []catalog.PlanFile{{Path: "Day01/A001/CLIPS/C001.mov", Dest: "A001/CLIPS/C001.mov", Size: 8, XXH64: ""}}, Library: db}, r); err != nil {
 		t.Fatal(err)
 	}
 	if r.Failures() != 0 || !strings.Contains(buf.String(), "exists") {

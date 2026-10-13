@@ -180,19 +180,28 @@ func TestProjectsThroughAPI(t *testing.T) {
 	call(t, s, ts, "POST", "/api/offload", `{"source":"`+filepath.Join(vols, "A001")+`","dests":["`+filepath.Join(vols, "RAID", "Day01")+`"]}`, &started)
 	waitJobs(t, s, ts)
 
+	// The card is wiped and forgotten, so the RAID holds the only copy.
+	if code := call(t, s, ts, "DELETE", "/api/drives/"+ids["A001"], "", nil); code != 200 {
+		t.Fatalf("forget: %d", code)
+	}
+	// The job is one folder on the RAID; backups may go to the spare only.
 	var p catalog.Project
-	if code := call(t, s, ts, "POST", "/api/projects", `{"name":"Feature","target":2,"driveIds":["`+ids["RAID"]+`","`+ids["SPARE"]+`"]}`, &p); code != 200 {
+	if code := call(t, s, ts, "POST", "/api/projects", `{"name":"Feature","target":2,"sources":[{"driveId":"`+ids["RAID"]+`","folder":"Day01"}],"destIds":["`+ids["SPARE"]+`"]}`, &p); code != 200 {
 		t.Fatalf("create: %d", code)
 	}
 	var detail struct {
-		Health    catalog.Health
-		Transfers []TransferView
-		Sole      []soleGroup
+		Health     catalog.Health
+		Transfers  []TransferView
+		Sole       []group
+		Candidates []Candidate
 	}
 	path := "/api/projects/" + strconv.FormatInt(p.ID, 10)
 	call(t, s, ts, "GET", path, "", &detail)
-	if detail.Health.Sole != 1 || len(detail.Transfers) != 1 || !detail.Transfers[0].Ready || len(detail.Sole) != 1 {
-		t.Fatalf("detail: %+v %+v", detail.Health, detail.Transfers)
+	if detail.Health.Sole != 1 || len(detail.Transfers) != 1 || !detail.Transfers[0].Ready || len(detail.Sole) != 1 || detail.Sole[0].Folder != "A001" {
+		t.Fatalf("detail: %+v %+v %+v", detail.Health, detail.Transfers, detail.Sole)
+	}
+	if len(detail.Candidates) != 1 || detail.Candidates[0].ID != ids["SPARE"] {
+		t.Fatalf("candidates: %+v", detail.Candidates)
 	}
 	tr := detail.Transfers[0]
 	var run struct{ Job int }
@@ -207,7 +216,12 @@ func TestProjectsThroughAPI(t *testing.T) {
 	if detail.Health.Sole != 0 || detail.Health.Backed != 1 || len(detail.Transfers) != 0 {
 		t.Fatalf("after transfer: %+v", detail.Health)
 	}
-	if code := call(t, s, ts, "PATCH", path, `{"name":"Feature Film","target":3,"remove":["`+ids["SPARE"]+`"]}`, &p); code != 200 || p.Name != "Feature Film" || len(p.DriveIDs) != 1 {
+	// The copy landed under a folder named after the project, keeping the
+	// path relative to the source folder.
+	if _, err := os.Stat(filepath.Join(vols, "SPARE", "Feature", "A001", "CLIPS", "C001.mov")); err != nil {
+		t.Fatal("copy not where expected:", err)
+	}
+	if code := call(t, s, ts, "PATCH", path, `{"name":"Feature Film","target":3,"remove":[{"driveId":"`+ids["RAID"]+`","folder":"Day01"}],"destIds":[]}`, &p); code != 200 || p.Name != "Feature Film" || len(p.Sources) != 0 || len(p.DestIDs) != 0 {
 		t.Fatalf("update: %d %+v", code, p)
 	}
 	if code := call(t, s, ts, "DELETE", path, "", nil); code != 200 {
@@ -249,7 +263,7 @@ func TestPlanStepsShowRunningAndBusy(t *testing.T) {
 	va, _ := volume.Of(filepath.Join(vols, "A"))
 	s.db.SaveHashes(va.ID, []catalog.HashUpdate{{Path: "clip.mov", Size: 9, XXH64: "abcd"}})
 	var p catalog.Project
-	call(t, s, ts, "POST", "/api/projects", `{"name":"P","target":3,"driveIds":["`+ids["A"]+`","`+ids["B"]+`","`+ids["C"]+`"]}`, &p)
+	call(t, s, ts, "POST", "/api/projects", `{"name":"P","target":3,"sources":[{"driveId":"`+ids["A"]+`"}],"destIds":["`+ids["B"]+`","`+ids["C"]+`"]}`, &p)
 
 	// Hold a transfer A -> B open and look at the plan.
 	release := make(chan struct{})

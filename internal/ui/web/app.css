@@ -282,6 +282,9 @@ table.list.compact td { padding: 6px 10px; }
 .tree-row.folder:hover { background: var(--line); }
 .tree-row .sz { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .tree-row .st svg { width: 13px; height: 13px; }
+.icon-btn.mini { width: 22px; height: 20px; opacity: .5; }
+.tree-row:hover .icon-btn.mini { opacity: 1; }
+.check-row input[type="radio"] { accent-color: var(--accent); }
 .tree-row .st .ok { color: var(--ok); } .tree-row .st .bad { color: var(--bad); } .tree-row .st .none { color: var(--muted); }
 .tree-note { padding: 8px 10px; color: var(--muted); font-size: 12px; }
 

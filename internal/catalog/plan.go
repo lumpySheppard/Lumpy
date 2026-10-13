@@ -1,12 +1,14 @@
 package catalog
 
 import (
+	"path"
 	"sort"
 )
 
 // PlanFile is one file a transfer copies.
 type PlanFile struct {
 	Path  string `json:"path"` // on the source drive
+	Dest  string `json:"dest"` // relative path under the destination folder
 	Size  int64  `json:"size"`
 	XXH64 string `json:"xxh64"`
 }
@@ -18,7 +20,7 @@ type Transfer struct {
 	DestID   string     `json:"destId"`
 	Files    []PlanFile `json:"files"`
 	Bytes    int64      `json:"bytes"`
-	// Folders summarises Files by top-level folder: name -> bytes.
+	// Folders summarises Files by top-level destination folder: name -> bytes.
 	Folders map[string]int64 `json:"folders"`
 }
 
@@ -32,7 +34,7 @@ type Plan struct {
 	Reserve       int64      `json:"reserve"` // bytes kept free on each drive
 }
 
-// DriveSpace is what the planner knows about a drive.
+// DriveSpace is a drive the planner may copy onto.
 type DriveSpace struct {
 	ID        string
 	Free      int64
@@ -40,18 +42,19 @@ type DriveSpace struct {
 }
 
 // MakePlan chooses destinations for every content that needs more copies.
-// It prefers drives that are plugged in now (so there is a step to run
-// straight away), then keeps the number of drive pairs small (so each
-// step is "plug in these two and run"), then fills the emptiest drive
-// first. The plan is recomputed whenever it is shown, so it follows the
-// drives that come and go.
-func MakePlan(h *Health, drives []DriveSpace) *Plan {
+// Candidates are the drives backups may go onto; a drive never receives
+// a file it already holds. Destinations that are plugged in alongside a
+// plugged-in holder come first (so there is a step to run straight
+// away), then drive pairs are kept together (so each step is "plug in
+// these two and run"), then the emptiest drive is filled first. layout
+// gives the destination path for an origin; see ProjectLayout.
+func MakePlan(h *Health, candidates []DriveSpace, layout func(Origin) string) *Plan {
 	const reserve = 2 << 30 // keep 2 GB free on every destination
 	plan := &Plan{Reserve: reserve}
 	space := map[string]*DriveSpace{}
 	remaining := map[string]int64{}
-	for i := range drives {
-		d := &drives[i]
+	for i := range candidates {
+		d := &candidates[i]
 		space[d.ID] = d
 		remaining[d.ID] = d.Free - reserve
 	}
@@ -66,8 +69,12 @@ func MakePlan(h *Health, drives []DriveSpace) *Plan {
 		}
 		return t
 	}
+	connected := func(id string) bool { return space[id] != nil && space[id].Connected }
 
 	for _, c := range h.Needs {
+		if len(c.Origins) == 0 {
+			continue
+		}
 		missing := h.Target - c.Copies()
 		holders := map[string]bool{}
 		for _, hd := range c.Holders {
@@ -75,27 +82,24 @@ func MakePlan(h *Health, drives []DriveSpace) *Plan {
 		}
 		placed := true
 		for k := 0; k < missing; k++ {
-			// Choose the destination: not a holder, with room; prefer one
-			// plugged in alongside a plugged-in holder, then one already
-			// paired with a holder, then the most free space.
 			var best *DriveSpace
 			bestScore := -1
-			for _, d := range drives {
+			for _, d := range candidates {
 				d := d
 				if holders[d.ID] || remaining[d.ID] < c.Size {
 					continue
 				}
 				score := 0
-				for _, hd := range c.Holders {
-					if pairs[[2]string{hd.DriveID, d.ID}] != nil {
+				for _, o := range c.Origins {
+					if pairs[[2]string{o.DriveID, d.ID}] != nil {
 						score += 2
 						break
 					}
 				}
 				if d.Connected {
 					score++
-					for _, hd := range c.Holders {
-						if sp := space[hd.DriveID]; sp != nil && sp.Connected {
+					for _, o := range c.Origins {
+						if connected(o.DriveID) {
 							score += 4
 							break
 						}
@@ -109,22 +113,24 @@ func MakePlan(h *Health, drives []DriveSpace) *Plan {
 				placed = false
 				break
 			}
-			// Choose the source among holders: one already paired with
-			// this destination, else a plugged-in one, else the first.
-			src := c.Holders[0]
-			for _, hd := range c.Holders {
-				if pairs[[2]string{hd.DriveID, best.ID}] != nil {
-					src = hd
+			// The source is one of the project's own copies: one already
+			// paired with this destination, else a plugged-in one, else
+			// the first.
+			src := c.Origins[0]
+			for _, o := range c.Origins {
+				if pairs[[2]string{o.DriveID, best.ID}] != nil {
+					src = o
 					break
 				}
-				if sp := space[hd.DriveID]; sp != nil && sp.Connected && !(space[src.DriveID] != nil && space[src.DriveID].Connected) {
-					src = hd
+				if connected(o.DriveID) && !connected(src.DriveID) {
+					src = o
 				}
 			}
 			t := pair(src.DriveID, best.ID)
-			t.Files = append(t.Files, PlanFile{Path: src.Path, Size: c.Size, XXH64: c.XXH64})
+			dest := layout(src)
+			t.Files = append(t.Files, PlanFile{Path: src.Path, Dest: dest, Size: c.Size, XXH64: c.XXH64})
 			t.Bytes += c.Size
-			t.Folders[TopFolder(src.Path)] += c.Size
+			t.Folders[TopFolder(dest)] += c.Size
 			remaining[best.ID] -= c.Size
 			holders[best.ID] = true
 		}
@@ -135,7 +141,25 @@ func MakePlan(h *Health, drives []DriveSpace) *Plan {
 	}
 	sort.SliceStable(plan.Transfers, func(i, j int) bool { return plan.Transfers[i].Bytes > plan.Transfers[j].Bytes })
 	for _, t := range plan.Transfers {
-		sort.Slice(t.Files, func(i, j int) bool { return t.Files[i].Path < t.Files[j].Path })
+		sort.Slice(t.Files, func(i, j int) bool { return t.Files[i].Dest < t.Files[j].Dest })
 	}
 	return plan
+}
+
+// ProjectLayout decides where a copied file goes under the destination
+// folder. With one source the file keeps its path relative to that
+// source. With several, each source gets its own folder first: the
+// source folder's name, or the drive's name for a whole drive.
+func ProjectLayout(sources []Source, driveName func(id string) string) func(Origin) string {
+	return func(o Origin) string {
+		if len(sources) <= 1 {
+			return o.Rel
+		}
+		src := sources[o.Source]
+		base := src.Base()
+		if base == "" {
+			base = driveName(src.DriveID)
+		}
+		return path.Join(base, o.Rel)
+	}
 }

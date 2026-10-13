@@ -1,26 +1,68 @@
 package catalog
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 )
 
-// Project is a group of drives that together hold one body of work, such
-// as a film. Target is how many drives every file should be on.
-type Project struct {
-	ID       int64     `json:"id"`
-	Name     string    `json:"name"`
-	Color    string    `json:"color"`
-	Notes    string    `json:"notes"`
-	Target   int       `json:"target"`
-	Created  time.Time `json:"-"`
-	DriveIDs []string  `json:"driveIds"`
+// Source is a folder on a drive that belongs to a project. Folder is a
+// slash-separated path relative to the drive; "" is the whole drive.
+type Source struct {
+	DriveID string `json:"driveId"`
+	Folder  string `json:"folder"`
 }
 
-// Projects lists every project with its drives, by name.
+// Base is the folder's own name, or "" for a whole drive.
+func (s Source) Base() string {
+	if s.Folder == "" {
+		return ""
+	}
+	return path.Base(s.Folder)
+}
+
+// Project is one body of work: the folders that hold it, wherever they
+// are, and how many drives every file in them should be on (Target). The
+// plan copies missing files onto DestIDs, or onto any drive in the
+// library when DestIDs is empty.
+type Project struct {
+	ID      int64     `json:"id"`
+	Name    string    `json:"name"`
+	Color   string    `json:"color"`
+	Notes   string    `json:"notes"`
+	Target  int       `json:"target"`
+	Created time.Time `json:"-"`
+	Sources []Source  `json:"sources"`
+	DestIDs []string  `json:"destIds"`
+}
+
+// DriveIDs lists the drives the project's sources are on, without repeats.
+func (p *Project) DriveIDs() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, s := range p.Sources {
+		if !seen[s.DriveID] {
+			seen[s.DriveID] = true
+			out = append(out, s.DriveID)
+		}
+	}
+	return out
+}
+
+func cleanFolder(folder string) (string, error) {
+	f := strings.Trim(strings.ReplaceAll(strings.TrimSpace(folder), "\\", "/"), "/")
+	if f == "" || f == "." {
+		return "", nil
+	}
+	if f != path.Clean(f) || strings.HasPrefix(f, "../") || f == ".." || strings.Contains(f, "/../") {
+		return "", fmt.Errorf("not a folder path: %q", folder)
+	}
+	return f, nil
+}
+
+// Projects lists every project with its sources and destinations, by name.
 func (db *DB) Projects() ([]*Project, error) {
 	rows, err := db.sql.Query(`SELECT id, name, color, notes, target, created FROM projects ORDER BY name COLLATE NOCASE`)
 	if err != nil {
@@ -30,7 +72,7 @@ func (db *DB) Projects() ([]*Project, error) {
 	var out []*Project
 	byID := map[int64]*Project{}
 	for rows.Next() {
-		p := &Project{DriveIDs: []string{}}
+		p := &Project{Sources: []Source{}, DestIDs: []string{}}
 		var created int64
 		if err := rows.Scan(&p.ID, &p.Name, &p.Color, &p.Notes, &p.Target, &created); err != nil {
 			return nil, err
@@ -42,23 +84,42 @@ func (db *DB) Projects() ([]*Project, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	links, err := db.sql.Query(`SELECT pd.project_id, pd.drive_id FROM project_drives pd
+	srcs, err := db.sql.Query(`SELECT ps.project_id, ps.drive_id, ps.folder FROM project_sources ps
+		JOIN drives d ON d.id = ps.drive_id ORDER BY d.name COLLATE NOCASE, ps.folder`)
+	if err != nil {
+		return nil, err
+	}
+	defer srcs.Close()
+	for srcs.Next() {
+		var pid int64
+		var s Source
+		if err := srcs.Scan(&pid, &s.DriveID, &s.Folder); err != nil {
+			return nil, err
+		}
+		if p := byID[pid]; p != nil {
+			p.Sources = append(p.Sources, s)
+		}
+	}
+	if err := srcs.Err(); err != nil {
+		return nil, err
+	}
+	dests, err := db.sql.Query(`SELECT pd.project_id, pd.drive_id FROM project_dests pd
 		JOIN drives d ON d.id = pd.drive_id ORDER BY d.name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
-	defer links.Close()
-	for links.Next() {
+	defer dests.Close()
+	for dests.Next() {
 		var pid int64
 		var did string
-		if err := links.Scan(&pid, &did); err != nil {
+		if err := dests.Scan(&pid, &did); err != nil {
 			return nil, err
 		}
 		if p := byID[pid]; p != nil {
-			p.DriveIDs = append(p.DriveIDs, did)
+			p.DestIDs = append(p.DestIDs, did)
 		}
 	}
-	return out, links.Err()
+	return out, dests.Err()
 }
 
 // Project returns one project.
@@ -111,20 +172,52 @@ func (db *DB) DeleteProject(id int64) error {
 	return err
 }
 
-// SetProjectDrive adds a drive to a project, or removes it.
-func (db *DB) SetProjectDrive(projectID int64, driveID string, in bool) error {
-	var err error
-	if in {
-		_, err = db.sql.Exec(`INSERT OR IGNORE INTO project_drives (project_id, drive_id) VALUES (?, ?)`, projectID, driveID)
-	} else {
-		_, err = db.sql.Exec(`DELETE FROM project_drives WHERE project_id = ? AND drive_id = ?`, projectID, driveID)
+// AddSource puts a folder (or, with folder "", a whole drive) in a project.
+func (db *DB) AddSource(projectID int64, driveID, folder string) error {
+	f, err := cleanFolder(folder)
+	if err != nil {
+		return err
 	}
+	if _, err := db.Drive(driveID); err != nil {
+		return err
+	}
+	_, err = db.sql.Exec(`INSERT OR IGNORE INTO project_sources (project_id, drive_id, folder) VALUES (?, ?, ?)`, projectID, driveID, f)
 	return err
 }
 
-// DriveProjects maps each drive to the ids of the projects it is in.
+// RemoveSource takes a folder out of a project.
+func (db *DB) RemoveSource(projectID int64, driveID, folder string) error {
+	f, err := cleanFolder(folder)
+	if err != nil {
+		return err
+	}
+	_, err = db.sql.Exec(`DELETE FROM project_sources WHERE project_id = ? AND drive_id = ? AND folder = ?`, projectID, driveID, f)
+	return err
+}
+
+// SetDests restricts where a project's backups may go. An empty list
+// means any drive in the library.
+func (db *DB) SetDests(projectID int64, driveIDs []string) error {
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM project_dests WHERE project_id = ?`, projectID); err != nil {
+		return err
+	}
+	for _, id := range driveIDs {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO project_dests (project_id, drive_id) VALUES (?, ?)`, projectID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DriveProjects maps each drive to the ids of the projects with a
+// source on it.
 func (db *DB) DriveProjects() (map[string][]int64, error) {
-	rows, err := db.sql.Query(`SELECT drive_id, project_id FROM project_drives ORDER BY project_id`)
+	rows, err := db.sql.Query(`SELECT DISTINCT drive_id, project_id FROM project_sources ORDER BY project_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -140,5 +233,3 @@ func (db *DB) DriveProjects() (map[string][]int64, error) {
 	}
 	return out, rows.Err()
 }
-
-var _ = sql.ErrNoRows

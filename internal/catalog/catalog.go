@@ -67,7 +67,13 @@ CREATE TABLE IF NOT EXISTS projects (
 	target  INTEGER NOT NULL DEFAULT 2,
 	created INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS project_drives (
+CREATE TABLE IF NOT EXISTS project_sources (
+	project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+	drive_id   TEXT NOT NULL REFERENCES drives(id) ON DELETE CASCADE,
+	folder     TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (project_id, drive_id, folder)
+);
+CREATE TABLE IF NOT EXISTS project_dests (
 	project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 	drive_id   TEXT NOT NULL REFERENCES drives(id) ON DELETE CASCADE,
 	PRIMARY KEY (project_id, drive_id)
@@ -112,6 +118,9 @@ func Open(path string) (*DB, error) {
 		s.Close()
 		return nil, fmt.Errorf("opening drive library %s: %w", path, err)
 	}
+	// Projects made before folders were supported listed whole drives.
+	s.Exec(`INSERT OR IGNORE INTO project_sources (project_id, drive_id, folder) SELECT project_id, drive_id, '' FROM project_drives`)
+	s.Exec(`DROP TABLE IF EXISTS project_drives`)
 	// Columns added after the first release; adding one twice fails harmlessly.
 	for _, col := range []string{
 		`files ADD COLUMN bad_hash TEXT`,
@@ -123,6 +132,7 @@ func Open(path string) (*DB, error) {
 		`drives ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
 		`drives ADD COLUMN color TEXT NOT NULL DEFAULT ''`,
 		`drives ADD COLUMN never_log INTEGER NOT NULL DEFAULT 0`,
+		`drives ADD COLUMN no_backups INTEGER NOT NULL DEFAULT 0`,
 	} {
 		s.Exec(`ALTER TABLE ` + col)
 	}
@@ -162,6 +172,9 @@ type Labels struct {
 	Notes    string `json:"notes"`
 	Color    string `json:"color"`
 	NeverLog bool   `json:"neverLog"` // the agent leaves this drive alone
+	// NoBackups keeps project plans from copying onto this drive: camera
+	// cards that get wiped, loaners, the edit SSD.
+	NoBackups bool `json:"noBackups"`
 }
 
 // Title is the nickname if the drive has one, else its volume name.
@@ -188,7 +201,7 @@ func nullTime(t time.Time) any {
 
 const driveCols = `d.id, d.name, d.size, d.fstype, d.first_seen, d.last_seen, d.last_mount,
 	d.last_scan, d.last_verify, d.last_verify_ok, d.verify_requested,
-	d.free, d.nickname, d.client, d.project, d.contact, d.notes, d.color, d.never_log,
+	d.free, d.nickname, d.client, d.project, d.contact, d.notes, d.color, d.never_log, d.no_backups,
 	COUNT(f.path), COALESCE(SUM(f.size), 0), COUNT(f.xxh64), COUNT(f.bad_hash)`
 
 func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
@@ -197,7 +210,7 @@ func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 	var scanAt, verAt, verOK, req sql.NullInt64
 	if err := row.Scan(&d.ID, &d.Name, &d.Size, &d.FSType, &first, &last, &d.LastMount,
 		&scanAt, &verAt, &verOK, &req,
-		&d.Free, &d.Nickname, &d.Client, &d.Project, &d.Contact, &d.Notes, &d.Color, &d.NeverLog,
+		&d.Free, &d.Nickname, &d.Client, &d.Project, &d.Contact, &d.Notes, &d.Color, &d.NeverLog, &d.NoBackups,
 		&d.Files, &d.Bytes, &d.Hashed, &d.Damaged); err != nil {
 		return nil, err
 	}

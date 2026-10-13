@@ -51,8 +51,9 @@ func findProject(db *catalog.DB, name string) (*catalog.Project, error) {
 	return nil, fmt.Errorf("no project called %q (see `lumpy project list`)", name)
 }
 
-// projectSpaces describes a project's drives to the planner, with live
-// free space for the ones plugged in.
+// projectSpaces lists where a project's backups may go (its chosen
+// destinations, or every drive in the library), with live free space for
+// drives that are plugged in, plus every drive by id.
 func projectSpaces(db *catalog.DB, p *catalog.Project) ([]catalog.DriveSpace, map[string]*catalog.Drive, map[string]*volume.Volume) {
 	mounted := map[string]*volume.Volume{}
 	if vols, err := volume.Mounted(); err == nil {
@@ -60,21 +61,34 @@ func projectSpaces(db *catalog.DB, p *catalog.Project) ([]catalog.DriveSpace, ma
 			mounted[v.ID] = v
 		}
 	}
+	allowed := map[string]bool{}
+	for _, id := range p.DestIDs {
+		allowed[id] = true
+	}
 	drives := map[string]*catalog.Drive{}
 	var spaces []catalog.DriveSpace
-	for _, id := range p.DriveIDs {
-		d, err := db.Drive(id)
-		if err != nil {
+	all, _ := db.Drives()
+	for _, d := range all {
+		drives[d.ID] = d
+		if len(allowed) > 0 && !allowed[d.ID] || len(allowed) == 0 && d.NoBackups {
 			continue
 		}
-		drives[id] = d
-		sp := catalog.DriveSpace{ID: id, Free: d.Free}
-		if v := mounted[id]; v != nil {
+		sp := catalog.DriveSpace{ID: d.ID, Free: d.Free}
+		if v := mounted[d.ID]; v != nil {
 			sp.Free, sp.Connected = v.Free, true
 		}
 		spaces = append(spaces, sp)
 	}
 	return spaces, drives, mounted
+}
+
+func projectLayout(p *catalog.Project, drives map[string]*catalog.Drive) func(catalog.Origin) string {
+	return catalog.ProjectLayout(p.Sources, func(id string) string {
+		if d := drives[id]; d != nil {
+			return d.Title()
+		}
+		return id
+	})
 }
 
 func projectList(c *cmdCtx) error {
@@ -87,7 +101,7 @@ func projectList(c *cmdCtx) error {
 		return nil
 	}
 	for _, p := range ps {
-		h, err := c.db.ProjectHealth(p.DriveIDs, p.Target)
+		h, err := c.db.ProjectHealth(p.Sources, p.Target)
 		if err != nil {
 			return err
 		}
@@ -95,13 +109,13 @@ func projectList(c *cmdCtx) error {
 		if h.Bytes > 0 {
 			pct = int(h.BackedBytes * 100 / h.Bytes)
 		}
-		c.r.Info("%-28s %d drives  %3d%% backed up  %s sole copies  %s unproven", p.Name, len(p.DriveIDs), pct, job.Bytes(h.SoleBytes), job.Bytes(h.UnknownBytes))
+		c.r.Info("%-28s %d folders  %3d%% backed up  %s sole copies  %s unproven", p.Name, len(p.Sources), pct, job.Bytes(h.SoleBytes), job.Bytes(h.UnknownBytes))
 	}
 	return nil
 }
 
 func projectShow(c *cmdCtx, p *catalog.Project) error {
-	h, err := c.db.ProjectHealth(p.DriveIDs, p.Target)
+	h, err := c.db.ProjectHealth(p.Sources, p.Target)
 	if err != nil {
 		return err
 	}
@@ -112,7 +126,7 @@ func projectShow(c *cmdCtx, p *catalog.Project) error {
 		}
 		return id
 	}
-	c.r.Info("%s  (%d drives, every file wanted on %d)", p.Name, len(p.DriveIDs), p.Target)
+	c.r.Info("%s  (every file wanted on %d drives)", p.Name, p.Target)
 	c.r.Info("")
 	c.r.Info("  backed up    %s  (%d files)", job.Bytes(h.BackedBytes), h.Backed)
 	if p.Target > 2 {
@@ -124,14 +138,27 @@ func projectShow(c *cmdCtx, p *catalog.Project) error {
 		c.r.Info("  damaged      %d copies failed their last check", h.Damaged)
 	}
 	c.r.Info("")
-	for _, d := range h.Drives {
+	for _, sh := range h.Sources {
 		state := "on shelf"
-		if mounted[d.ID] != nil {
+		if mounted[sh.DriveID] != nil {
 			state = "plugged in"
 		}
-		c.r.Info("  %-24s %-10s %s in project, %s sole copies", title(d.ID), state, job.Bytes(d.Bytes), job.Bytes(d.SoleBytes))
+		where := title(sh.DriveID)
+		if sh.Folder != "" {
+			where += ":" + sh.Folder
+		}
+		c.r.Info("  %-40s %-10s %s, %s sole copies", where, state, job.Bytes(sh.Bytes), job.Bytes(sh.SoleBytes))
 	}
-	plan := catalog.MakePlan(h, spaces)
+	if len(p.DestIDs) > 0 {
+		names := make([]string, len(p.DestIDs))
+		for i, id := range p.DestIDs {
+			names[i] = title(id)
+		}
+		c.r.Info("  backups go onto: %s", strings.Join(names, ", "))
+	} else {
+		c.r.Info("  backups go onto: any drive in the library with room")
+	}
+	plan := catalog.MakePlan(h, spaces, projectLayout(p, drives))
 	c.r.Info("")
 	if len(plan.Transfers) == 0 && plan.UnplacedBytes == 0 {
 		c.r.Info("OK    nothing to copy: every checksummed file is on %d drives", p.Target)
@@ -151,7 +178,7 @@ func projectShow(c *cmdCtx, p *catalog.Project) error {
 }
 
 func projectTransfer(ctx context.Context, c *cmdCtx, p *catalog.Project) error {
-	h, err := c.db.ProjectHealth(p.DriveIDs, p.Target)
+	h, err := c.db.ProjectHealth(p.Sources, p.Target)
 	if err != nil {
 		return err
 	}
@@ -160,9 +187,6 @@ func projectTransfer(ctx context.Context, c *cmdCtx, p *catalog.Project) error {
 		d, err := c.db.Find(arg)
 		if err != nil {
 			return nil, err
-		}
-		if drives[d.ID] == nil {
-			return nil, fmt.Errorf("%s is not in project %s", d.Title(), p.Name)
 		}
 		v := mounted[d.ID]
 		if v == nil {
@@ -178,12 +202,12 @@ func projectTransfer(ctx context.Context, c *cmdCtx, p *catalog.Project) error {
 	if err != nil {
 		return err
 	}
-	plan := catalog.MakePlan(h, spaces)
+	plan := catalog.MakePlan(h, spaces, projectLayout(p, drives))
 	for _, t := range plan.Transfers {
 		if t.SourceID == src.ID && t.DestID == dst.ID {
 			folder := c.folder
 			if folder == "" {
-				folder = drives[src.ID].Title()
+				folder = p.Name
 			}
 			return job.Transfer(ctx, job.TransferOptions{Source: src, Dest: dst, Folder: folder, Files: t.Files,
 				Meta: job.Meta{Version: version, Hostname: c.host}, Library: c.db, SkipSourceVerify: c.noSourceCheck}, c.r)

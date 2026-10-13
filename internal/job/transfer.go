@@ -22,8 +22,9 @@ import (
 type TransferOptions struct {
 	Source *volume.Volume
 	Dest   *volume.Volume
-	// Folder is the folder on Dest the files go into, keeping their paths
-	// from Source below it. Defaults to the source drive's name.
+	// Folder is the folder on Dest the files go into; each file's Dest
+	// path (or its source path when Dest is empty) goes below it.
+	// Defaults to the source drive's name.
 	Folder string
 	Files  []catalog.PlanFile
 	Meta   Meta
@@ -103,7 +104,7 @@ func Transfer(ctx context.Context, o TransferOptions, r *Report) error {
 		}
 		prog.SetCurrent(f.Path)
 		src := filepath.Join(o.Source.Mount, filepath.FromSlash(f.Path))
-		dst := filepath.Join(destRoot, filepath.FromSlash(f.Path))
+		dst := filepath.Join(destRoot, filepath.FromSlash(destPath(f)))
 		st, err := os.Stat(src)
 		if err != nil {
 			r.Fail("%s: %v", f.Path, err)
@@ -113,10 +114,10 @@ func Transfer(ctx context.Context, o TransferOptions, r *Report) error {
 			r.Fail("%s is %d bytes on %s; the library recorded %d. Rescan the drive and plan again", f.Path, st.Size(), o.Source.Name, f.Size)
 			continue
 		}
-		if dst, err := os.Lstat(dst); err == nil {
-			if dst.Mode().IsRegular() && dst.Size() == f.Size {
+		if there, err := os.Lstat(dst); err == nil {
+			if there.Mode().IsRegular() && there.Size() == f.Size {
 				r.Detail("  exists    %s on %s (checked in the verify pass)", f.Path, destLabel)
-				copied = append(copied, done{f: f, dst: filepath.Join(destRoot, filepath.FromSlash(f.Path)), sum: f.XXH64, mtime: st.ModTime()})
+				copied = append(copied, done{f: f, dst: dst, sum: f.XXH64, mtime: st.ModTime()})
 				prog.Add(int(f.Size))
 			} else {
 				r.Fail("%s already exists on %s with different contents; left untouched", f.Path, destLabel)
@@ -222,7 +223,7 @@ func Transfer(ctx context.Context, o TransferOptions, r *Report) error {
 	if len(good) > 0 {
 		gen := &mhl.Generation{Process: "transfer", Created: time.Now(), Hostname: o.Meta.Hostname, ToolVersion: o.Meta.Version}
 		for _, d := range good {
-			gen.Entries = append(gen.Entries, mhl.Entry{Path: d.f.Path, Size: d.f.Size, ModTime: d.mtime,
+			gen.Entries = append(gen.Entries, mhl.Entry{Path: destPath(d.f), Size: d.f.Size, ModTime: d.mtime,
 				Format: hashing.XXH64, Hex: d.sum, Action: "original", HashDate: d.at})
 		}
 		if p, err := mhl.Write(destRoot, gen); err != nil {
@@ -236,7 +237,7 @@ func Transfer(ctx context.Context, o TransferOptions, r *Report) error {
 			if err != nil {
 				continue
 			}
-			ups = append(ups, catalog.HashUpdate{Path: path.Join(folder, d.f.Path), Size: d.f.Size,
+			ups = append(ups, catalog.HashUpdate{Path: path.Join(folder, destPath(d.f)), Size: d.f.Size,
 				ModTime: st.ModTime().UnixNano(), XXH64: d.sum, Verified: true})
 		}
 		if err := o.Library.SaveDrive(o.Dest); err == nil {
@@ -262,4 +263,12 @@ func sumBytes[T any](xs []T, f func(T) int64) int64 {
 		n += f(x)
 	}
 	return n
+}
+
+// destPath is where a planned file lands below the destination folder.
+func destPath(f catalog.PlanFile) string {
+	if f.Dest != "" {
+		return f.Dest
+	}
+	return f.Path
 }
