@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
+	"github.com/lumpysheppard/lumpy/internal/scan"
 	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
@@ -57,6 +58,9 @@ func agentDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Report
 	r.Info("%s  %s mounted at %s", time.Now().Format("2006-01-02 15:04:05"), v.Name, v.Mount)
 	if d, err := db.Drive(v.ID); err == nil && d.NeverLog {
 		r.Info("%s is set to never be logged; skipped", d.Title())
+		return
+	} else if err != nil && !AutoLog {
+		r.Info("%s is new and automatic logging is off (Settings); not logged", v.Name)
 		return
 	}
 	if err := db.SaveDrive(v); err != nil {
@@ -112,4 +116,21 @@ func QueuedCheck(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Repor
 	} else {
 		notify("Lumpy: "+name+" verified", "Every file matched its recorded checksum.")
 	}
+}
+
+// AutoLog says whether drives seen for the first time are logged by
+// themselves; off, only drives already in the library are kept up to
+// date. AutoMetadata says whether scans read clip metadata.
+var (
+	AutoLog      = true
+	AutoMetadata = true
+)
+
+// ApplyPrefs puts the library's preferences into effect for this process.
+func ApplyPrefs(p catalog.Prefs) {
+	AutoLog = p.AutoLog
+	AutoMetadata = p.AutoMetadata
+	volume.Hide.Internal = p.HideInternal
+	volume.Hide.Images = p.HideImages
+	scan.SetExtraIgnores(p.ExcludeList())
 }

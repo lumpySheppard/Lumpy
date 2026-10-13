@@ -1416,7 +1416,8 @@ function wireFile(driveId, path, m) {
 async function openSettings(focus) {
   let u;
   try { [S.settings, u] = await Promise.all([api("/api/settings"), api("/api/update")]); } catch (e) { toast(e.message, true); return; }
-  const p = S.settings.publish, last = S.settings.last;
+  const p = S.settings.publish, last = S.settings.last, pf = S.settings.prefs || {}, lib = S.settings.library || {};
+  const hiddenDrives = (S.state.drives || []).filter((d) => d.labels && d.labels.neverLog);
   S.detail = null; S.file = null;
   const when2 = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
   const updStatus = u.installed ? `<span class="badge ok">${ICON.check}Lumpy ${esc(u.installed)} installed</span> <span class="hint">${native ? "Relaunch to run it." : "Restart lumpy ui to run it."}</span>`
@@ -1443,6 +1444,33 @@ async function openSettings(focus) {
             <div class="field"><label>GitHub token <span class="hint">· optional; only needed if the Lumpy repository is made private</span></label><input id="upd-token" type="password" value="${u.hasToken ? "••••••••••••" : ""}" placeholder="github_pat_…" autocomplete="off"></div>
           </div>
         </div></div>
+      <div class="sec"><div class="sec-title">${ICON.drive}Drives</div>
+        <div class="box">
+          <div class="fields">
+            <div class="field"><label>Which volumes count as drives</label>
+              <label class="switch" style="margin-top:7px">Hide the Mac's internal volumes <input type="checkbox" data-pref="hideInternal" ${pf.hideInternal ? "checked" : ""}></label>
+              <label class="switch" style="margin-top:8px">Hide mounted disk images (.dmg, .iso) <input type="checkbox" data-pref="hideImages" ${pf.hideImages ? "checked" : ""}></label></div>
+            <div class="field"><label>Logging</label>
+              <label class="switch" style="margin-top:7px" title="Off: only drives already in the library are kept up to date when plugged in">Log new drives when plugged in <input type="checkbox" data-pref="autoLog" ${pf.autoLog ? "checked" : ""}></label>
+              <label class="switch" style="margin-top:8px" title="Codec, frame rate, timecode and camera, read from clip headers during scans">Read clip metadata during scans <input type="checkbox" data-pref="autoMetadata" ${pf.autoMetadata ? "checked" : ""}></label></div>
+            <div class="field"><label>Rescan plugged-in drives while Lumpy is open <span class="hint">· off is recommended: a rescan reads every folder, which can get in the way of editing</span></label>
+              <select class="plain" data-pref="rescanMinutes">${[[0, "Only when plugged in, or by hand"], [15, "Every 15 minutes"], [60, "Every hour"], [240, "Every 4 hours"]].map(([v, l]) => `<option value="${v}" ${+pf.rescanMinutes === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+            <div class="field"><label>Folder exclusions <span class="hint">· names left out of library scans at any depth; a trailing * matches a prefix</span></label><input data-pref="exclude" value="${esc(pf.exclude)}" placeholder=".git, node_modules, Private, Render*" spellcheck="false"></div>
+          </div>
+          <p class="hint" style="margin:10px 0 0">Exclusions apply to the next scan of each drive (Details → Rescan). Offloads always copy everything on the card except macOS housekeeping files.</p>
+          ${hiddenDrives.length ? `<p class="hint" style="margin:12px 0 6px;color:var(--text-2);font-weight:550">Never logged</p><div class="checks">${hiddenDrives.map((d) => `<label><span class="dot" style="background:${d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(d.title)}<span class="hint">${esc(d.name !== d.title ? d.name : "")}</span><button class="btn small" data-unhide="${esc(d.id)}" style="margin-left:auto">Log again</button></label>`).join("")}</div>` : ""}
+        </div></div>
+
+      <div class="sec"><div class="sec-title">${ICON.history}Library
+          <div class="right"><button class="btn small" id="lib-optimise" title="Compacts the database file">Optimise</button>${native ? `<button class="btn small" id="lib-reveal">${ICON.reveal}Show in Finder</button>` : ""}</div></div>
+        <div class="box">
+          <dl class="kv"><dt>Location</dt><dd class="mono">${esc(lib.path || "")}</dd><dt>Size</dt><dd>${bytes(lib.bytes || 0)} <span class="hint">· ${(lib.drives || 0).toLocaleString()} drives · ${(lib.files || 0).toLocaleString()} files · ${(lib.media || 0).toLocaleString()} clips · ${(lib.events || 0).toLocaleString()} history entries</span></dd></dl>
+          <div class="path-row" style="margin:12px 0 0"><input class="path-input" id="lib-folder" placeholder="${esc(lib.default || "")}" value="${esc(lib.location || "")}">${native ? `<button class="btn" id="lib-pick">Choose…</button>` : ""}<button class="btn" id="lib-move">Move library here</button></div>
+          <p class="hint" style="margin:6px 0 0">Keeps the library on an external drive or a synced folder instead of this Mac. The library is copied there and Lumpy relaunches on it; the old copy stays until you delete it. Leave empty to go back to the default folder.</p>
+          <div class="pub-last" style="margin-top:14px"><button class="btn small danger" id="lib-clear-history">Clear history…</button><button class="btn small danger" id="lib-clear-drives">Forget every drive…</button><span class="hint">These only change Lumpy's library. Files on your drives are never touched.</span></div>
+          <div id="lib-confirm"></div>
+        </div></div>
+
       <div class="sec"><div class="sec-title">${ICON.globe}Status page for coworkers
           <div class="right">${last && last.ok && native ? `<button class="btn small" id="pub-open">${ICON.reveal}Open page</button>` : ""}<button class="btn small primary" id="pub-now" ${S.settings.publishing ? "disabled" : ""}>${S.settings.publishing ? "Publishing…" : "Publish now"}</button></div></div>
         <p class="hint" style="margin:0 0 10px">A single web page with every drive, where it was last seen, each project's backup health and a file search, so the team can check without asking you. It's written whenever a job finishes, on the interval below while Lumpy is open, and once more when Lumpy quits. <code>lumpy publish</code> does the same from Terminal.</p>
@@ -1483,6 +1511,40 @@ async function openSettings(focus) {
   const rl = $("#upd-relaunch");
   if (rl) rl.onclick = () => nativeCall("relaunch");
   if (focus === "updates") setTimeout(() => $("#sec-updates").scrollIntoView({ block: "start" }), 20);
+  // Preferences save as they change.
+  for (const el of document.querySelectorAll("[data-pref]")) el.onchange = async () => {
+    const body = {}; body[el.dataset.pref] = el.type === "checkbox" ? el.checked : el.tagName === "SELECT" ? +el.value : el.value;
+    try { S.settings.prefs = await api("/api/prefs", { method: "PUT", body }); if (el.dataset.pref === "exclude") el.value = S.settings.prefs.exclude; loadState(); }
+    catch (e) { toast(e.message, true); }
+  };
+  for (const b of document.querySelectorAll("[data-unhide]")) b.onclick = async () => {
+    const d = driveOf(b.dataset.unhide); if (!d) return;
+    try { await api(`/api/drives/${encodeURIComponent(d.id)}`, { method: "PATCH", body: { ...d.labels, neverLog: false } }); toast(`${d.title} will be logged again`); await loadState(); openSettings(); }
+    catch (e) { toast(e.message, true); }
+  };
+  $("#lib-optimise").onclick = async () => {
+    try { const r = await api("/api/library/optimise", { method: "POST" }); toast(`Library compacted: ${bytes(r.before)} → ${bytes(r.after)}`); openSettings(); } catch (e) { toast(e.message, true); }
+  };
+  const lr = $("#lib-reveal"); if (lr) lr.onclick = () => nativeCall("reveal", { path: lib.path });
+  const lp = $("#lib-pick"); if (lp) lp.onclick = async () => { const f = await pickFolder($("#lib-folder").value || lib.default); if (f) $("#lib-folder").value = f; };
+  $("#lib-move").onclick = async () => {
+    const folder = $("#lib-folder").value.trim();
+    const box = $("#lib-confirm");
+    box.innerHTML = `<div class="confirm"><div><b>Move the library to ${esc(folder || lib.default)}?</b><br>Lumpy copies it there and relaunches on the copy. ${native ? "" : "Restart lumpy ui afterwards."}</div><div class="confirm-actions"><button class="btn" id="lm-no">Cancel</button><button class="btn primary" id="lm-yes">Move and relaunch</button></div></div>`;
+    $("#lm-no").onclick = () => (box.innerHTML = "");
+    $("#lm-yes").onclick = async () => {
+      try { const r = await api("/api/library/move", { method: "POST", body: { folder } }); toast("Library copied to " + r.path + (native ? ". Relaunching…" : ". Restart lumpy ui to use it.")); if (native) setTimeout(() => nativeCall("relaunch"), 800); }
+      catch (e) { toast(e.message, true); box.innerHTML = ""; }
+    };
+  };
+  const clear = (what, text) => async () => {
+    const box = $("#lib-confirm");
+    box.innerHTML = `<div class="confirm"><div><b>${text}</b><br>This only changes Lumpy's library; nothing on any drive is touched.</div><div class="confirm-actions"><button class="btn" id="lc-no">Cancel</button><button class="btn primary danger-fill" id="lc-yes">${what === "drives" ? "Forget every drive" : "Clear history"}</button></div></div>`;
+    $("#lc-no").onclick = () => (box.innerHTML = "");
+    $("#lc-yes").onclick = async () => { try { await api("/api/library/clear", { method: "POST", body: { what } }); toast(what === "drives" ? "Library emptied" : "History cleared"); await loadState(); openSettings(); } catch (e) { toast(e.message, true); } };
+  };
+  $("#lib-clear-history").onclick = clear("history", "Clear the history of every drive?");
+  $("#lib-clear-drives").onclick = clear("drives", "Forget every drive, its files, checksums, clip metadata and history? Plugged-in drives are logged again next time they mount (unless automatic logging is off).");
   const read = () => ({ enabled: $("#pub-enabled").checked, title: $("#pub-title").value, interval: +$("#pub-interval").value, folder: $("#pub-folder").value.trim(),
     url: $("#pub-url").value.trim(), token: $("#pub-token").value, files: $("#pub-files").checked, command: $("#pub-command").value });
   const save = async () => { S.settings = await api("/api/settings", { method: "PUT", body: read() }); renderCounts(); };

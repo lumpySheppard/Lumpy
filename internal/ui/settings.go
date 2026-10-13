@@ -22,7 +22,10 @@ type publisher struct {
 
 func (s *Server) settingsView() map[string]any {
 	st := publish.Load(s.db)
+	info, _ := s.db.Info()
 	return map[string]any{
+		"prefs":         s.db.Prefs(),
+		"library":       info,
 		"publish":       st,
 		"last":          publish.Last(s.db),
 		"defaultFolder": publish.DefaultFolder(),

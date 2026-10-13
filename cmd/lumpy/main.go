@@ -245,6 +245,9 @@ func run(args []string) int {
 		if err == nil {
 			c.db, err = catalog.Open(p)
 		}
+		if err == nil {
+			job.ApplyPrefs(c.db.Prefs())
+		}
 		if err != nil {
 			if name != "offload" {
 				c.r.Info("lumpy: %v", err)
@@ -325,6 +328,7 @@ func agentCmd(ctx context.Context, c *cmdCtx) error {
 			return err
 		}
 		defer db.Close()
+		job.ApplyPrefs(db.Prefs())
 		return job.AgentRun(ctx, db, c.r, agent.Notify)
 	}
 	return usageErr("lumpy agent install | uninstall | status")

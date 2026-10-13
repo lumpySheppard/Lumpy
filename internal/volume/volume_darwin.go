@@ -39,6 +39,8 @@ func identify(mount string) (*Volume, error) {
 		v.ID = "name:" + v.Name + ":" + itoa(v.Size)
 	}
 	v.SolidState = plistBool(p, "SolidState")
+	v.Internal = plistBool(p, "Internal") && !plistBool(p, "RemovableMediaOrExternalDevice")
+	v.DiskImage = plistValue(p, "BusProtocol") == "Disk Image" || plistValue(p, "VirtualOrPhysical") == "Virtual" && plistValue(p, "BusProtocol") == ""
 	return v, nil
 }
 
@@ -76,7 +78,7 @@ func mounted() ([]*Volume, error) {
 			continue // a plain folder, not a mount
 		}
 		v, err := Identify(mount)
-		if err != nil || skipFS[v.FSType] {
+		if err != nil || skipFS[v.FSType] || hidden(v) {
 			continue
 		}
 		vols = append(vols, v)

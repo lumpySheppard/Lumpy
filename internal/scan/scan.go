@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -49,14 +50,43 @@ type Result struct {
 	TotalLen int64
 }
 
-func isIgnored(name string) bool {
+// extra are names a person asked to leave out of library scans
+// (Settings → Folder exclusions), on top of Ignored.
+var (
+	extraMu sync.RWMutex
+	extra   []string
+)
+
+// SetExtraIgnores replaces the person's exclusions: names, or prefixes
+// ending in *, skipped at any depth.
+func SetExtraIgnores(names []string) {
+	extraMu.Lock()
+	extra = append([]string(nil), names...)
+	extraMu.Unlock()
+}
+
+func matches(name, pattern string) bool {
+	return name == pattern || strings.HasSuffix(pattern, "*") && strings.HasPrefix(name, strings.TrimSuffix(pattern, "*"))
+}
+
+// IsIgnored reports whether a file or folder name is left out of scans.
+func IsIgnored(name string) bool {
 	for _, n := range Ignored {
-		if name == n || strings.HasSuffix(n, "*") && strings.HasPrefix(name, strings.TrimSuffix(n, "*")) {
+		if matches(name, n) {
+			return true
+		}
+	}
+	extraMu.RLock()
+	defer extraMu.RUnlock()
+	for _, n := range extra {
+		if matches(name, n) {
 			return true
 		}
 	}
 	return strings.HasSuffix(name, PartialSuffix)
 }
+
+func isIgnored(name string) bool { return IsIgnored(name) }
 
 // Dir walks root and returns its regular files sorted by path, leaving out
 // ignored names and the root's ascmhl folder.

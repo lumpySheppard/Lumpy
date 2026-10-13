@@ -46,13 +46,11 @@ func listDrive(ctx context.Context, root string, r *Report) ([]catalog.File, map
 			return nil
 		}
 		name := d.Name()
-		for _, ig := range scan.Ignored {
-			if name == ig {
-				if d.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
+		if scan.IsIgnored(name) {
+			if d.IsDir() {
+				return filepath.SkipDir
 			}
+			return nil
 		}
 		if d.IsDir() {
 			if name == scan.MHLDir {
@@ -139,7 +137,7 @@ func catalogDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Repo
 	r.Info("Logged       %s  (%s)", v.Name, summary)
 	// Read metadata for clips that have none, within reason: a huge
 	// drive finishes with "Read metadata" or the next scan.
-	if unprobed, err := db.Unprobed(v.ID); err == nil && len(unprobed) > 0 {
+	if unprobed, err := db.Unprobed(v.ID); AutoMetadata && err == nil && len(unprobed) > 0 {
 		const cap = 2000
 		batch := unprobed
 		if len(batch) > cap {

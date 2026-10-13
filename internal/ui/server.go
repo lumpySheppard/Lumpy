@@ -68,6 +68,7 @@ func New(db *catalog.DB, lockPath string, meta job.Meta) *Server {
 	// The status page is refreshed after each job, so coworkers see a
 	// finished offload or check within moments.
 	s.jobs.OnDone = func(*Job) { go s.publishOnce(context.Background(), false) }
+	job.ApplyPrefs(db.Prefs())
 	return s
 }
 
@@ -89,6 +90,7 @@ func (s *Server) Listen(port int) (string, *http.Server, net.Listener, error) {
 func (s *Server) Watch(ctx context.Context) {
 	go s.publishLoop(ctx)
 	go s.updateLoop(ctx)
+	go s.rescanLoop(ctx)
 	t := time.NewTicker(4 * time.Second)
 	defer t.Stop()
 	for {
@@ -176,6 +178,12 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/settings", s.getSettings)
 	api("PUT /api/settings", s.putSettings)
 	api("POST /api/publish", s.publishNow)
+	api("GET /api/prefs", s.getPrefs)
+	api("PUT /api/prefs", s.putPrefs)
+	api("GET /api/library", s.libraryInfo)
+	api("POST /api/library/move", s.moveLibrary)
+	api("POST /api/library/optimise", s.optimiseLibrary)
+	api("POST /api/library/clear", s.clearLibrary)
 	api("GET /api/update", s.getUpdate)
 	api("PUT /api/update/settings", s.putUpdateSettings)
 	api("POST /api/update/check", s.checkUpdateNow)

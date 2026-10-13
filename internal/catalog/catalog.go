@@ -124,7 +124,10 @@ const (
 )
 
 // DB is an open drive library.
-type DB struct{ sql *sql.DB }
+type DB struct {
+	sql  *sql.DB
+	path string
+}
 
 // DefaultPath is ~/Library/Application Support/Lumpy/catalog.db, or
 // $LUMPY_HOME/catalog.db when LUMPY_HOME is set.
@@ -132,11 +135,14 @@ func DefaultPath() (string, error) {
 	if h := os.Getenv("LUMPY_HOME"); h != "" {
 		return filepath.Join(h, "catalog.db"), nil
 	}
-	home, err := os.UserHomeDir()
+	if loc := LibraryLocation(); loc != "" {
+		return filepath.Join(loc, "catalog.db"), nil
+	}
+	dir, err := defaultDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "Library", "Application Support", "Lumpy", "catalog.db"), nil
+	return filepath.Join(dir, "catalog.db"), nil
 }
 
 // Open opens (creating if needed) the library at path.
@@ -172,7 +178,7 @@ func Open(path string) (*DB, error) {
 	} {
 		s.Exec(`ALTER TABLE ` + col)
 	}
-	return &DB{sql: s}, nil
+	return &DB{sql: s, path: path}, nil
 }
 
 // Close closes the library.

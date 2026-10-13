@@ -275,6 +275,18 @@ on one copy and every copy has them. **Export CSV…** writes the current
 list with every column; a project page has the same button for just its
 clips.
 
+### Settings
+
+Under the gear: **Drives** (hide the Mac's internal volumes and mounted
+disk images, log new drives automatically or not, read clip metadata
+during scans, rescan plugged-in drives on a timer, folder exclusions
+such as `.git, node_modules, Render*` left out of scans, and a list of
+drives set to *Never log* with a **Log again** button); **Library**
+(where it lives and how big it is, **Move library here** to keep it on
+an external drive or a synced folder, **Optimise** to compact it, and
+**Clear history** / **Forget every drive** — which never touch the
+drives themselves); **Updates**; and the **Status page**.
+
 ### Status page for coworkers
 
 Under the gear icon, turn on **Publish the status page**. Lumpy writes

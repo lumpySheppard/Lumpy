@@ -22,6 +22,18 @@ type Volume struct {
 	// SolidState is true for SSDs and NVMe drives (where macOS says so):
 	// they read several files at once faster than one after another.
 	SolidState bool
+	// Internal is a volume on one of the Mac's own disks; DiskImage is a
+	// mounted .dmg or .iso. Both are hidden by default (see Hide).
+	Internal  bool
+	DiskImage bool
+}
+
+// Hide says which mounted volumes are left out of listings: the Mac's
+// internal volumes and mounted disk images, by default.
+var Hide = struct{ Internal, Images bool }{true, true}
+
+func hidden(v *Volume) bool {
+	return Hide.Internal && v.Internal || Hide.Images && v.DiskImage
 }
 
 // MountPoint returns the root of the mounted volume that holds path.

@@ -145,6 +145,22 @@ func (js *Jobs) Start(kind, title, command, driveID string, fn func(ctx context.
 	return j
 }
 
+// AnyRunning reports whether any job is running now.
+func (js *Jobs) AnyRunning() bool {
+	js.mu.Lock()
+	all := append([]*Job(nil), js.all...)
+	js.mu.Unlock()
+	for _, j := range all {
+		j.mu.Lock()
+		hit := j.State == "running"
+		j.mu.Unlock()
+		if hit {
+			return true
+		}
+	}
+	return false
+}
+
 // Running reports whether a job of this kind is running now.
 func (js *Jobs) Running(kind string) bool {
 	js.mu.Lock()
