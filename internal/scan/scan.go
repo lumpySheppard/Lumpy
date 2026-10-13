@@ -28,6 +28,8 @@ var Ignored = []string{
 	".fseventsd",
 	".TemporaryItems",
 	".DocumentRevisions-V100",
+	".apdisk",
+	"._*", // AppleDouble sidecars macOS writes on exFAT and FAT cards
 }
 
 // File is one regular file, with Path relative to the scanned root and
@@ -49,7 +51,7 @@ type Result struct {
 
 func isIgnored(name string) bool {
 	for _, n := range Ignored {
-		if name == n {
+		if name == n || strings.HasSuffix(n, "*") && strings.HasPrefix(name, strings.TrimSuffix(n, "*")) {
 			return true
 		}
 	}

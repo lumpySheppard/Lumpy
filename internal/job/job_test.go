@@ -243,3 +243,88 @@ func TestVerboseListsEveryFile(t *testing.T) {
 		}
 	}
 }
+
+// A card pulled out mid-copy stops the offload with one clear reason,
+// leaves no partial files, and the next run finishes the job.
+func TestSourceDisconnectStopsCleanly(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "CARD")
+	os.MkdirAll(filepath.Join(src, "CLIPS"), 0o755)
+	os.WriteFile(filepath.Join(src, "CLIPS", "A.mov"), bytes.Repeat([]byte("a"), 50000), 0o644)
+	os.WriteFile(filepath.Join(src, "CLIPS", "B.mov"), bytes.Repeat([]byte("b"), 50000), 0o644)
+	os.WriteFile(filepath.Join(src, "CLIPS", "._B.mov"), []byte("apple double junk"), 0o644)
+	d1 := filepath.Join(dir, "d1")
+	os.Mkdir(d1, 0o755)
+	shelf := filepath.Join(dir, "shelf")
+
+	// The card "ejects" just as the second clip is about to be read.
+	beforeFileHook = func(p string) {
+		if p == "CLIPS/B.mov" {
+			os.Rename(src, shelf)
+		}
+	}
+	defer func() { beforeFileHook = nil }()
+	r, out := quiet(t)
+	err := Offload(context.Background(), OffloadOptions{Source: src, Dests: []string{d1}}, r)
+	if err == nil || !strings.Contains(err.Error(), "disappeared") || !strings.Contains(err.Error(), "run the same offload again") {
+		t.Fatalf("got %v\n%s", err, out)
+	}
+	if strings.Count(out.String(), "FAIL") > 1 {
+		t.Fatalf("one failure expected, got:\n%s", out)
+	}
+	filepath.Walk(d1, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.Contains(p, "partial") {
+			t.Errorf("left behind %s", p)
+		}
+		return nil
+	})
+	if _, err := os.Stat(filepath.Join(d1, "CARD", "CLIPS", "A.mov")); err != nil {
+		t.Fatal("the clip copied before the disconnect should stay")
+	}
+
+	// Plugged back in: the same offload finishes, the AppleDouble sidecar
+	// is left out, nothing is warned about.
+	beforeFileHook = nil
+	os.Rename(shelf, src)
+	r2, out2 := offload(t, src, d1)
+	if r2.Failures() != 0 || r2.Warnings() != 0 {
+		t.Fatalf("second run:\n%s", out2)
+	}
+	if _, err := os.Stat(filepath.Join(d1, "CARD", "CLIPS", "B.mov")); err != nil {
+		t.Fatal("B.mov not copied on the second run")
+	}
+	if _, err := os.Stat(filepath.Join(d1, "CARD", "CLIPS", "._B.mov")); err == nil {
+		t.Fatal("._B.mov (AppleDouble) was copied")
+	}
+}
+
+// A destination that vanishes is reported once and left alone; the other
+// destination finishes.
+func TestDestinationDisconnectReportedOnce(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "CARD")
+	os.MkdirAll(filepath.Join(src, "CLIPS"), 0o755)
+	for _, n := range []string{"A", "B", "C"} {
+		os.WriteFile(filepath.Join(src, "CLIPS", n+".mov"), bytes.Repeat([]byte(n), 40000), 0o644)
+	}
+	d1, d2 := filepath.Join(dir, "d1"), filepath.Join(dir, "d2")
+	os.Mkdir(d1, 0o755)
+	os.Mkdir(d2, 0o755)
+	beforeFileHook = func(p string) {
+		if p == "CLIPS/B.mov" {
+			os.RemoveAll(d2)
+		}
+	}
+	defer func() { beforeFileHook = nil }()
+	r, out := quiet(t)
+	Offload(context.Background(), OffloadOptions{Source: src, Dests: []string{d1, d2}}, r)
+	if n := strings.Count(out.String(), "disappeared"); n != 1 {
+		t.Fatalf("expected one disconnect line, got %d:\n%s", n, out)
+	}
+	if !strings.Contains(out.String(), "OK    "+filepath.Join(d1, "CARD")) {
+		t.Fatalf("d1 should still finish OK:\n%s", out)
+	}
+	if r.Failures() == 0 {
+		t.Fatal("the lost destination should count as failed")
+	}
+}

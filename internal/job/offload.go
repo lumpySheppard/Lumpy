@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
@@ -153,6 +154,12 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 
 	// failed[t][path] is set once a file has a problem on target t.
 	failed := make([]map[string]bool, len(targets))
+	lost := make([]bool, len(targets)) // destinations that vanished mid-copy
+	srcDev := devOf(src)
+	destDev := make([]uint64, len(targets))
+	for i, t := range targets {
+		destDev[i] = devOf(t)
+	}
 	for i := range failed {
 		failed[i] = map[string]bool{}
 	}
@@ -169,9 +176,24 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 			return err
 		}
 		prog.SetCurrent(f.Path)
+		if beforeFileHook != nil {
+			beforeFileHook(f.Path)
+		}
+		if gone(src, srcDev) {
+			prog.Finish()
+			return disconnected(src, f.Path)
+		}
 		var writes []string
 		var writeIdx []int
 		for i, t := range targets {
+			if !lost[i] && gone(t, destDev[i]) {
+				lost[i] = true
+				r.Fail("%s disappeared before %s was copied: the drive was unplugged or ejected. Nothing more is copied there", labels[i], f.Path)
+			}
+			if lost[i] {
+				failed[i][f.Path] = true
+				continue
+			}
 			dst := filepath.Join(t, filepath.FromSlash(f.Path))
 			st, err := os.Lstat(dst)
 			switch {
@@ -197,8 +219,15 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 		}
 		for k, werr := range writeErrs {
 			if werr != nil {
-				r.Fail("%s: writing to %s: %v", f.Path, targets[writeIdx[k]], werr)
-				failed[writeIdx[k]][f.Path] = true
+				i := writeIdx[k]
+				failed[i][f.Path] = true
+				if gone(targets[i], destDev[i]) {
+					// The drive went away: say so once and stop writing to it.
+					lost[i] = true
+					r.Fail("%s disappeared while %s was being written: the drive was unplugged or ejected. Nothing more is copied there", labels[i], f.Path)
+					continue
+				}
+				r.Fail("%s: writing to %s: %v", f.Path, targets[i], werr)
 			}
 		}
 		for k, merr := range cr.metaErrs {
@@ -216,6 +245,10 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 			}
 		}
 		if readErr != nil {
+			if gone(src, srcDev) {
+				prog.Finish()
+				return disconnected(src, f.Path)
+			}
 			r.Fail("%s: reading source: %v", f.Path, readErr)
 			for i := range targets {
 				failed[i][f.Path] = true
@@ -285,6 +318,9 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 	}
 	for i, t := range targets {
 		verifiedAt[i] = map[string]time.Time{}
+		if lost[i] {
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -329,6 +365,9 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 
 	r.Info("")
 	for i, t := range targets {
+		if lost[i] {
+			continue
+		}
 		hist, err := mhl.Load(t)
 		if err != nil {
 			r.Fail("%s: reading existing MHL: %v", t, err)
@@ -378,6 +417,36 @@ func Offload(ctx context.Context, o OffloadOptions, r *Report) error {
 // afterCopyHook lets tests change the source between the copy and the
 // verify pass, as a flaky card reader would.
 var afterCopyHook func()
+
+// beforeFileHook, for tests, runs before each file is copied.
+var beforeFileHook func(path string)
+
+// disconnected is the one error a vanished source ends the offload with:
+// every file from there on would fail the same way. Partial copies were
+// removed; running the offload again picks up where this one stopped.
+func disconnected(src, at string) error {
+	return fmt.Errorf("the source disappeared while %s was being read: %s was ejected or its reader disconnected. Plug it back in and run the same offload again; files already copied are checked, the rest are copied", at, src)
+}
+
+// devOf identifies the volume a folder is on, so a mount that vanished
+// (card ejected, reader or drive unplugged) is told apart from a folder
+// of the same name that macOS might let us recreate on the boot disk.
+func devOf(p string) uint64 {
+	st, err := os.Stat(p)
+	if err != nil {
+		return 0
+	}
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
+		return uint64(sys.Dev)
+	}
+	return 1
+}
+
+// gone reports whether a mounted folder has disappeared or been replaced
+// since dev was taken.
+func gone(root string, dev uint64) bool {
+	return devOf(root) != dev
+}
 
 // existingParent returns p or its nearest folder that exists.
 func existingParent(p string) string {
