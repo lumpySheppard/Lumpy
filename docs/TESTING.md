@@ -41,6 +41,18 @@ long ID like `A1B2C3D4-…`, not `name:…`.
 4. Open a drive's **Details** and give it a display name, client, project
    and color. Close and reopen the app: the labels are kept.
 
+## 1b. The map
+
+1. Open the **Map** tab. **Expect:** this Mac on the left with a dotted
+   green line to each plugged-in drive (labelled USB, Thunderbolt…),
+   each project in the middle, and lines to the drives that hold it,
+   labelled with the size on that drive and whether it is backed up.
+2. Click a project. **Expect:** everything else dims, its drives stay
+   lit, and a card lists them; **Open project** goes to its page.
+   Click a drive: its projects stay lit; **Details** opens the sheet.
+3. Drag a node somewhere else, switch tabs and come back. **Expect:** it
+   stays where you put it. **Arrange** puts everything back.
+
 ## 2. A normal offload
 
 1. **Offload** tab → source: the card. Destinations:

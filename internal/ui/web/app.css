@@ -577,6 +577,62 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 3px; paddi
 .bbar .track .fill-prog { background: var(--blue); }
 .px-path { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
 
+/* Map: the home screen. Nodes are HTML, edges are one SVG underneath,
+   both inside a world that pans and zooms with a transform. */
+main.map-main { padding: 0; overflow: hidden; }
+.map { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; user-select: none; touch-action: none;
+  background: radial-gradient(circle at 1px 1px, rgba(255,255,255,.075) 1px, transparent 1.6px) 0 0 / 22px 22px, radial-gradient(700px 420px at 28% 18%, rgba(138,92,246,.09), transparent 65%), var(--bg); }
+.map.panning { cursor: grabbing; }
+.map-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.map-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.edge-g { color: var(--line-2); transition: opacity .2s; }
+.edge-g path { fill: none; stroke: currentColor; stroke-width: 1.6; }
+.edge-g circle { fill: var(--bg); stroke: currentColor; stroke-width: 1.6; }
+.edge-g.full { color: var(--ok); }
+.edge-g.partial { color: var(--warn); }
+.edge-g.likely { color: var(--warn); } .edge-g.likely path { stroke-dasharray: 6 4; }
+.edge-g.none { color: var(--bad); }
+.edge-g.unknown, .edge-g.empty { color: var(--muted); } .edge-g.unknown path { stroke-dasharray: 3 4; }
+.edge-g.live { color: var(--ok); opacity: .5; } .edge-g.live path { stroke-dasharray: 2 5; stroke-linecap: round; }
+.e-lbl { position: absolute; transform: translate(-50%, -50%); font-size: 10.5px; font-weight: 500; padding: 2px 8px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); color: var(--text-2); white-space: nowrap; pointer-events: none; transition: opacity .2s; font-variant-numeric: tabular-nums; }
+.e-lbl.full { color: var(--ok); border-color: rgba(61,220,132,.35); }
+.e-lbl.partial, .e-lbl.likely { color: var(--warn); border-color: rgba(255,204,77,.35); }
+.e-lbl.none { color: var(--bad); border-color: rgba(255,92,92,.4); }
+.e-lbl.live { color: var(--ok); opacity: .75; }
+.map.has-sel .edge-g:not(.hot), .map.has-sel .e-lbl:not(.hot) { opacity: .12; }
+.map.has-sel .node:not(.hot) { opacity: .32; }
+.node { position: absolute; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 13px; cursor: pointer;
+  background: linear-gradient(color-mix(in srgb, var(--pc, var(--accent)) 12%, transparent), color-mix(in srgb, var(--pc, var(--accent)) 12%, transparent)), var(--panel);
+  border: 1px solid color-mix(in srgb, var(--pc, var(--accent)) 45%, var(--line)); box-shadow: 0 8px 24px rgba(0,0,0,.45); transition: box-shadow .15s, border-color .15s, opacity .2s; }
+.node:hover { border-color: color-mix(in srgb, var(--pc, var(--accent)) 85%, var(--line)); box-shadow: 0 10px 28px rgba(0,0,0,.5), 0 0 22px color-mix(in srgb, var(--pc, var(--accent)) 35%, transparent); }
+.node.sel { border-color: color-mix(in srgb, var(--pc, var(--accent)) 100%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc, var(--accent)) 30%, transparent), 0 10px 28px rgba(0,0,0,.5); }
+.n-tag { width: 24px; height: 24px; border-radius: 7px; background: var(--pc, var(--accent)); display: grid; place-items: center; color: #fff; flex: none; box-shadow: 0 0 12px color-mix(in srgb, var(--pc, var(--accent)) 50%, transparent); }
+.n-tag svg { width: 13px; height: 13px; }
+.node .n-pic { width: 58px; height: 44px; flex: none; margin-left: -4px; filter: drop-shadow(0 3px 6px rgba(0,0,0,.45)); }
+.n-pic .pic { width: 100%; height: 100%; }
+.node .n-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.node b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.01em; }
+.node small { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.n-bar { height: 4px; background: var(--line-2); border-radius: 99px; overflow: hidden; margin-top: 3px; }
+.n-bar i { display: block; height: 100%; border-radius: 99px; background: var(--muted); }
+.n-bar i.full { background: var(--ok); } .n-bar i.partial, .n-bar i.likely { background: var(--warn); } .n-bar i.none { background: var(--bad); }
+.ring.sm { width: 40px; height: 40px; }
+.ring.sm circle { stroke-width: 5; }
+.ring.sm .pct { font-size: 10.5px; }
+.ring.sm .pct small { display: none; }
+.map-legend { position: absolute; left: 16px; top: 12px; display: flex; gap: 14px; align-items: center; font-size: 11px; color: var(--muted); pointer-events: none; }
+.map-legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+.map-tools { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 4px; align-items: center; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.map-card { position: absolute; left: 14px; bottom: 14px; width: 320px; max-height: 60%; overflow: auto; background: rgba(26,26,30,.86); backdrop-filter: blur(20px) saturate(150%); -webkit-backdrop-filter: blur(20px) saturate(150%); border: 1px solid color-mix(in srgb, var(--pc, var(--accent)) 40%, var(--line-2)); border-radius: 13px; padding: 12px 14px 12px; box-shadow: var(--shadow); cursor: default; user-select: text; }
+.mc-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.mc-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.mc-list { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.mc-list > div { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 7px; min-width: 0; }
+.mc-list > div[data-node-go] { cursor: pointer; }
+.mc-list > div[data-node-go]:hover { background: rgba(255,255,255,.06); }
+.mc-list small { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.mc-list small.full { color: var(--ok); } .mc-list small.partial, .mc-list small.likely { color: var(--warn); } .mc-list small.none { color: var(--bad); }
+
 /* Light appearance (Settings → General). The terminal, previews and the
    menu bar panel stay dark on purpose. */
 :root[data-theme="light"] {
@@ -632,3 +688,8 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 3px; paddi
 :root[data-theme="light"] .act-btn.on { background: var(--bg-2); }
 :root[data-theme="light"] .scrim { background: rgba(0,0,0,.35); }
 :root[data-theme="light"] .term, :root[data-theme="light"] .preview { color-scheme: dark; }
+:root[data-theme="light"] .map { background: radial-gradient(circle at 1px 1px, rgba(0,0,0,.1) 1px, transparent 1.6px) 0 0 / 22px 22px, radial-gradient(700px 420px at 28% 18%, rgba(138,63,252,.07), transparent 65%), var(--bg); }
+:root[data-theme="light"] .map-card { background: rgba(250,250,252,.9); }
+:root[data-theme="light"] .mc-list > div[data-node-go]:hover { background: rgba(0,0,0,.05); }
+:root[data-theme="light"] .node { box-shadow: 0 6px 18px rgba(0,0,0,.14); }
+:root[data-theme="light"] .map-tools { box-shadow: 0 6px 18px rgba(0,0,0,.12); }

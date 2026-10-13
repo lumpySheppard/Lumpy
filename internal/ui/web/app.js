@@ -120,7 +120,7 @@ function nativeCall(action, args = {}) {
 
 // ---------- state ----------
 const S = {
-  tab: localGet("tab", "logged") === "activity" ? "logged" : localGet("tab", "logged"),
+  tab: localGet("tab", "map") === "activity" ? "logged" : localGet("tab", "map"),
   view: localGet("view", "grid"),
   sort: localGet("sort", "seen"),
   colorBy: localGet("colorBy", "project"),
@@ -153,6 +153,7 @@ async function loadState() {
     // The offload form keeps what's being typed; only the counts refresh.
     if (!first && (S.tab === "offload" || S.tab === "media")) renderCounts();
     else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }
+    else if (!first && S.tab === "map") { renderCounts(); loadProjects(); }
     else render();
   } catch (e) {
     if (!S.state) $("#main").innerHTML = `<div class="empty"><h2>Can't reach Lumpy</h2><p>${esc(e.message)}</p></div>`;
@@ -330,6 +331,7 @@ const PIC = {
     <g fill="#d9b24a"><rect x="24" y="7" width="2.6" height="6" rx=".6"/><rect x="28" y="7" width="2.6" height="6" rx=".6"/><rect x="32" y="7" width="2.6" height="6" rx=".6"/><rect x="36" y="7" width="2.6" height="6" rx=".6"/><rect x="40" y="7" width="2.6" height="6" rx=".6"/></g>
     <rect x="21" y="21" width="22" height="16" rx="2" fill="var(--pc, #8a5cf6)"/><path d="M24 26h12M24 30h8" stroke="rgba(0,0,0,.35)" stroke-width="2" stroke-linecap="round"/>
     <circle class="led" cx="41" cy="40.5" r="1.4"/>`,
+  mac: `<rect x="10" y="6" width="44" height="30" rx="3" fill="#34343d" stroke="#5c5c68"/><rect x="13" y="9" width="38" height="24" rx="1.5" fill="#15151a"/><rect x="13" y="9" width="38" height="24" rx="1.5" fill="var(--pc, #8a5cf6)" opacity=".35"/><path d="M4 38h56l-3 4H7z" fill="#4a4a55" stroke="#5c5c68" stroke-width=".8"/><rect x="26" y="38" width="12" height="2" fill="#2a2a31"/><circle class="led" cx="32" cy="7.6" r=".9"/>`,
   raid: `<rect x="12" y="3" width="40" height="42" rx="5" fill="#34343d" stroke="#5c5c68"/><rect x="12" y="3" width="40" height="7" rx="3" fill="var(--pc, #8a5cf6)"/>
     <g fill="#1c1c22" stroke="#62626e" stroke-width=".8"><rect x="17" y="14" width="24" height="5.5" rx="1.2"/><rect x="17" y="21.5" width="24" height="5.5" rx="1.2"/><rect x="17" y="29" width="24" height="5.5" rx="1.2"/><rect x="17" y="36.5" width="24" height="5.5" rx="1.2"/></g>
     <g class="leds"><circle class="led" cx="46" cy="16.75" r="1.5"/><circle class="led" cx="46" cy="24.25" r="1.5"/><circle class="led" cx="46" cy="31.75" r="1.5"/><circle class="led" cx="46" cy="39.25" r="1.5"/></g>`,
@@ -339,11 +341,11 @@ function drivePic(kind, color, on) {
 }
 // capRing is how full a drive is, as a ring: pale until 70%, then
 // yellow, then red in the last 10%.
-function capRing(used, size) {
+function capRing(used, size, cls = "") {
   const pct = size ? Math.max(0, Math.min(100, (used / size) * 100)) : 0;
   const r = 24, c = 2 * Math.PI * r;
   const col = pct >= 90 ? "var(--bad)" : pct >= 85 ? "var(--orange)" : pct >= 70 ? "var(--warn)" : "var(--ring)";
-  return `<div class="ring" title="${pct.toFixed(0)}% full"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="${r}" class="track"/><circle cx="30" cy="30" r="${r}" class="fill" style="stroke:${col};stroke-dasharray:${c.toFixed(2)};stroke-dashoffset:${(c * (1 - pct / 100)).toFixed(2)}"/></svg><span class="pct" style="color:${pct >= 70 ? col : "var(--text)"}">${Math.round(pct)}<small>%</small></span></div>`;
+  return `<div class="ring ${cls}" title="${pct.toFixed(0)}% full"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="${r}" class="track"/><circle cx="30" cy="30" r="${r}" class="fill" style="stroke:${col};stroke-dasharray:${c.toFixed(2)};stroke-dashoffset:${(c * (1 - pct / 100)).toFixed(2)}"/></svg><span class="pct" style="color:${pct >= 70 ? col : "var(--text)"}">${Math.round(pct)}<small>%</small></span></div>`;
 }
 // loadingGlyph is a hard drive being read, for every "loading" state.
 function loadingGlyph(text, small) {
@@ -459,6 +461,8 @@ function render() {
   renderToolbar();
   const main = $("#main");
   const keepScroll = main.scrollTop;
+  main.classList.toggle("map-main", S.tab === "map");
+  if (S.tab === "map") return renderMap();
   if (S.tab === "offload") return renderOffload();
   if (S.tab === "projects") return renderProjects();
   if (S.tab === "media") return renderMedia();
@@ -766,6 +770,7 @@ function sourceLabel(src) {
 async function loadProjects() {
   try { S.projects = await api("/api/projects"); } catch (e) { toast(e.message, true); return; }
   if (S.tab === "projects" && !S.project) renderProjects();
+  if (S.tab === "map") renderMap();
 }
 
 function renderProjects() {
@@ -1779,6 +1784,226 @@ async function openSettings(focus) {
   const op = $("#pub-open");
   if (op) op.onclick = () => nativeCall("reveal", { path: last.path });
 }
+
+// ---------- map ----------
+// The home screen: this Mac, every project, and the drives that hold
+// them, as nodes on a canvas. An edge says how much of a project sits
+// on a drive and whether that part is backed up. Click a node and what
+// it touches lights up; open it from the card, or double-click.
+const MAP = { k: 1, x: 0, y: 0, pos: {}, sel: null, drag: null, fitted: false, dirty: false };
+try { MAP.pos = JSON.parse(localGet("map.pos", "{}")) || {}; } catch { MAP.pos = {}; }
+const NODE = { mac: [176, 62], project: [210, 70], drive: [250, 72] };
+const EDGE_LABEL = { full: "verified", none: "no backup", unknown: "unproven", likely: "probably backed up", empty: "empty" };
+
+function mapModel() {
+  const projects = S.projects || [];
+  const nodes = [{ id: "mac", type: "mac" }], edges = [];
+  for (const p of projects) nodes.push({ id: "p" + p.id, type: "project", p });
+  // Drives in the order of the projects that hold them, then the rest.
+  const seen = new Set(), order = [];
+  for (const p of projects) for (const sh of (p.health && p.health.sources) || []) {
+    const d = driveOf(sh.driveId);
+    if (d && !seen.has(d.id)) { seen.add(d.id); order.push(d); }
+  }
+  for (const d of sortDrives(S.state.drives)) if (!seen.has(d.id)) { seen.add(d.id); order.push(d); }
+  for (const d of order) nodes.push({ id: "d" + d.id, type: "drive", d });
+  for (const p of projects) {
+    const by = new Map();
+    for (const sh of (p.health && p.health.sources) || []) {
+      const a = by.get(sh.driveId) || { bytes: 0, files: 0, backed: 0, unknown: 0, likely: 0, folders: 0 };
+      a.bytes += sh.bytes; a.files += sh.files; a.backed += sh.backedBytes; a.unknown += sh.unknownBytes; a.likely += sh.likelyBytes || 0; a.folders++;
+      by.set(sh.driveId, a);
+    }
+    for (const [id, a] of by) {
+      if (!driveOf(id)) continue;
+      const st = backupState(a.backed, a.bytes, a.unknown, a.likely);
+      edges.push({ from: "p" + p.id, to: "d" + id, cls: st, label: a.bytes ? `${bytes(a.bytes)} · ${EDGE_LABEL[st] || Math.round((a.backed / a.bytes) * 100) + "% backed up"}` : "empty" });
+    }
+  }
+  for (const d of order) if (d.connected) edges.push({ from: "mac", to: "d" + d.id, cls: "live", label: d.bus || "plugged in" });
+  return { nodes, edges };
+}
+
+// mapLayout puts the Mac on the left, projects in the middle, drives on
+// the right, each project level with the drives it uses. Dragged
+// positions win.
+function mapLayout(m) {
+  const GAP = 94, X = { mac: 40, project: 360, drive: 720 };
+  const drives = m.nodes.filter((n) => n.type === "drive");
+  drives.forEach((n, i) => { n.x = X.drive; n.y = 40 + i * GAP; });
+  const yOf = Object.fromEntries(drives.map((n) => [n.id, n.y]));
+  const projects = m.nodes.filter((n) => n.type === "project");
+  for (const n of projects) {
+    const ys = m.edges.filter((e) => e.from === n.id).map((e) => yOf[e.to]).filter((y) => y !== undefined);
+    n.x = X.project; n.y = ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 40;
+  }
+  projects.sort((a, b) => a.y - b.y);
+  let last = -Infinity;
+  for (const n of projects) { if (n.y < last + GAP) n.y = last + GAP; last = n.y; }
+  const mac = m.nodes[0];
+  const live = drives.filter((n) => n.d.connected);
+  const mid = (list) => list.length ? list.reduce((a, n) => a + n.y, 0) / list.length : 40;
+  mac.x = X.mac; mac.y = live.length ? mid(live) : mid(drives);
+  for (const n of m.nodes) { const p = MAP.pos[n.id]; if (p) { n.x = p.x; n.y = p.y; } [n.w, n.h] = NODE[n.type]; }
+}
+
+function renderMap() {
+  const main = $("#main");
+  if (!S.projects) { main.innerHTML = loadingGlyph("Reading the library…"); loadProjects(); return; }
+  if (MAP.drag) { MAP.dirty = true; return; }
+  const m = mapModel();
+  mapLayout(m);
+  const W = Math.max(600, ...m.nodes.map((n) => n.x + n.w)) + 80, H = Math.max(400, ...m.nodes.map((n) => n.y + n.h)) + 80;
+  const sel = MAP.sel, hot = new Set();
+  if (sel) { hot.add(sel); for (const e of m.edges) { if (e.from === sel) hot.add(e.to); if (e.to === sel) hot.add(e.from); } }
+  const at = (id) => m.nodes.find((n) => n.id === id);
+  const edgeSVG = (e) => {
+    const a = at(e.from), b = at(e.to);
+    if (!a || !b) return "";
+    const x0 = a.x + a.w, y0 = a.y + a.h / 2, x1 = b.x, y1 = b.y + b.h / 2, mx = (x0 + x1) / 2;
+    return `<g class="edge-g ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}"><path d="M${x0} ${y0} C${mx} ${y0}, ${mx} ${y1}, ${x1} ${y1}"/><circle cx="${x0}" cy="${y0}" r="3"/><circle cx="${x1}" cy="${y1}" r="3"/></g>`;
+  };
+  const edgeLabel = (e) => {
+    const a = at(e.from), b = at(e.to);
+    if (!a || !b) return "";
+    return `<div class="e-lbl ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}" style="left:${(a.x + a.w + b.x) / 2}px;top:${(a.y + a.h / 2 + b.y + b.h / 2) / 2}px">${esc(e.label)}</div>`;
+  };
+  const live = S.state.drives.filter((d) => d.connected);
+  const node = (n) => {
+    const cls = `node ${n.type} ${n.id === sel ? "sel" : ""} ${hot.has(n.id) ? "hot" : ""}`;
+    const box = `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px`;
+    if (n.type === "mac") return `<div class="${cls}" data-node="mac" style="${box};--pc:var(--accent)"><div class="n-pic"><svg class="pic on" viewBox="0 0 64 48">${PIC.mac}</svg></div><div class="n-body"><b>This Mac</b><small>${live.length} drive${live.length === 1 ? "" : "s"} plugged in</small></div></div>`;
+    if (n.type === "project") {
+      const p = n.p, h = p.health || {}, pct = h.bytes ? Math.round((h.backedBytes / h.bytes) * 100) : 0;
+      const st = backupState(h.backedBytes || 0, h.bytes || 0, h.unknownBytes || 0, h.likelyBytes || 0);
+      const nd = new Set(((h.sources) || []).map((x) => x.driveId)).size;
+      return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}</b><small>${nd} drive${nd === 1 ? "" : "s"} · ${h.bytes ? pct + "% backed up" : "empty"}</small><div class="n-bar"><i class="${st}" style="width:${pct}%"></i></div></div></div>`;
+    }
+    const d = n.d, color = cardColor(d);
+    return `<div class="${cls} ${d.connected ? "live" : ""}" data-node="${n.id}" style="${box};--pc:${color || "var(--muted)"}"><div class="n-pic">${drivePic(driveKind(d), color || "var(--muted)", d.connected)}</div><div class="n-body"><b>${esc(d.title)}</b><small>${bytes(d.free)} free${d.connected ? "" : " · seen " + when(d.lastSeen)}</small></div>${capRing(Math.max(0, d.size - d.free), d.size, "sm")}</div>`;
+  };
+  main.innerHTML = `<div class="map ${sel ? "has-sel" : ""}" id="map">
+    <div class="map-world" id="map-world" style="width:${W}px;height:${H}px">
+      <svg class="map-edges" width="${W}" height="${H}">${m.edges.map(edgeSVG).join("")}</svg>
+      ${m.edges.map(edgeLabel).join("")}
+      ${m.nodes.map(node).join("")}
+    </div>
+    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="hint">· drag to pan, ⌘ + scroll to zoom, drag a node to move it</span></div>
+    <div class="map-tools"><button class="icon-btn" data-map="out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button class="icon-btn" data-map="in" title="Zoom in">${ICON.plus}</button><button class="btn small" data-map="fit">Fit</button><button class="btn small" data-map="arrange" title="Put every node back where Lumpy lays it out">Arrange</button></div>
+    ${sel ? mapCard(m, sel) : ""}
+  </div>`;
+  if (!MAP.fitted) { mapFit(m); MAP.fitted = true; }
+  applyMap();
+  wireMap(m);
+}
+
+// mapCard is the panel for the selected node: what it is, and the way in.
+function mapCard(m, id) {
+  const n = m.nodes.find((x) => x.id === id);
+  if (!n) return "";
+  if (n.type === "mac") {
+    const live = S.state.drives.filter((d) => d.connected);
+    return `<div class="map-card"><div class="mc-head"><b>This Mac</b><button class="btn small primary" data-open="connected">Connected</button></div>
+      <div class="mc-list">${live.length ? live.map((d) => `<div><span class="dot live" style="background:var(--ok);color:var(--ok)"></span>${esc(d.title)}<small>${esc(d.bus || "")}</small></div>`).join("") : '<span class="hint">Nothing plugged in.</span>'}</div></div>`;
+  }
+  if (n.type === "project") {
+    const p = n.p, h = p.health || {};
+    const edges = m.edges.filter((e) => e.from === id);
+    return `<div class="map-card" style="--pc:${COLORS[p.color] || "var(--accent)"}"><div class="mc-head"><span class="n-tag">${ICON.film}</span><b>${esc(p.name)}</b><button class="btn small primary" data-open="project" data-id="${p.id}">Open project</button></div>
+      ${h.bytes ? backupBar(h.backedBytes, h.bytes, h.unknownBytes, h.likelyBytes || 0, { compact: true }) : '<span class="hint">No files recorded yet.</span>'}
+      <div class="mc-list">${edges.map((e) => { const d = driveOf(e.to.slice(1)); return `<div data-node-go="${e.to}"><span class="dot ${d.connected ? "live" : ""}" style="background:${d.connected ? "var(--ok)" : "var(--muted)"};color:var(--ok)"></span>${esc(d.title)}<small class="${e.cls}">${esc(e.label)}</small></div>`; }).join("") || '<span class="hint">No drives yet. Open the project to add folders.</span>'}</div></div>`;
+  }
+  const d = n.d;
+  const ins = m.edges.filter((e) => e.to === id && e.from !== "mac");
+  return `<div class="map-card" style="--pc:${cardColor(d) || "var(--accent)"}"><div class="mc-head"><b>${esc(d.title)}</b><button class="btn small primary" data-open="drive" data-id="${esc(d.id)}">Details</button></div>
+    <div class="cap"><b>${bytes(d.size)}</b><span class="sep">•</span><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)} free</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
+    <div class="badges" style="margin-top:6px">${backupBadge(d)}${checkBadge(d)}</div>
+    <div class="mc-list">${ins.map((e) => { const p = (S.projects || []).find((x) => "p" + x.id === e.from); return p ? `<div data-node-go="${e.from}"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span>${esc(p.name)}<small class="${e.cls}">${esc(e.label)}</small></div>` : ""; }).join("") || '<span class="hint">In no project.</span>'}</div></div>`;
+}
+
+function applyMap() {
+  const w = $("#map-world");
+  if (w) w.style.transform = `translate(${MAP.x}px, ${MAP.y}px) scale(${MAP.k})`;
+}
+function mapFit(m) {
+  const box = $("#map");
+  if (!box || !m.nodes.length) return;
+  const minX = Math.min(...m.nodes.map((n) => n.x)) - 30, minY = Math.min(...m.nodes.map((n) => n.y)) - 30;
+  const maxX = Math.max(...m.nodes.map((n) => n.x + n.w)) + 30, maxY = Math.max(...m.nodes.map((n) => n.y + n.h)) + 30;
+  const W = box.clientWidth, H = box.clientHeight;
+  MAP.k = Math.max(0.35, Math.min(1.15, (W - 40) / (maxX - minX), (H - 110) / (maxY - minY)));
+  MAP.x = (W - (maxX - minX) * MAP.k) / 2 - minX * MAP.k;
+  MAP.y = (H - (maxY - minY) * MAP.k) / 2 - minY * MAP.k + 20;
+}
+function mapZoom(f, cx, cy) {
+  const k = Math.max(0.35, Math.min(2.5, MAP.k * f));
+  MAP.x = cx - ((cx - MAP.x) * k) / MAP.k;
+  MAP.y = cy - ((cy - MAP.y) * k) / MAP.k;
+  MAP.k = k;
+  applyMap();
+}
+function openNode(id) {
+  if (id === "mac") { S.tab = "connected"; localSet("tab", S.tab); render(); return; }
+  if (id[0] === "p") { S.tab = "projects"; S.project = +id.slice(1); localSet("tab", S.tab); render(); return; }
+  openDetail(id.slice(1));
+}
+function wireMap(m) {
+  const box = $("#map"), world = $("#map-world");
+  box.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const r = box.getBoundingClientRect();
+    if (e.ctrlKey || e.metaKey) mapZoom(Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top);
+    else { MAP.x -= e.deltaX; MAP.y -= e.deltaY; applyMap(); }
+  }, { passive: false });
+  box.onpointerdown = (e) => {
+    if (e.button !== 0 || e.target.closest(".map-tools, .map-card, button")) return;
+    const node = e.target.closest(".node");
+    const n = node ? m.nodes.find((x) => x.id === node.dataset.node) : null;
+    MAP.drag = { sx: e.clientX, sy: e.clientY, x: MAP.x, y: MAP.y, node, n, nx: n && n.x, ny: n && n.y, moved: false };
+    box.setPointerCapture(e.pointerId);
+    if (!node) box.classList.add("panning");
+  };
+  box.onpointermove = (e) => {
+    const d = MAP.drag;
+    if (!d) return;
+    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+    if (d.node) {
+      d.n.x = d.nx + dx / MAP.k; d.n.y = d.ny + dy / MAP.k;
+      d.node.style.left = d.n.x + "px"; d.node.style.top = d.n.y + "px";
+      // Redraw just this node's edges.
+      MAP.pos[d.n.id] = { x: d.n.x, y: d.n.y };
+      world.querySelector(".map-edges").innerHTML = m.edges.map((e2) => { const a = m.nodes.find((x) => x.id === e2.from), b = m.nodes.find((x) => x.id === e2.to); if (!a || !b) return ""; const x0 = a.x + a.w, y0 = a.y + a.h / 2, x1 = b.x, y1 = b.y + b.h / 2, mx = (x0 + x1) / 2; return `<g class="edge-g ${e2.cls}"><path d="M${x0} ${y0} C${mx} ${y0}, ${mx} ${y1}, ${x1} ${y1}"/><circle cx="${x0}" cy="${y0}" r="3"/><circle cx="${x1}" cy="${y1}" r="3"/></g>`; }).join("");
+      world.querySelectorAll(".e-lbl").forEach((el) => el.remove());
+    } else { MAP.x = d.x + dx; MAP.y = d.y + dy; applyMap(); }
+  };
+  box.onpointerup = box.onpointercancel = (e) => {
+    const d = MAP.drag;
+    if (!d) return;
+    MAP.drag = null;
+    box.classList.remove("panning");
+    if (d.node) {
+      if (d.moved) { localSet("map.pos", JSON.stringify(MAP.pos)); renderMap(); }
+      else { MAP.sel = MAP.sel === d.n.id ? null : d.n.id; renderMap(); }
+    } else if (!d.moved && MAP.sel) { MAP.sel = null; renderMap(); }
+    else if (MAP.dirty) { MAP.dirty = false; renderMap(); }
+  };
+  box.ondblclick = (e) => { const node = e.target.closest(".node"); if (node) openNode(node.dataset.node); };
+  for (const b of box.querySelectorAll("[data-map]")) b.onclick = () => {
+    const r = box.getBoundingClientRect();
+    if (b.dataset.map === "in") mapZoom(1.25, r.width / 2, r.height / 2);
+    else if (b.dataset.map === "out") mapZoom(0.8, r.width / 2, r.height / 2);
+    else if (b.dataset.map === "fit") { mapFit(m); applyMap(); }
+    else { MAP.pos = {}; localSet("map.pos", "{}"); MAP.fitted = false; renderMap(); }
+  };
+  for (const b of box.querySelectorAll("[data-open]")) b.onclick = () => {
+    if (b.dataset.open === "connected") openNode("mac");
+    else if (b.dataset.open === "project") openNode("p" + b.dataset.id);
+    else openNode("d" + b.dataset.id);
+  };
+  for (const el of box.querySelectorAll("[data-node-go]")) el.onclick = () => { MAP.sel = el.dataset.nodeGo; renderMap(); };
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab === "map" && MAP.sel) { MAP.sel = null; renderMap(); } });
 
 // ---------- events ----------
 document.querySelector(".tabs").onclick = (e) => {
