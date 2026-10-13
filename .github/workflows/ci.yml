@@ -5,12 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push on the same branch cancels the runs still queued for the
+# older ones: GitHub's macOS runners queue for a long time, and only the
+# latest build is wanted.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -20,35 +24,17 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
-  build:
-    needs: test
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Build universal binary
-        run: |
-          for arch in arm64 amd64; do
-            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags="-s -w" -o lumpy-$arch ./cmd/lumpy
-          done
-          lipo -create -output lumpy lumpy-arm64 lumpy-amd64
-          codesign --force --sign - lumpy
-          ./lumpy version
-      - uses: actions/upload-artifact@v4
-        with:
-          name: lumpy-macos-universal
-          path: lumpy
-
+  # One macOS job does everything that needs a Mac: the tests on macOS,
+  # Lumpy.app, the bare binary, and the smoke test of the engine. One
+  # job instead of three means one place in the macOS runner queue.
   app:
-    needs: test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - run: go test -race ./...
       - name: Build Lumpy.app
         run: macos/build-app.sh
       - name: Check the bundle
@@ -72,3 +58,7 @@ jobs:
         with:
           name: Lumpy-macOS
           path: Lumpy-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lumpy-macos-universal
+          path: dist/Lumpy.app/Contents/Resources/lumpy
