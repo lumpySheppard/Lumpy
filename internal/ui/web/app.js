@@ -97,6 +97,9 @@ const ICON = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 5l-7 7 7 7"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12h16M13 5l7 7-7 7"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+  clapper: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9zM3 9l1.5-5L20 6.5 18.5 9M8 4.5L10 8M13 5l2 3.5"/></svg>',
   reveal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
 };
 const COLORS = { purple: "#a855f7", blue: "#3b82f6", green: "#34c759", yellow: "#f5b400", orange: "#f08a24", red: "#ff453a", pink: "#ec4899", teal: "#14b8a6", gray: "#8e8e93" };
@@ -133,6 +136,10 @@ const S = {
   selecting: false,
   selected: new Set(),
   offload: { source: "", dests: [""], name: "", sourceCheck: true },
+  media: { project: "", drive: "", kind: "", codec: "", rate: "", qc: "", q: "" },
+  mediaData: null,
+  file: null, // { driveId, path, back } for the open file sheet
+  settings: null, // publish settings and last result
 };
 
 // ---------- data refresh ----------
@@ -140,8 +147,9 @@ async function loadState() {
   try {
     const first = !S.state;
     S.state = await api("/api/state");
+    if (first || !S.settings) S.settings = await api("/api/settings").catch(() => null);
     // The offload form keeps what's being typed; only the counts refresh.
-    if (!first && (S.tab === "offload" || S.tab === "activity")) renderCounts();
+    if (!first && (S.tab === "offload" || S.tab === "activity" || S.tab === "media")) renderCounts();
     else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }
     else render();
   } catch (e) {
@@ -166,6 +174,7 @@ async function loadJobs() {
         }
         loadState();
         if (S.detail) openDetail(S.detail, true);
+        if (S.tab === "media") loadMedia();
       }
       lastJobSig = sig;
     }
@@ -365,6 +374,14 @@ function renderCounts() {
   pill.className = "agent-pill" + (agentOn ? " on" : "");
   pill.textContent = agentOn ? "Auto-logging on" : "Logging while open";
   pill.title = "Background agent: " + st.agent;
+  const pp = $("#publish-pill");
+  if (S.settings && S.settings.publish.enabled) {
+    const last = S.settings.last;
+    pp.hidden = false;
+    pp.className = "agent-pill" + (last && last.ok ? " on" : last ? " bad" : "");
+    pp.textContent = S.settings.publishing ? "Publishing…" : last ? (last.ok ? "Status page · " + short(Math.floor(new Date(last.at).getTime() / 1000)) : "Status page failed") : "Status page";
+    pp.title = last ? last.summary : "Not published yet";
+  } else pp.hidden = true;
 }
 
 function render() {
@@ -376,6 +393,7 @@ function render() {
   if (S.tab === "offload") return renderOffload();
   if (S.tab === "activity") return renderActivity();
   if (S.tab === "projects") return renderProjects();
+  if (S.tab === "media") return renderMedia();
   main.innerHTML = (S.tab === "connected" ? renderConnected() : renderLogged()) + selectionBar();
   main.scrollTop = keepScroll;
 }
@@ -405,7 +423,7 @@ function fileHitsHTML() {
     <table class="list"><thead><tr><th>Drive</th><th>Path</th><th class="num">Size</th><th>xxh64</th></tr></thead><tbody>
     ${hits.map((m) => {
       const d = byId[m.DriveID];
-      return `<tr class="row" data-drive="${esc(m.DriveID)}"><td><div class="name"><span class="dot" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(d ? d.title : m.DriveName)}</div></td>
+      return `<tr class="row" data-file="${esc(m.Path)}" data-file-drive="${esc(m.DriveID)}"><td><div class="name"><span class="dot" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(d ? d.title : m.DriveName)}</div></td>
         <td class="mono">${hl(m.Path)}</td><td class="num">${bytes(m.Size)}</td><td class="mono">${esc(m.XXH64 || "—")}</td></tr>`;
     }).join("")}</tbody></table>`;
 }
@@ -469,6 +487,7 @@ function closeSheet() {
   $("#sheet").hidden = true;
   $("#scrim").hidden = true;
   S.detail = null;
+  S.file = null;
 }
 
 async function openDetail(id, refresh, focusLabels) {
@@ -543,7 +562,7 @@ async function openDetail(id, refresh, focusLabels) {
       </div>
 
       <div class="sec"><div class="sec-title">${ICON.pie}Contents by folder <span class="hint" style="font-weight:400">which top-level folders have a copy elsewhere</span>
-          <div class="right">${d.connected ? `<button class="btn small" id="rescan" ${d.busy ? "disabled" : ""}>${ICON.refresh}Rescan</button>` : ""}</div></div>
+          <div class="right">${d.connected ? `<button class="btn small" id="probe" ${d.busy ? "disabled" : ""} title="Read codec, frame rate, timecode and camera from clips that have none yet">${ICON.clapper}Read metadata</button><button class="btn small" id="rescan" ${d.busy ? "disabled" : ""}>${ICON.refresh}Rescan</button>` : ""}</div></div>
         ${folders.length ? `<table class="list compact"><thead><tr><th>Folder</th><th class="num">Size</th><th style="width:45%">Backup</th></tr></thead><tbody>
           ${folders.map((f) => { const st = backupState(f.backedBytes, f.bytes, f.unknownBytes); return `<tr><td><div class="name" style="font-weight:500"><span class="sdot ${st}"></span>${f.folder ? ICON.folder.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"') : ICON.file.replace("<svg", '<svg style="width:14px;height:14px;color:var(--muted)"')}${esc(f.name)}</div></td>
             <td class="num">${bytes(f.bytes)}</td><td>${backupBar(f.backedBytes, f.bytes, f.unknownBytes, { size: "tiny" })}</td></tr>`; }).join("")}</tbody></table>`
@@ -608,6 +627,7 @@ function wireDetail(d) {
   act("#verify", "verify", `Checking ${d.title}… (see Activity)`);
   act("#hash", "hash", `Checksumming new files on ${d.title}…`);
   act("#rescan", "rescan", `Rescanning ${d.title}…`);
+  act("#probe", "metadata", `Reading metadata on ${d.title}… (see Activity)`);
   act("#cancel-check", "cancel", "Queued check cancelled");
   const rv = $("#reveal");
   if (rv) rv.onclick = () => nativeCall("reveal", { path: d.mount });
@@ -647,6 +667,7 @@ async function loadTree(id, dir, container, depth, filter) {
     e.stopPropagation();
     addToProjectDialog([{ driveId: id, folder: b.dataset.addsrc }], () => openDetail(id, false));
   };
+  for (const row of container.querySelectorAll(":scope > .tree-row:not(.folder)")) row.onclick = () => openFile(id, row.dataset.path, id);
   for (const row of container.querySelectorAll(":scope > .tree-row.folder")) {
     row.onclick = () => {
       const kids = row.nextElementSibling;
@@ -731,7 +752,7 @@ function renderProjectPage() {
       <input class="inline-input" id="proj-name" value="${esc(p.name)}" title="Rename">
       <label class="hint">Copies wanted <select class="plain" id="proj-target">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${p.target === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <div class="swatches">${Object.entries(COLORS).map(([k, c]) => `<button class="swatch ${p.color === k ? "on" : ""}" data-pcolor="${k}" style="background:${c}" title="${k}"></button>`).join("")}</div>
-      <div class="right"><button class="btn danger" id="proj-delete">Delete project</button></div>
+      <div class="right"><button class="btn" id="proj-media" title="Every clip in this project with its codec, frame rate, timecode and log notes">${ICON.clapper}Clips</button><button class="btn" id="proj-media-csv" title="Clip list with metadata, for post">${ICON.export}Clips CSV…</button><button class="btn danger" id="proj-delete">Delete project</button></div>
     </div>
 
     <div class="pgrid">
@@ -807,6 +828,8 @@ function renderProjectPage() {
 }
 
 function wireProjectPage(p) {
+  $("#proj-media").onclick = () => { S.media = { project: String(p.id), drive: "", kind: "", codec: "", rate: "", qc: "", q: "" }; S.tab = "media"; S.project = null; localSet("tab", S.tab); render(); };
+  $("#proj-media-csv").onclick = () => downloadCSV(`/api/media.csv?project=${p.id}`, `${p.name.replace(/[^\w.-]+/g, "_")}-clips-${new Date().toISOString().slice(0, 10)}.csv`);
   const patch = async (body, then) => {
     try { await api(`/api/projects/${p.id}`, { method: "PATCH", body }); await loadState(); await loadProject(p.id); if (then) then(); }
     catch (e) { toast(e.message, true); }
@@ -1140,6 +1163,239 @@ function renderJobsInto() {
   }
 }
 
+// ---------- media ----------
+// The clip library: every file with metadata, across drives, one row per
+// distinct clip (the same checksum on three drives is one row).
+const KIND_LABEL = { video: "Video", audio: "Audio", image: "Image", document: "Document", other: "Other" };
+const QC_LABEL = { "": "Not checked", ok: "OK", flag: "Flagged", reject: "Rejected" };
+function fps(r) { return r ? (Math.round(r * 1000) / 1000).toString() : ""; }
+function dur(ms) {
+  if (!ms) return "";
+  const s = Math.round(ms / 1000);
+  return `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+// clipFormat sums up a clip's technical side in a few words.
+function clipFormat(m) {
+  const parts = [];
+  if (m.videoCodec) parts.push(m.videoCodec);
+  if (m.width) parts.push(`${m.width}×${m.height}`);
+  if (!m.videoCodec && m.audioCodec) parts.push(m.audioCodec + (m.sampleRate ? ` ${m.sampleRate / 1000} kHz` : "") + (m.bitDepth ? ` ${m.bitDepth}-bit` : "") + (m.channels ? ` ${m.channels}ch` : ""));
+  if (!parts.length && m.container) parts.push(m.container);
+  return parts.join(" · ");
+}
+function qcBadge(qc, small) {
+  if (!qc) return small ? "" : `<span class="badge">Not checked</span>`;
+  return `<span class="badge qc-${qc}">${qc === "ok" ? ICON.check : qc === "flag" ? ICON.warn : ICON.x}${QC_LABEL[qc]}</span>`;
+}
+function mediaQuery() {
+  const m = S.media, q = new URLSearchParams();
+  for (const k of ["project", "drive", "kind", "codec", "rate", "qc", "q"]) if (m[k]) q.set(k, m[k]);
+  return q.toString();
+}
+async function loadMedia() {
+  try { S.mediaData = await api("/api/media?" + mediaQuery()); } catch (e) { toast(e.message, true); return; }
+  if (S.tab === "media") renderMediaTable();
+}
+function renderMedia() {
+  const main = $("#main");
+  const m = S.media, st = S.state;
+  const opt = (v, label, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? "selected" : ""}>${esc(label)}</option>`;
+  const d = S.mediaData || { files: [], codecs: [], rates: [] };
+  main.innerHTML = `<div class="media">
+    <div class="media-bar">
+      <div class="toolbar-title">${ICON.clapper}Clips</div>
+      <label class="select"><select id="m-project">${opt("", "All projects", m.project)}${(st.projects || []).map((p) => opt(p.id, p.name, m.project)).join("")}</select></label>
+      <label class="select"><select id="m-drive">${opt("", "All drives", m.drive)}${st.drives.map((x) => opt(x.id, x.title, m.drive)).join("")}</select></label>
+      <label class="select"><select id="m-kind">${opt("", "Any kind", m.kind)}${Object.entries(KIND_LABEL).map(([k, v]) => opt(k, v, m.kind)).join("")}</select></label>
+      <label class="select"><select id="m-codec">${opt("", "Any codec", m.codec)}${d.codecs.map((c) => opt(c, c, m.codec)).join("")}</select></label>
+      <label class="select"><select id="m-rate">${opt("", "Any frame rate", m.rate)}${d.rates.map((r) => opt(r, fps(r) + " fps", m.rate)).join("")}</select></label>
+      <label class="select"><select id="m-qc">${opt("", "Any QC", m.qc)}${opt("none", "Not checked", m.qc)}${opt("ok", "OK", m.qc)}${opt("flag", "Flagged", m.qc)}${opt("reject", "Rejected", m.qc)}</select></label>
+      <div class="search"><span class="search-icon">${ICON.search}</span><input id="m-q" type="search" placeholder="Clip, scene, take, camera, reel, notes, tag…" value="${esc(m.q)}" autocomplete="off" spellcheck="false"></div>
+      <button class="btn" id="m-export" title="This list with every column, for post">${ICON.export}Export CSV…</button>
+    </div>
+    <div id="media-body"></div></div>`;
+  const reload = () => { for (const k of ["project", "drive", "kind", "codec", "rate", "qc"]) m[k] = $("#m-" + k).value; loadMedia(); };
+  for (const k of ["project", "drive", "kind", "codec", "rate", "qc"]) $("#m-" + k).onchange = reload;
+  let t;
+  $("#m-q").oninput = (e) => { m.q = e.target.value; clearTimeout(t); t = setTimeout(loadMedia, 220); };
+  $("#m-export").onclick = () => downloadCSV("/api/media.csv?" + mediaQuery(), `lumpy-clips-${new Date().toISOString().slice(0, 10)}.csv`);
+  if (S.mediaData) renderMediaTable(); else { $("#media-body").innerHTML = `<div class="empty"><p>Loading…</p></div>`; loadMedia(); }
+}
+function renderMediaTable() {
+  const body = $("#media-body");
+  if (!body) return;
+  const d = S.mediaData, files = d.files;
+  const filtered = Object.values(S.media).some(Boolean);
+  if (!files.length) {
+    body.innerHTML = `<div class="empty">${ICON.clapper}<h2>${filtered ? "No clips match" : "No clip metadata yet"}</h2><p>${filtered ? "Try fewer filters." : "Lumpy reads codec, frame rate, timecode and camera from every clip it offloads or scans. For drives already in the library, open the drive and click <b>Read metadata</b>."}</p></div>`;
+    return;
+  }
+  const total = files.reduce((a, f) => a + (f.durationMs || 0), 0);
+  const bytesTotal = files.reduce((a, f) => a + f.size, 0);
+  const flagged = files.filter((f) => f.edits.qc === "flag").length, rejected = files.filter((f) => f.edits.qc === "reject").length;
+  const byId = Object.fromEntries(S.state.drives.map((x) => [x.id, x]));
+  body.innerHTML = `<div class="pills media-sum">
+      <span class="pill">Clips:<b>${files.length.toLocaleString()}${files.length >= d.limit ? "+" : ""}</b></span>
+      <span class="pill">Running time:<b>${dur(total) || "—"}</b></span>
+      <span class="pill">Size:<b>${bytes(bytesTotal)}</b></span>
+      ${flagged ? `<span class="pill">Flagged:<b style="color:var(--warn)">${flagged}</b></span>` : ""}
+      ${rejected ? `<span class="pill">Rejected:<b style="color:var(--bad)">${rejected}</b></span>` : ""}
+    </div>
+    <table class="list media-table"><thead><tr><th></th><th>Clip</th><th>Drive</th><th>Format</th><th class="num">fps</th><th class="num">Length</th><th>Start TC</th><th>Audio</th><th>Scene / take</th><th>QC</th><th>Camera</th></tr></thead><tbody>
+    ${files.map((f) => {
+      const dr = byId[f.driveId];
+      const st = f.copies > 0 ? "full" : f.xxh64 ? "none" : "unknown";
+      const name = f.path.split("/").pop(), folder = f.path.slice(0, -name.length);
+      const audio = f.audioCodec ? (f.videoCodec ? `${f.channels ? f.channels + "ch " : ""}${f.sampleRate ? f.sampleRate / 1000 + "k" : ""}${f.bitDepth ? "/" + f.bitDepth : ""}` : clipFormat(f)) : "";
+      const sc = [f.edits.scene && "Sc " + f.edits.scene, f.edits.shot && "Sh " + f.edits.shot, f.edits.take && "Tk " + f.edits.take].filter(Boolean).join(" ");
+      return `<tr class="row" data-file="${esc(f.path)}" data-file-drive="${esc(f.driveId)}">
+        <td><span class="sdot ${st}" title="${st === "full" ? `Copy on ${f.copies} other drive${f.copies === 1 ? "" : "s"}` : st === "none" ? "No copy on another drive" : "No checksum yet"}"></span></td>
+        <td><div class="clip-name"><b>${esc(name)}</b><small title="${esc(f.path)}">${esc(folder)}</small></div></td>
+        <td><div class="name" style="font-weight:500"><span class="dot" style="background:${dr && dr.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(dr ? dr.title : f.driveId)}${f.copies ? `<small>+${f.copies}</small>` : ""}</div></td>
+        <td>${esc(f.videoCodec ? clipFormat(f) : f.kind === "audio" ? "" : (f.container || KIND_LABEL[f.kind] || ""))}</td>
+        <td class="num">${fps(f.frameRate)}</td><td class="num">${dur(f.durationMs)}</td><td class="mono">${esc(f.timecode)}</td>
+        <td>${esc(audio)}</td><td>${esc(sc)}</td><td>${qcBadge(f.edits.qc, true)}</td><td>${esc(f.camera)}${f.reel ? `<small class="hint"> ${esc(f.reel)}</small>` : ""}</td></tr>`;
+    }).join("")}</tbody></table>
+    ${files.length >= d.limit ? `<p class="hint" style="margin:10px 0 0">Showing the first ${d.limit.toLocaleString()}. Filter to see the rest, or export the CSV.</p>` : ""}`;
+}
+
+// ---------- file sheet ----------
+async function openFile(driveId, path, back) {
+  let data;
+  try { data = await api(`/api/drives/${encodeURIComponent(driveId)}/file?path=${encodeURIComponent(path)}`); }
+  catch (e) { toast(e.message, true); return; }
+  S.detail = null;
+  S.file = { driveId, path, back: back || (S.file && S.file.back) };
+  const f = data.file, m = data.media, st = data.state || {}, dr = data.drive;
+  const name = path.split("/").pop();
+  const bst = st.Damaged ? "damaged" : st.Copies > 0 ? "full" : st.Unknown ? "unknown" : "none";
+  const stream = `/api/drives/${encodeURIComponent(driveId)}/stream?path=${encodeURIComponent(path)}&t=${encodeURIComponent(token)}`;
+  const kind = (m && m.kind) || (/\.(mov|mp4|m4v|mxf|r3d|braw|avi)$/i.test(name) ? "video" : /\.(wav|aif|aiff|mp3|m4a|flac)$/i.test(name) ? "audio" : /\.(jpe?g|png|gif|heic|webp|tiff?)$/i.test(name) ? "image" : "other");
+  const preview = data.playable
+    ? (kind === "video" ? `<video controls preload="metadata" src="${stream}"></video>` : kind === "audio" ? `<div class="audio-box">${ICON.clapper}<audio controls preload="metadata" src="${stream}"></audio></div>` : `<img src="${stream}" alt="">`)
+    : `<div class="no-preview">${ICON.film}<span>${dr.connected ? "No preview for this file type" : `Plug in ${esc(dr.title)} to preview`}</span></div>`;
+  const kv = [];
+  if (m) {
+    if (m.container) kv.push(["Container", m.container + (m.source && m.source !== "extension" ? ` <span class="hint">read by ${esc(m.source)}</span>` : "")]);
+    if (m.videoCodec) kv.push(["Video", `${esc(m.videoCodec)}${m.width ? ` · ${m.width}×${m.height}` : ""}${m.frameRate ? ` · ${fps(m.frameRate)} fps` : ""}`]);
+    else if (m.frameRate) kv.push(["Frame rate", fps(m.frameRate) + " fps"]);
+    if (m.durationMs) kv.push(["Duration", dur(m.durationMs) + (m.frameRate ? ` <span class="hint">${Math.round(m.durationMs / 1000 * m.frameRate).toLocaleString()} frames</span>` : "")]);
+    if (m.timecode) kv.push(["Start timecode", `<span class="mono">${esc(m.timecode)}</span>${m.timecode.includes(";") ? ' <span class="hint">drop frame</span>' : ""}`]);
+    if (m.audioCodec) kv.push(["Audio", `${esc(m.audioCodec)}${m.channels ? ` · ${m.channels} ch` : ""}${m.sampleRate ? ` · ${m.sampleRate / 1000} kHz` : ""}${m.bitDepth ? ` · ${m.bitDepth}-bit` : ""}`]);
+    if (m.camera) kv.push(["Camera", esc(m.camera)]);
+    if (m.reel) kv.push(["Reel", esc(m.reel)]);
+    if (m.created) kv.push(["Created", esc(m.created)]);
+    for (const [k, v] of Object.entries(m.extra || {})) kv.push([esc(k), esc(v)]);
+  }
+  openSheet(`
+    <div class="sheet-head">
+      <span class="drive-ico file-ico">${ICON.file}</span>
+      <div><h2>${esc(name)}</h2><div class="sub">${esc(dr.title)} › ${esc(path)}</div></div>
+      <div class="actions">
+        ${dr.connected && native ? `<button class="btn small" id="reveal">${ICON.reveal}Show in Finder</button>` : ""}
+        <button class="icon-btn" id="close" title="${S.file.back ? "Back" : "Close"}">${S.file.back ? ICON.back : ICON.x}</button>
+      </div>
+    </div>
+    <div class="sheet-body">
+      <div class="preview">${preview}</div>
+
+      <div class="sec"><div class="sec-title">${ICON.shield}Backup</div>
+        <div class="box">
+          <div class="name" style="display:flex;align-items:center;gap:8px;font-weight:600"><span class="sdot ${bst}"></span>${bst === "full" ? `Copy on ${st.Copies} other drive${st.Copies === 1 ? "" : "s"}` : bst === "damaged" ? "Failed its last check on this drive" : bst === "unknown" ? "No checksum yet" : "No copy on another drive"}</div>
+          ${data.copies.length ? `<table class="list compact" style="margin-top:8px"><tbody>${data.copies.map((c) => { const cd = driveOf(c.driveId); return `<tr class="row" data-file="${esc(c.path)}" data-file-drive="${esc(c.driveId)}"><td><div class="name" style="font-weight:500"><span class="dot" style="background:${cd && cd.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(c.drive)}</div></td><td class="mono">${esc(c.path)}</td><td>${c.verified ? `<span class="badge ok">${ICON.check}read back</span>` : ""}</td></tr>`; }).join("")}</tbody></table>` : ""}
+          <dl class="kv" style="margin-top:10px"><dt>Size</dt><dd>${bytes(f.Size)} <span class="hint">${f.Size.toLocaleString()} bytes</span></dd><dt>xxh64</dt><dd class="mono">${esc(f.XXH64 || "—")}</dd>${f.VerifiedAt && !f.VerifiedAt.startsWith("0001") ? `<dt>Read back</dt><dd>${new Date(f.VerifiedAt).toLocaleString()}</dd>` : ""}</dl>
+        </div></div>
+
+      <div class="sec"><div class="sec-title">${ICON.clapper}Clip
+          <div class="right">${dr.connected ? `<button class="btn small" id="reprobe">${ICON.refresh}${m ? "Read again" : "Read metadata"}</button>` : ""}</div></div>
+        <div class="box">${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`
+          : `<span class="hint">${m ? "Nothing readable inside this file." : dr.connected ? "Not read yet." : `Not read yet. Plug in ${esc(dr.title)} to read it.`}</span>`}</div></div>
+
+      <div class="sec"><div class="sec-title">${ICON.edit}Log <span class="hint" style="font-weight:400">kept with every copy of this clip, and in the CSV for post</span></div>
+        <div class="box"><div class="fields">
+          <div class="field"><label>Scene</label><input data-edit="scene" value="${esc(m ? m.edits.scene : "")}"></div>
+          <div class="field"><label>Shot</label><input data-edit="shot" value="${esc(m ? m.edits.shot : "")}"></div>
+          <div class="field"><label>Take</label><input data-edit="take" value="${esc(m ? m.edits.take : "")}"></div>
+          <div class="field"><label>Tags</label><input data-edit="tags" value="${esc(m ? m.edits.tags : "")}" placeholder="circle, vfx, mos"></div>
+          <div class="field wide"><label>QC</label><div class="seg qc" id="qc">${["", "ok", "flag", "reject"].map((q) => `<button data-qc="${q}" class="${(m ? m.edits.qc : "") === q ? "on" : ""} q-${q || "none"}">${q === "" ? "Not checked" : q === "ok" ? "OK" : q === "flag" ? "Flag" : "Reject"}</button>`).join("")}</div></div>
+          <div class="field wide"><label>Notes</label><textarea data-edit="notes" placeholder="Good for sound · boom in shot at 00:12 · director's pick…">${esc(m ? m.edits.notes : "")}</textarea></div>
+        </div></div></div>
+    </div>`);
+  wireFile(driveId, path, m);
+}
+function closeFile() {
+  const back = S.file && S.file.back;
+  closeSheet();
+  if (back) openDetail(back);
+}
+function wireFile(driveId, path, m) {
+  const edits = { ...(m ? m.edits : { scene: "", shot: "", take: "", notes: "", tags: "", qc: "" }) };
+  const save = async (patch) => {
+    Object.assign(edits, patch);
+    try { await api(`/api/drives/${encodeURIComponent(driveId)}/file?path=${encodeURIComponent(path)}`, { method: "PATCH", body: edits }); if (S.mediaData) loadMedia(); }
+    catch (e) { toast(e.message, true); }
+  };
+  $("#close").onclick = closeFile;
+  for (const el of document.querySelectorAll("[data-edit]")) el.onchange = () => save({ [el.dataset.edit]: el.value });
+  for (const b of document.querySelectorAll("#qc button")) b.onclick = () => { document.querySelectorAll("#qc button").forEach((x) => x.classList.toggle("on", x === b)); save({ qc: b.dataset.qc }); };
+  const rv = $("#reveal");
+  if (rv) rv.onclick = () => { const d = driveOf(driveId); if (d) nativeCall("reveal", { path: d.mount + "/" + path }); };
+  const rp = $("#reprobe");
+  if (rp) rp.onclick = async () => {
+    rp.disabled = true;
+    try { await api(`/api/drives/${encodeURIComponent(driveId)}/file?path=${encodeURIComponent(path)}`, { method: "PATCH", body: { ...edits, reread: true } }); openFile(driveId, path); if (S.mediaData) loadMedia(); }
+    catch (e) { toast(e.message, true); rp.disabled = false; }
+  };
+}
+
+// ---------- settings ----------
+async function openSettings() {
+  try { S.settings = await api("/api/settings"); } catch (e) { toast(e.message, true); return; }
+  const p = S.settings.publish, last = S.settings.last;
+  S.detail = null; S.file = null;
+  openSheet(`
+    <div class="sheet-head">
+      <span class="drive-ico file-ico">${ICON.gear}</span>
+      <div><h2>Settings</h2><div class="sub">Lumpy ${esc(S.state.version || "")} · library at ${esc(S.state.home || "")}</div></div>
+      <div class="actions"><button class="icon-btn" id="close" title="Close">${ICON.x}</button></div>
+    </div>
+    <div class="sheet-body">
+      <div class="sec"><div class="sec-title">${ICON.globe}Status page for coworkers
+          <div class="right">${last && last.ok && native ? `<button class="btn small" id="pub-open">${ICON.reveal}Open page</button>` : ""}<button class="btn small primary" id="pub-now" ${S.settings.publishing ? "disabled" : ""}>${S.settings.publishing ? "Publishing…" : "Publish now"}</button></div></div>
+        <p class="hint" style="margin:0 0 10px">A single web page with every drive, where it was last seen, each project's backup health and a file search, so the team can check without asking you. It's written whenever a job finishes, on the interval below while Lumpy is open, and once more when Lumpy quits. <code>lumpy publish</code> does the same from Terminal.</p>
+        <div class="box">
+          <label class="switch" style="margin-bottom:12px">Publish the status page <input type="checkbox" id="pub-enabled" ${p.enabled ? "checked" : ""}></label>
+          <div class="fields">
+            <div class="field"><label>Page title</label><input id="pub-title" value="${esc(p.title)}" placeholder="Lumpy status"></div>
+            <div class="field"><label>Refresh while Lumpy is open</label><select class="plain" id="pub-interval">${[[0, "Only after jobs and on quit"], [5, "Every 5 minutes"], [15, "Every 15 minutes"], [30, "Every 30 minutes"], [60, "Every hour"], [240, "Every 4 hours"]].map(([v, l]) => `<option value="${v}" ${+p.interval === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+            <div class="field wide"><label>Write the page into this folder <span class="hint">· a Dropbox, iCloud Drive or shared folder is the simplest way to share it</span></label>
+              <div class="path-row" style="margin:0"><input class="path-input" id="pub-folder" value="${esc(p.folder)}" placeholder="${esc(S.settings.defaultFolder)}">${native ? `<button class="btn" id="pub-pick">Choose…</button>` : ""}</div></div>
+            <div class="field wide"><label>Also upload to a web server <span class="hint">· HTTP PUT of index.html and status.json under this URL, optional</span></label><input id="pub-url" value="${esc(p.url)}" placeholder="https://status.example.com/lumpy/"></div>
+            <div class="field"><label>Bearer token for the upload <span class="hint">· optional</span></label><input id="pub-token" type="password" value="${esc(p.token)}" autocomplete="off"></div>
+            <div class="field"><label>File index <span class="hint">· lets the page say which drives hold a file</span></label><label class="switch" style="margin-top:7px">Include every file name <input type="checkbox" id="pub-files" ${p.files ? "checked" : ""}></label></div>
+            <div class="field wide"><label>Or run a command after writing <span class="hint">· the folder is in $LUMPY_STATUS_DIR, e.g. <code>rsync -a "$LUMPY_STATUS_DIR"/ user@host:/var/www/status/</code></span></label><input id="pub-command" class="mono" value="${esc(p.command)}" placeholder="rsync -a &quot;$LUMPY_STATUS_DIR&quot;/ user@host:/var/www/status/" spellcheck="false"></div>
+          </div>
+          <div class="pub-last" id="pub-last">${last ? `<span class="badge ${last.ok ? "ok" : "bad"}">${last.ok ? ICON.check + "Published" : ICON.warn + "Failed"}</span> <span class="hint">${when(Math.floor(new Date(last.at).getTime() / 1000))} · ${esc(last.summary)}</span>` : `<span class="hint">Not published yet.</span>`}</div>
+        </div></div>
+    </div>
+    <div class="sheet-foot"><button class="btn" id="settings-cancel">Cancel</button><button class="btn primary" id="settings-save">Save</button></div>`);
+  $("#close").onclick = closeSheet;
+  $("#settings-cancel").onclick = closeSheet;
+  const read = () => ({ enabled: $("#pub-enabled").checked, title: $("#pub-title").value, interval: +$("#pub-interval").value, folder: $("#pub-folder").value.trim(),
+    url: $("#pub-url").value.trim(), token: $("#pub-token").value, files: $("#pub-files").checked, command: $("#pub-command").value });
+  const save = async () => { S.settings = await api("/api/settings", { method: "PUT", body: read() }); renderCounts(); };
+  $("#settings-save").onclick = async () => { try { await save(); closeSheet(); toast("Settings saved"); } catch (e) { toast(e.message, true); } };
+  $("#pub-now").onclick = async () => {
+    const b = $("#pub-now"); b.disabled = true; b.textContent = "Publishing…";
+    try { await save(); const r = await api("/api/publish", { method: "POST" }); S.settings = r.settings; renderCounts(); toast("Published: " + r.result.summary); openSettings(); }
+    catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "Publish now"; try { S.settings = await api("/api/settings"); } catch {} }
+  };
+  const pk = $("#pub-pick");
+  if (pk) pk.onclick = async () => { const f = await pickFolder($("#pub-folder").value || S.settings.defaultFolder); if (f) $("#pub-folder").value = f; };
+  const op = $("#pub-open");
+  if (op) op.onclick = () => nativeCall("reveal", { path: last.path });
+}
+
 // ---------- events ----------
 document.querySelector(".tabs").onclick = (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -1156,15 +1412,16 @@ $("#sort").onchange = (e) => { S.sort = e.target.value; localSet("sort", S.sort)
 $("#color-by").onchange = (e) => { S.colorBy = e.target.value; localSet("colorBy", S.colorBy); render(); };
 $("#sort-dir").onclick = () => { S.desc = !S.desc; localSet("desc", S.desc ? "1" : "0"); render(); };
 $("#refresh").innerHTML = ICON.refresh;
+$("#settings").innerHTML = ICON.gear;
+$("#settings").onclick = openSettings;
 $("#refresh").onclick = () => { loadState(); loadJobs(); };
 $(".search-icon").innerHTML = ICON.search;
 $("#export").innerHTML = ICON.export + "Export CSV…";
-$("#export").onclick = async () => {
+async function downloadCSV(url, name) {
   try {
-    const res = await fetch("/api/export.csv", { headers: { "X-Lumpy-Token": token } });
+    const res = await fetch(url, { headers: { "X-Lumpy-Token": token } });
     if (!res.ok) throw new Error(res.statusText);
     const text = await res.text();
-    const name = `lumpy-drives-${new Date().toISOString().slice(0, 10)}.csv`;
     if (native) { const saved = await nativeCall("saveFile", { name, content: text }); if (saved) toast("Saved " + saved); return; }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
@@ -1172,7 +1429,8 @@ $("#export").onclick = async () => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   } catch (e) { toast(e.message, true); }
-};
+}
+$("#export").onclick = () => downloadCSV("/api/export.csv", `lumpy-drives-${new Date().toISOString().slice(0, 10)}.csv`);
 let searchTimer;
 $("#search").oninput = (e) => {
   S.query = e.target.value;
@@ -1197,6 +1455,8 @@ $("#main").onclick = async (e) => {
   if (e.target.id === "sel-new") return newProjectDialog([...S.selected].map((id) => ({ driveId: id, folder: "" })));
   if (e.target.id === "sel-all") { visibleDrives().filter(matchesQuery).forEach((d) => S.selected.add(d.id)); return render(); }
   if (e.target.id === "sel-none") { S.selected.clear(); return render(); }
+  const fileRow = e.target.closest("[data-file]");
+  if (fileRow) return openFile(fileRow.dataset.fileDrive, fileRow.dataset.file);
   const pick = e.target.closest("[data-pick]");
   if (pick) { pick.checked ? S.selected.add(pick.dataset.pick) : S.selected.delete(pick.dataset.pick); return render(); }
   const card = e.target.closest("[data-drive]");
@@ -1207,6 +1467,7 @@ $("#main").onclick = async (e) => {
 };
 $("#scrim").onclick = () => { closeSheet(); };
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#sheet").hidden && S.file) return closeFile();
   if (e.key === "Escape" && !$("#sheet").hidden && S.detail) closeSheet();
   if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); $("#search").focus(); }
 });

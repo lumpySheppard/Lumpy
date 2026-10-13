@@ -99,6 +99,8 @@ type Jobs struct {
 	mu   sync.Mutex
 	next int
 	all  []*Job
+	// OnDone, when set, is called after a job ends.
+	OnDone func(*Job)
 }
 
 // Start runs fn in the background as a new job. command is the lumpy
@@ -130,6 +132,11 @@ func (js *Jobs) Start(kind, title, command, driveID string, fn func(ctx context.
 			j.State = "ok"
 		}
 		cancel()
+		if js.OnDone != nil {
+			j.mu.Unlock()
+			js.OnDone(j)
+			j.mu.Lock()
+		}
 	}()
 	return j
 }

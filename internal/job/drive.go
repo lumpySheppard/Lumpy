@@ -14,6 +14,7 @@ import (
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/hashing"
+	"github.com/lumpysheppard/lumpy/internal/media"
 	"github.com/lumpysheppard/lumpy/internal/mhl"
 	"github.com/lumpysheppard/lumpy/internal/scan"
 	"github.com/lumpysheppard/lumpy/internal/volume"
@@ -134,6 +135,24 @@ func catalogDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Repo
 		len(files), Bytes(total), res.Added, res.Changed, res.Removed, res.FromMHL)
 	db.Log(v.ID, "scanned", summary, 0)
 	r.Info("Logged       %s  (%s)", v.Name, summary)
+	// Read metadata for clips that have none, within reason: a huge
+	// drive finishes with "Read metadata" or the next scan.
+	if unprobed, err := db.Unprobed(v.ID); err == nil && len(unprobed) > 0 {
+		const cap = 2000
+		batch := unprobed
+		if len(batch) > cap {
+			batch = batch[:cap]
+		}
+		if n, err := probeFiles(ctx, db, v, batch, r, nil); err == nil {
+			more := ""
+			if len(unprobed) > cap {
+				more = fmt.Sprintf(" (%d more to read)", len(unprobed)-cap)
+			}
+			r.Info("Metadata     read for %d clips%s", n, more)
+		} else if ctx.Err() != nil {
+			return res, err
+		}
+	}
 	shown := 0
 	for _, p := range res.RemovedPaths {
 		if !warnGone {
@@ -416,5 +435,52 @@ func recordOffload(db *catalog.DB, src string, srcVerified bool, sourceBad map[s
 	record(src, srcVerified, func(p string) bool { return !sourceBad[p] })
 	for i, t := range targets {
 		record(t, true, func(p string) bool { _, ok := verified[i][p]; return ok })
+	}
+
+	// Metadata is read once from the source and recorded for every copy.
+	type where struct {
+		id     string
+		prefix string
+	}
+	var places []where
+	ok := make([]func(string) bool, 0, len(targets)+1)
+	if v, err := volume.Of(src); err == nil {
+		if real, err := filepath.EvalSymlinks(src); err == nil {
+			if rel, err := filepath.Rel(v.Mount, real); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+				places = append(places, where{v.ID, filepath.ToSlash(rel)})
+				ok = append(ok, func(p string) bool { return !sourceBad[p] })
+			}
+		}
+	}
+	for i, t := range targets {
+		i := i
+		if v, err := volume.Of(t); err == nil {
+			if real, err := filepath.EvalSymlinks(t); err == nil {
+				if rel, err := filepath.Rel(v.Mount, real); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+					places = append(places, where{v.ID, filepath.ToSlash(rel)})
+					ok = append(ok, func(p string) bool { _, ok := verified[i][p]; return ok })
+				}
+			}
+		}
+	}
+	read := 0
+	for _, f := range files {
+		if !media.Probable(f.Path) || hashes[f.Path] == "" {
+			continue
+		}
+		info, err := media.Probe(filepath.Join(src, filepath.FromSlash(f.Path)))
+		if err != nil {
+			continue
+		}
+		read++
+		r.Detail("  metadata  %s  %s", f.Path, Describe(info))
+		for k, pl := range places {
+			if ok[k](f.Path) {
+				db.SaveMedia(pl.id, path.Join(pl.prefix, f.Path), hashes[f.Path], f.Size, info)
+			}
+		}
+	}
+	if read > 0 {
+		r.Info("Metadata     read for %d clips", read)
 	}
 }

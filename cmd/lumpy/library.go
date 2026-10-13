@@ -115,6 +115,12 @@ func driveCmd(ctx context.Context, c *cmdCtx) error {
 			return job.Backups(c.db, d, 1, c.r)
 		}
 		return job.HashDrive(ctx, c.db, v, action == "verify", c.r)
+	case "metadata":
+		v := mountedAs(d)
+		if v == nil {
+			return fmt.Errorf("%s is not plugged in", d.Title())
+		}
+		return job.ProbeDrive(ctx, c.db, v, 0, c.r)
 	case "cancel":
 		if err := c.db.RequestVerify(d.ID, false); err != nil {
 			return err
@@ -128,7 +134,7 @@ func driveCmd(ctx context.Context, c *cmdCtx) error {
 		c.r.Info("%s removed from the library.", d.Name)
 		return nil
 	}
-	return usageErr("lumpy drive [verify|hash|cancel|forget] DRIVE")
+	return usageErr("lumpy drive [verify|hash|metadata|cancel|forget] DRIVE")
 }
 
 func driveInfo(c *cmdCtx, d *catalog.Drive) error {

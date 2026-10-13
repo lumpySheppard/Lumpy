@@ -27,6 +27,15 @@ proving every copy is intact.
   and checksums, so you can see where a clip lives and whether a drive is
   properly backed up while it sits on a shelf, and queue a full check that
   runs by itself the next time the drive is plugged in.
+- **Clip metadata**: codec, frame size, frame rate, length, start timecode,
+  audio format, camera and reel are read from every clip as it is offloaded
+  or scanned (QuickTime/MP4, BWF, stills; anything else through `ffprobe`
+  when installed) and kept with the library. Filter, preview, log scene /
+  take / notes / QC, and export a CSV for post.
+- **A status page for the team**: one self-contained web page with every
+  drive, where it was last seen, each project's backup health and a file
+  search, written to a shared folder or uploaded to a server whenever a job
+  finishes, on a timer, and when the app quits.
 
 ## Install
 
@@ -241,6 +250,43 @@ checksum yet, which is useful for drives filled by other tools without MHLs.
 When a card is reformatted, `lumpy drive forget A001` removes it so it stops
 counting as a copy. (If it's plugged in again, the agent notices its files
 are gone anyway.)
+
+### Clips and metadata
+
+While a card is offloaded, Lumpy reads each clip's container headers
+(never the picture data, so it costs nothing noticeable) and records what
+post will ask about: codec, frame size, frame rate, duration, start
+timecode (drop-frame aware), audio codec, channels, sample rate and bit
+depth, camera make and model, reel, and the file's own creation date.
+QuickTime/MP4 and WAV/BWF (including iXML scene and take) are read
+natively; MXF, R3D and the rest go through `ffprobe` when it is on the
+Mac. Stills get their size and camera from JPEG/EXIF, PNG and TIFF/DNG
+headers. Drives logged before this feature get theirs with **Details →
+Read metadata** or `lumpy drive metadata DRIVE`.
+
+The **Clips** tab lists every distinct clip across the library (the same
+checksum on three drives is one row), with filters by project, drive,
+kind, codec, frame rate and QC state, and a search over names, cameras,
+reels, scenes, notes and tags. Clicking a clip opens it: a playback
+preview when its drive is plugged in, the technical details, every drive
+holding a copy, and a log section for scene, shot, take, tags, notes and
+a QC mark (OK, flag or reject). Log entries follow the content: set them
+on one copy and every copy has them. **Export CSV…** writes the current
+list with every column; a project page has the same button for just its
+clips.
+
+### Status page for coworkers
+
+Under the gear icon, turn on **Publish the status page**. Lumpy writes
+`index.html` (self-contained, works from a folder or any web server) and
+`status.json` into the folder you choose, and can also HTTP PUT both to a
+URL (with a bearer token) or run a command such as `rsync` afterwards.
+It publishes whenever a job finishes, on the interval you pick while the
+app is open, and once more when the app quits, so the page always shows
+the last known state; `lumpy publish` does the same from Terminal. Put
+the folder in Dropbox or iCloud Drive and the team can check which drive
+holds what, where it was last seen and whether a project is backed up,
+without asking.
 
 ### Reports and exit status
 

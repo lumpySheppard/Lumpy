@@ -285,3 +285,52 @@ func TestPlanStepsShowRunningAndBusy(t *testing.T) {
 		t.Fatalf("running/busy flags: %v", got)
 	}
 }
+
+func TestSettingsAndPublishThroughAPI(t *testing.T) {
+	s, ts, vols := setup(t)
+	home := t.TempDir()
+	t.Setenv("LUMPY_HOME", home)
+	os.MkdirAll(filepath.Join(vols, "RAID", "Job"), 0o755)
+	os.WriteFile(filepath.Join(vols, "RAID", "Job", "a.txt"), []byte("x"), 0o644)
+	for _, v := range s.mounted() {
+		if _, err := job.CatalogDrive(context.Background(), s.db, v, job.NewReportTo(io.Discard)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var view struct {
+		Publish       map[string]any
+		DefaultFolder string
+		Last          *map[string]any
+	}
+	call(t, s, ts, "GET", "/api/settings", "", &view)
+	if view.Publish["enabled"] != false || view.DefaultFolder != filepath.Join(home, "status") || view.Last != nil {
+		t.Fatalf("fresh settings: %+v", view)
+	}
+	if code := call(t, s, ts, "PUT", "/api/settings", `{"enabled":true,"title":"Crew status","url":"ftp://x","interval":5}`, nil); code != 400 {
+		t.Fatalf("bad URL accepted: %d", code)
+	}
+	out := filepath.Join(home, "share")
+	body := `{"enabled":true,"title":"Crew status","folder":"` + out + `","interval":5,"files":true}`
+	if code := call(t, s, ts, "PUT", "/api/settings", body, &view); code != 200 || view.Publish["title"] != "Crew status" {
+		t.Fatalf("save settings: %d %+v", code, view)
+	}
+	var res struct {
+		Result struct {
+			OK      bool
+			Summary string
+			Path    string
+		}
+	}
+	if code := call(t, s, ts, "POST", "/api/publish", "", &res); code != 200 || !res.Result.OK || res.Result.Path != filepath.Join(out, "index.html") {
+		t.Fatalf("publish: %d %+v", code, res)
+	}
+	page, err := os.ReadFile(res.Result.Path)
+	if err != nil || !strings.Contains(string(page), "Crew status") || !strings.Contains(string(page), "Job/a.txt") {
+		t.Fatalf("page: %v\n%s", err, page)
+	}
+	call(t, s, ts, "GET", "/api/settings", "", &view)
+	if view.Last == nil || (*view.Last)["ok"] != true {
+		t.Fatalf("last result: %+v", view)
+	}
+}

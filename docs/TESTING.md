@@ -155,7 +155,59 @@ has dropped.
 **Expect:** the drive shows *last seen …*; the plan still lists any step
 that needs it, as *Plug in DRIVE_2*.
 
-## 9. Logging without the app open
+## 9. Clips: codec, frame rate, timecode
+
+1. Open the **Clips** tab.
+
+**Expect:** every clip from the offload is listed with its codec and
+frame size, frame rate, length, start timecode, audio format and camera,
+read from the files during the offload (Lumpy reads QuickTime/MP4, MXF
+via ffprobe when installed, WAV/BWF, JPEG/PNG/TIFF/DNG). Compare a few
+rows against what the camera or Silverstack says — frame rate and
+timecode especially.
+
+2. Click a clip.
+
+**Expect:** a preview plays (the card is plugged in), with the clip's
+technical details, every drive holding a copy, and a log section. Fill
+in scene, take and a note, set QC to **Flag**, then open the same clip
+on DRIVE_1 (search for its name in **Logged**, or from the Clips tab
+filtered by drive).
+
+**Expect:** the scene, note and flag are there too: edits follow the
+content to every copy.
+
+3. Filter by frame rate or codec, then **Export CSV…**.
+
+**Expect:** a spreadsheet with one row per clip and all the columns,
+ready to send to post.
+
+4. For a drive that was logged before this build (no metadata yet):
+   **Details** → **Read metadata**.
+
+**Expect:** a job in Activity, and the drive's clips appear in Clips.
+
+## 10. Status page for coworkers
+
+1. Click the gear (top right). Turn on **Publish the status page**,
+   choose a folder in your Dropbox or iCloud Drive, click **Publish
+   now**, then **Save**.
+
+**Expect:** `index.html` and `status.json` appear in that folder. Open
+`index.html` in Safari (or send its link to someone): it lists every
+drive, where it was last seen, each project's health, and a file search
+that says which drives hold a file. It needs no server and no Lumpy.
+
+2. Run another offload, then reload the page.
+
+**Expect:** it updated by itself when the job finished. Quit Lumpy and
+reload once more: it updated again on the way out.
+
+3. (Optional) If you have a web server that accepts HTTP PUT, enter its
+   URL and token; or put an `rsync`/`scp` line in the command field. The
+   page is sent after each write.
+
+## 11. Logging without the app open
 
 ```sh
 lumpy agent install

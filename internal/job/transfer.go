@@ -13,6 +13,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/fsx"
 	"github.com/lumpysheppard/lumpy/internal/hashing"
+	"github.com/lumpysheppard/lumpy/internal/media"
 	"github.com/lumpysheppard/lumpy/internal/mhl"
 	"github.com/lumpysheppard/lumpy/internal/volume"
 )
@@ -243,6 +244,18 @@ func Transfer(ctx context.Context, o TransferOptions, r *Report) error {
 		if err := o.Library.SaveDrive(o.Dest); err == nil {
 			if err := o.Library.SaveHashes(o.Dest.ID, ups); err != nil {
 				r.Fail("drive library: %v", err)
+			}
+		}
+		// Metadata follows the copy; a source without any gets read now.
+		for _, d := range good {
+			to := path.Join(folder, destPath(d.f))
+			if m, _ := o.Library.MediaFor(o.Source.ID, d.f.Path); m != nil {
+				o.Library.CopyMedia(o.Source.ID, d.f.Path, o.Dest.ID, to)
+			} else if media.Probable(d.f.Path) {
+				if info, err := media.Probe(d.dst); err == nil {
+					o.Library.SaveMedia(o.Source.ID, d.f.Path, d.sum, d.f.Size, info)
+					o.Library.SaveMedia(o.Dest.ID, to, d.sum, d.f.Size, info)
+				}
 			}
 		}
 		o.Library.Log(o.Dest.ID, "transfer", fmt.Sprintf("received %d files (%s) from %s into %s", len(good), Bytes(sumBytes(good, func(d done) int64 { return d.f.Size })), o.Source.Name, folder), 0)

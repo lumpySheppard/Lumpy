@@ -19,7 +19,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/job"
 )
 
-var version = "0.4.0"
+var version = "0.5.0"
 
 const usage = `Lumpy copies camera cards and drives to backup drives, verifies every copy,
 and keeps a library of every drive it has seen.
@@ -49,6 +49,8 @@ Drive library (works for drives that are not plugged in):
   lumpy drive cancel DRIVE        Cancel a queued check.
   lumpy drive hash DRIVE          Checksum the files on a plugged-in drive that
                                   have none yet.
+  lumpy drive metadata DRIVE      Read codec, frame rate, timecode and the rest
+                                  from clips that have no metadata yet.
   lumpy drive forget DRIVE        Remove a drive from the library.
   lumpy catalog [PATH...]         Log drives now (default: every mounted drive).
 
@@ -63,6 +65,10 @@ Projects (a group of drives that should hold N copies of everything):
                                   Run one step of the plan: copy the files
                                   that need another copy, verify them, write
                                   an MHL, and record them.
+
+Status page for coworkers (set up in the app under Settings):
+  lumpy publish                   Write the status page now and send it
+                                  wherever the settings say.
 
 Background agent (logs every drive you plug in, runs queued checks):
   lumpy agent install | uninstall | status
@@ -159,6 +165,7 @@ var commands = map[string]command{
 	"agent":   {1, 1, false, agentCmd},
 	"project": {1, 2, true, projectCmd},
 	"ui":      {0, 0, true, uiCmd},
+	"publish": {0, 0, true, publishCmd},
 }
 
 func run(args []string) int {

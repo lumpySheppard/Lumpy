@@ -50,6 +50,9 @@ func uiCmd(ctx context.Context, c *cmdCtx) error {
 	if err := hs.Serve(ln); err != nil && ctx.Err() == nil {
 		return err
 	}
+	// The status page is published once more on the way out, so it
+	// shows the state the app was closed in.
+	srv.Wait()
 	return nil
 }
 

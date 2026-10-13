@@ -59,6 +59,42 @@ CREATE TABLE IF NOT EXISTS mounted (
 	drive_id TEXT PRIMARY KEY,
 	mount    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS media (
+	drive_id    TEXT NOT NULL REFERENCES drives(id) ON DELETE CASCADE,
+	path        TEXT NOT NULL,
+	xxh64       TEXT,
+	size        INTEGER NOT NULL DEFAULT 0,
+	kind        TEXT NOT NULL DEFAULT '',
+	container   TEXT NOT NULL DEFAULT '',
+	video_codec TEXT NOT NULL DEFAULT '',
+	width       INTEGER NOT NULL DEFAULT 0,
+	height      INTEGER NOT NULL DEFAULT 0,
+	frame_rate  REAL NOT NULL DEFAULT 0,
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	timecode    TEXT NOT NULL DEFAULT '',
+	audio_codec TEXT NOT NULL DEFAULT '',
+	channels    INTEGER NOT NULL DEFAULT 0,
+	sample_rate INTEGER NOT NULL DEFAULT 0,
+	bit_depth   INTEGER NOT NULL DEFAULT 0,
+	camera      TEXT NOT NULL DEFAULT '',
+	reel        TEXT NOT NULL DEFAULT '',
+	created     TEXT NOT NULL DEFAULT '',
+	extra       TEXT NOT NULL DEFAULT '',
+	probed_at   INTEGER NOT NULL DEFAULT 0,
+	scene       TEXT NOT NULL DEFAULT '',
+	shot        TEXT NOT NULL DEFAULT '',
+	take        TEXT NOT NULL DEFAULT '',
+	notes       TEXT NOT NULL DEFAULT '',
+	tags        TEXT NOT NULL DEFAULT '',
+	qc          TEXT NOT NULL DEFAULT '',
+	edited_at   INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (drive_id, path)
+);
+CREATE INDEX IF NOT EXISTS media_by_hash ON media (xxh64, size);
+CREATE TABLE IF NOT EXISTS settings (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS projects (
 	id      INTEGER PRIMARY KEY,
 	name    TEXT NOT NULL,

@@ -40,6 +40,9 @@ type Server struct {
 	jobs     Jobs
 	addr     string
 
+	pub     publisher
+	pubDone chan struct{}
+
 	mu       sync.Mutex
 	vols     []*volume.Volume
 	volsAt   time.Time
@@ -59,7 +62,12 @@ type driveExtra struct {
 func New(db *catalog.DB, lockPath string, meta job.Meta) *Server {
 	b := make([]byte, 16)
 	rand.Read(b)
-	return &Server{db: db, lockPath: lockPath, meta: meta, token: hex.EncodeToString(b), summary: map[string]*driveExtra{}}
+	s := &Server{db: db, lockPath: lockPath, meta: meta, token: hex.EncodeToString(b), summary: map[string]*driveExtra{},
+		pub: publisher{wake: make(chan struct{}, 1)}, pubDone: make(chan struct{})}
+	// The status page is refreshed after each job, so coworkers see a
+	// finished offload or check within moments.
+	s.jobs.OnDone = func(*Job) { go s.publishOnce(context.Background(), false) }
+	return s
 }
 
 // Listen starts serving on 127.0.0.1:port (0 picks a free port) and
@@ -75,8 +83,10 @@ func (s *Server) Listen(port int) (string, *http.Server, net.Listener, error) {
 }
 
 // Watch logs newly mounted drives while the app is open, the same way the
-// launchd agent does, so the agent is optional while the app runs.
+// launchd agent does, so the agent is optional while the app runs. It
+// also keeps the status page published.
 func (s *Server) Watch(ctx context.Context) {
+	go s.publishLoop(ctx)
 	t := time.NewTicker(4 * time.Second)
 	defer t.Stop()
 	for {
@@ -155,6 +165,15 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/drives/{id}/hash", s.hash)
 	api("POST /api/drives/{id}/rescan", s.rescan)
 	api("POST /api/drives/{id}/cancel", s.cancelQueued)
+	api("POST /api/drives/{id}/metadata", s.probeDrive)
+	api("GET /api/drives/{id}/file", s.fileDetail)
+	api("PATCH /api/drives/{id}/file", s.setFileEdits)
+	api("GET /api/drives/{id}/stream", s.streamFile)
+	api("GET /api/media", s.listMedia)
+	api("GET /api/media.csv", s.exportMedia)
+	api("GET /api/settings", s.getSettings)
+	api("PUT /api/settings", s.putSettings)
+	api("POST /api/publish", s.publishNow)
 	api("POST /api/catalog", s.catalogMount)
 	api("GET /api/search", s.search)
 	api("GET /api/export.csv", s.export)
@@ -376,7 +395,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	return map[string]any{
 		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects,
-		"agent": agent.Status(), "version": s.meta.Version,
+		"agent": agent.Status(), "version": s.meta.Version, "home": filepath.Dir(s.lockPath),
 	}, nil
 }
 
