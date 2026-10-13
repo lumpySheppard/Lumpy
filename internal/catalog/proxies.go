@@ -69,6 +69,24 @@ func (db *DB) ProxyPairs(driveID, folder string) ([]ProxyPair, error) {
 	if err != nil {
 		return nil, err
 	}
+	return proxyPairsFrom(files, folder), nil
+}
+
+// ProxyReports is every pair under folder with its report, reading the
+// drive's file list once.
+func (db *DB) ProxyReports(driveID, folder string) ([]*ProxyReport, error) {
+	files, err := db.Files(driveID)
+	if err != nil {
+		return nil, err
+	}
+	var out []*ProxyReport
+	for _, pair := range proxyPairsFrom(files, folder) {
+		out = append(out, proxiesFrom(files, pair))
+	}
+	return out, nil
+}
+
+func proxyPairsFrom(files []File, folder string) []ProxyPair {
 	prefix := folder
 	if prefix != "" {
 		prefix += "/"
@@ -98,7 +116,7 @@ func (db *DB) ProxyPairs(driveID, folder string) ([]ProxyPair, error) {
 		}
 	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i].Online < pairs[j].Online })
-	return pairs, nil
+	return pairs
 }
 
 // Proxies reports each original in the pair's Online folder with the

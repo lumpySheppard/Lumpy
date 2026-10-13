@@ -284,3 +284,48 @@ func TestImages(t *testing.T) {
 		t.Fatalf("dng: %+v", info)
 	}
 }
+
+func TestImpliedCodec(t *testing.T) {
+	dir := t.TempDir()
+	for name, want := range map[string][3]string{
+		"A001_C001_0101XY_001.R3D": {"R3D", "REDCODE RAW", "RED"},
+		"A001_01011234_C001.braw":  {"BRAW", "Blackmagic RAW", "Blackmagic"},
+		"A001C001_240101_R1ZL.ari": {"ARRIRAW", "ARRIRAW", ""},
+	} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("not really a clip"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		info, err := Probe(p)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if info.Kind != Video || info.Container != want[0] || info.VideoCodec != want[1] || info.Camera != want[2] {
+			t.Errorf("%s: got kind %v container %q codec %q camera %q, want %v", name, info.Kind, info.Container, info.VideoCodec, info.Camera, want)
+		}
+	}
+}
+
+func TestCodecDisplayName(t *testing.T) {
+	for _, c := range []struct{ name, profile, long, want string }{
+		{"prores", "HQ", "Apple ProRes (iCodec Pro)", "ProRes 422 HQ"},
+		{"prores", "4444 XQ", "", "ProRes 4444 XQ"},
+		{"prores", "Standard", "", "ProRes 422"},
+		{"h264", "High 4:2:2", "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10", "H.264"},
+		{"h264", "High 4:2:2 Intra", "", "H.264 Intra"},
+		{"hevc", "Main 10", "", "HEVC"},
+		{"dnxhd", "DNxHR HQX", "", "DNxHR"},
+		{"pcm_s24le", "", "PCM signed 24-bit little-endian", "PCM"},
+		{"something", "", "Something odd / alias", "Something odd"},
+		{"zzz", "", "", "ZZZ"},
+	} {
+		if got := codecDisplayName(c.name, c.profile, c.long); got != c.want {
+			t.Errorf("%s/%s: got %q, want %q", c.name, c.profile, got, c.want)
+		}
+	}
+	for long, want := range map[string]string{"QuickTime / MOV": "QuickTime", "MXF (Material eXchange Format)": "MXF", "WAV / WAVE (Waveform Audio)": "WAV"} {
+		if got := containerName(long); got != want {
+			t.Errorf("%q: got %q, want %q", long, got, want)
+		}
+	}
+}

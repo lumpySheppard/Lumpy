@@ -594,6 +594,8 @@ async function openDetail(id, refresh, focusLabels) {
 
       ${summaryText(d) ? `<div class="sec"><div class="sec-title">${ICON.search}Top-level summary</div><div style="color:var(--text-2)">${esc(summaryText(d))}</div></div>` : ""}
 
+      <div class="sec" id="sec-proxies" hidden></div>
+
       <div class="sec"><div class="sec-title">${ICON.folder}Browse drive <span style="color:var(--muted);font-weight:400;font-size:12px">Indexed • ${d.files.toLocaleString()} files${d.lastScan ? " • " + when(d.lastScan) : ""}</span></div>
         <div class="legend-line"><span><i class="sdot full"></i>Everything inside has a verified duplicate on another drive</span><span><i class="sdot partial"></i>Some of it does</span><span><i class="sdot likely"></i>Probably: same name and size elsewhere, not checksummed yet</span><span><i class="sdot none"></i>None of it does, or nothing known</span></div>
         <div class="search"><span class="search-icon">${ICON.search}</span><input id="tree-filter" type="search" placeholder="Filter by name…"></div>
@@ -605,6 +607,7 @@ async function openDetail(id, refresh, focusLabels) {
   if (scroll) $(".sheet-body").scrollTop = scroll;
   wireDetail(d);
   loadTree(d.id, "", $("#tree"), 0);
+  loadProxies(d.id);
   if (focusLabels) setTimeout(() => { const el = $('[data-label="nickname"]'); el.scrollIntoView({ block: "center" }); el.focus(); }, 30);
 }
 
@@ -743,7 +746,7 @@ function renderProjects() {
 }
 
 async function loadProject(id, refresh) {
-  try { S.projectData = await api(`/api/projects/${id}`); }
+  try { [S.projectData, S.projectProxies] = await Promise.all([api(`/api/projects/${id}`), api(`/api/projects/${id}/proxies`).catch(() => [])]); }
   catch (e) { toast(e.message, true); S.project = null; S.projectData = null; return render(); }
   if (S.project === id) renderProjectPage();
 }
@@ -821,6 +824,8 @@ function renderProjectPage() {
         ${data.unplacedBytes ? `<div class="alert bad" style="margin-top:10px"><b>${bytes(data.unplacedBytes)} has nowhere to go.</b> No ${anyDest ? "drive in the library" : "chosen destination"} has room for these files (each needs a drive that doesn't already hold it). ${anyDest ? "Log a drive" : "Allow a drive"} with at least ${bytes(data.unplacedBytes + data.reserve)} free, or free up space.
           <div class="chips">${data.unplaced.map((g) => `<span class="chip">${driveTitle(p.sources[g.source].driveId)} / ${esc(g.folder === "." ? "(top level)" : g.folder)}<small>${bytes(g.bytes)}</small></span>`).join("")}</div></div>` : ""}
       </section>
+
+      ${proxiesPanel(S.projectProxies || [])}
 
       ${data.sole.length ? `<section class="panel"><h2>Files with too few copies</h2><p class="hint">Where the ${bytes(bad)} that isn't backed up enough lives, by folder.</p>
         <table class="list compact grouped"><thead><tr><th colspan="2">Drive · folder</th><th class="num">Files</th><th class="num">Size</th></tr></thead><tbody>${groupRows(data.sole, "var(--bad)")}</tbody></table></section>` : ""}
@@ -902,6 +907,50 @@ function wireProjectPage(p) {
   for (const el of document.querySelectorAll("[data-hash]")) el.onclick = async () => {
     try { await api(`/api/drives/${encodeURIComponent(el.dataset.hash)}/hash`, { method: "POST" }); toast("Checksumming new files… (see Activity)"); loadJobs(); } catch (e) { toast(e.message, true); }
   };
+  wireProxies(S.projectProxies || []);
+}
+
+// ---------- proxies ----------
+// Post keeps camera originals in an "Online" folder and the proxies cut
+// from them in an "Offline" folder beside it. Lumpy pairs the two and
+// lists the originals that have no proxy yet.
+function proxiesPanel(pairs) {
+  if (!pairs.length) return "";
+  return `<section class="panel"><h2>Proxies</h2>
+    <p class="hint">Each <b>Online</b> folder of camera originals, paired with the <b>Offline</b> folder beside it. An original counts as proxied when a video with the same name (with or without a _proxy, _prx, S03 or _1 suffix) is anywhere in Offline. RED clips count once, not per chunk.</p>
+    ${pairs.map(proxyPairCard).join("")}</section>`;
+}
+function proxyPairCard(x, i) {
+  const pct = x.total ? (x.proxied / x.total) * 100 : 0;
+  const missing = x.total - x.proxied;
+  const d = driveOf(x.driveId);
+  const done = x.total > 0 && !missing;
+  return `<div class="step-card" style="margin-bottom:10px">
+    <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span><b>${esc(driveTitle(x.driveId))}</b><span class="px-path" title="${esc(x.online)}">${esc(x.online)}</span>
+      <div class="right">${done ? `<span class="badge ok">${ICON.check}All proxied</span>` : x.total ? `<button class="btn small" data-copy-missing="${i}" title="Copy the names of the originals without a proxy, to hand to whoever makes them">${ICON.copy}Copy list</button>` : ""}</div></div>
+    <div class="bbar ${done ? "s-full" : "s-partial"}"><div class="track">${x.proxied ? `<i class="${done ? "fill-full" : "fill-prog"}" style="width:${pct.toFixed(2)}%"></i>` : ""}</div><span class="lbl">${done ? ICON.check : ""}${x.total ? `${x.proxied.toLocaleString()} of ${x.total.toLocaleString()} originals have a proxy` : "No video in the Online folder"}</span></div>
+    <div class="cap">${missing ? `<span style="color:var(--warn)">${missing.toLocaleString()} still to make · ${bytes(x.missingBytes)}</span>` : ""}${x.extra ? `<span class="sep">•</span><span class="hint">${x.extra.toLocaleString()} prox${x.extra === 1 ? "y" : "ies"} with no original</span>` : ""}<span class="sep">•</span><span class="hint">Offline: <span class="mono">${esc(x.offline)}</span></span></div>
+    ${missing ? `<details class="notes"><summary>${missing.toLocaleString()} without a proxy${x.truncated ? ` (first ${x.missing.length} shown)` : ""}</summary><div class="chips" style="margin-top:6px">${x.missing.map((c) => `<span class="chip" title="${esc(c.path)}">${esc(c.name)}<small>${bytes(c.bytes)}${c.files > 1 ? ` · ${c.files} parts` : ""}</small></span>`).join("")}</div></details>` : ""}
+  </div>`;
+}
+function wireProxies(pairs) {
+  for (const el of document.querySelectorAll("[data-copy-missing]")) el.onclick = async () => {
+    const x = pairs[+el.dataset.copyMissing];
+    const text = x.missing.map((c) => c.name).join("\n") + "\n";
+    try { await navigator.clipboard.writeText(text); toast(`Copied ${x.missing.length} clip name${x.missing.length === 1 ? "" : "s"}`); }
+    catch { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); toast(`Copied ${x.missing.length} clip name${x.missing.length === 1 ? "" : "s"}`); }
+  };
+}
+// loadProxies fills the drive sheet's Proxies section, if the drive has
+// any Online/Offline pairs.
+async function loadProxies(id) {
+  let pairs = [];
+  try { pairs = await api(`/api/drives/${encodeURIComponent(id)}/proxies`); } catch { return; }
+  const sec = $("#sec-proxies");
+  if (!sec || S.detail !== id || !pairs.length) return;
+  sec.hidden = false;
+  sec.innerHTML = `<div class="sec-title">${ICON.film}Proxies <span class="hint" style="font-weight:400">Online originals and the Offline proxies beside them</span></div>${pairs.map(proxyPairCard).join("")}`;
+  wireProxies(pairs);
 }
 
 // addSourceDialog lets the user pick a drive and, inside it, a folder
@@ -1218,6 +1267,13 @@ function renderJobsInto(box, list, emptyText) {
 // The clip library: every file with metadata, across drives, one row per
 // distinct clip (the same checksum on three drives is one row).
 const KIND_LABEL = { video: "Video", audio: "Audio", image: "Image", document: "Document", other: "Other" };
+// The codec and format menus list what the industry shoots, with the
+// library's own entries first. The rest are shown greyed, so the menu
+// reads the same on every Mac and says what Lumpy can tell apart.
+const CODECS = ["ProRes 422 Proxy", "ProRes 422 LT", "ProRes 422", "ProRes 422 HQ", "ProRes 4444", "ProRes 4444 XQ", "ProRes RAW", "ProRes RAW HQ",
+  "H.264", "H.264 Intra", "HEVC", "AV1", "DNxHD", "DNxHR", "XDCAM HD 422", "XDCAM EX", "AVC-Intra 100", "AVC-Intra 50", "MPEG-2", "Motion JPEG", "CineForm",
+  "DV", "DVCPRO HD", "Uncompressed 10-bit 4:2:2", "REDCODE RAW", "Blackmagic RAW", "ARRIRAW", "Cinema RAW Light", "CinemaDNG", "PCM", "AAC", "MP3", "FLAC"];
+const FORMATS = ["QuickTime", "MP4", "MXF", "R3D", "BRAW", "ARRIRAW", "Canon RAW", "AVCHD", "Matroska", "AVI", "WAV", "BWF", "AIFF", "MP3", "FLAC", "JPEG", "PNG", "TIFF", "DNG", "HEIC", "OpenEXR", "DPX"];
 const QC_LABEL = { "": "Not checked", ok: "OK", flag: "Flagged", reject: "Rejected" };
 function fps(r) { return r ? (Math.round(r * 1000) / 1000).toString() : ""; }
 function dur(ms) {
@@ -1245,12 +1301,29 @@ function mediaQuery() {
 }
 async function loadMedia() {
   try { S.mediaData = await api("/api/media?" + mediaQuery()); } catch (e) { toast(e.message, true); return; }
-  if (S.tab === "media") renderMediaTable();
+  if (S.tab === "media") { renderMediaTable(); refreshMediaMenus(); }
+}
+const opt = (v, label, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? "selected" : ""}>${esc(label)}</option>`;
+function catalogue(present, all, cur, anyLabel) {
+  const have = new Set(present);
+  const rest = all.filter((c) => !have.has(c));
+  const mine = present.map((c) => opt(c, c, cur)).join("");
+  return opt("", anyLabel, cur) + (present.length && rest.length ? `<optgroup label="In the library">${mine}</optgroup>` : mine)
+    + (rest.length ? `<optgroup label="${present.length ? "Not in the library" : "Nothing logged yet"}">${rest.map((c) => `<option value="${esc(c)}" disabled>${esc(c)}</option>`).join("")}</optgroup>` : "");
+}
+// refreshMediaMenus rebuilds the format, codec and frame-rate menus from
+// the list that just arrived: the bar is drawn before the first load.
+function refreshMediaMenus() {
+  const d = S.mediaData, m = S.media;
+  if (!d) return;
+  const set = (id, html) => { const el = $(id); if (el && el.innerHTML !== html && document.activeElement !== el) el.innerHTML = html; };
+  set("#m-format", catalogue(d.formats || [], FORMATS, m.format, "Any format"));
+  set("#m-codec", catalogue(d.codecs || [], CODECS, m.codec, "Any codec"));
+  set("#m-rate", opt("", "Any frame rate", m.rate) + (d.rates || []).map((r) => opt(r, fps(r) + " fps", m.rate)).join(""));
 }
 function renderMedia() {
   const main = $("#main");
   const m = S.media, st = S.state;
-  const opt = (v, label, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? "selected" : ""}>${esc(label)}</option>`;
   const d = S.mediaData || { files: [], formats: [], codecs: [], rates: [] };
   const SORTS = [["name", "Name"], ["path", "Folder"], ["size", "Size"], ["format", "Format"], ["created", "Date created"], ["duration", "Length"], ["timecode", "Timecode"], ["rate", "Frame rate"], ["camera", "Camera"], ["scene", "Scene / take"], ["qc", "QC"], ["drive", "Drive"]];
   main.innerHTML = `<div class="media">
@@ -1259,9 +1332,9 @@ function renderMedia() {
       <label class="select"><select id="m-project">${opt("", "All projects", m.project)}${(st.projects || []).map((p) => opt(p.id, p.name, m.project)).join("")}</select></label>
       <label class="select"><select id="m-drive">${opt("", "All drives", m.drive)}${st.drives.map((x) => opt(x.id, x.title, m.drive)).join("")}</select></label>
       <label class="select"><select id="m-kind">${opt("", "Any kind", m.kind)}${Object.entries(KIND_LABEL).map(([k, v]) => opt(k, v, m.kind)).join("")}</select></label>
-      <label class="select"><select id="m-format">${opt("", "Any format", m.format)}${d.formats.map((c) => opt(c, c, m.format)).join("")}</select></label>
-      <label class="select"><select id="m-codec">${opt("", "Any codec", m.codec)}${d.codecs.map((c) => opt(c, c, m.codec)).join("")}</select></label>
-      <label class="select"><select id="m-rate">${opt("", "Any frame rate", m.rate)}${d.rates.map((r) => opt(r, fps(r) + " fps", m.rate)).join("")}</select></label>
+      <label class="select"><select id="m-format">${catalogue(d.formats || [], FORMATS, m.format, "Any format")}</select></label>
+      <label class="select"><select id="m-codec">${catalogue(d.codecs || [], CODECS, m.codec, "Any codec")}</select></label>
+      <label class="select"><select id="m-rate">${opt("", "Any frame rate", m.rate)}${(d.rates || []).map((r) => opt(r, fps(r) + " fps", m.rate)).join("")}</select></label>
       <label class="select"><select id="m-qc">${opt("", "Any QC", m.qc)}${opt("none", "Not checked", m.qc)}${opt("ok", "OK", m.qc)}${opt("flag", "Flagged", m.qc)}${opt("reject", "Rejected", m.qc)}</select></label>
       <div class="search"><span class="search-icon">${ICON.search}</span><input id="m-q" type="search" placeholder="Clip, scene, take, camera, reel, notes, tag…" value="${esc(m.q)}" autocomplete="off" spellcheck="false"></div>
       <span class="sortgrp"><label class="select" title="Sort"><select id="m-sort">${SORTS.map(([k, v]) => opt(k, "Sort: " + v, S.mediaSort)).join("")}</select></label>

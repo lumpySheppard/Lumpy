@@ -178,6 +178,10 @@ func Open(path string) (*DB, error) {
 	} {
 		s.Exec(`ALTER TABLE ` + col)
 	}
+	// Raw formats logged before their codec was implied from the extension.
+	for c, codec := range map[string]string{"R3D": "REDCODE RAW", "BRAW": "Blackmagic RAW", "ARRIRAW": "ARRIRAW", "Canon RAW": "Cinema RAW Light"} {
+		s.Exec(`UPDATE media SET video_codec = ? WHERE container = ? AND video_codec = ''`, codec, c)
+	}
 	return &DB{sql: s, path: path}, nil
 }
 

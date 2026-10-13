@@ -52,6 +52,7 @@ type ffOut struct {
 		CodecType     string            `json:"codec_type"`
 		CodecName     string            `json:"codec_name"`
 		CodecLongName string            `json:"codec_long_name"`
+		Profile       string            `json:"profile"`
 		Width         int               `json:"width"`
 		Height        int               `json:"height"`
 		RFrameRate    string            `json:"r_frame_rate"`
@@ -76,8 +77,8 @@ func probeFFprobe(bin, path string, info *Info) error {
 		return errUnsupported
 	}
 	info.Source = "ffprobe"
-	if ff.Format.FormatLongName != "" {
-		info.Container = ff.Format.FormatLongName
+	if info.Container == "" && ff.Format.FormatLongName != "" {
+		info.Container = containerName(ff.Format.FormatLongName)
 	}
 	if d, err := strconv.ParseFloat(ff.Format.Duration, 64); err == nil {
 		info.DurationMS = int64(d * 1000)
@@ -88,10 +89,7 @@ func probeFFprobe(bin, path string, info *Info) error {
 			if info.VideoCodec != "" {
 				continue
 			}
-			info.VideoCodec = s.CodecLongName
-			if info.VideoCodec == "" {
-				info.VideoCodec = strings.ToUpper(s.CodecName)
-			}
+			info.VideoCodec = codecDisplayName(s.CodecName, s.Profile, s.CodecLongName)
 			info.Width, info.Height = s.Width, s.Height
 			info.FrameRate = ratio(s.AvgFrameRate)
 			if info.FrameRate == 0 {
@@ -104,10 +102,7 @@ func probeFFprobe(bin, path string, info *Info) error {
 			if info.AudioCodec != "" {
 				continue
 			}
-			info.AudioCodec = s.CodecLongName
-			if info.AudioCodec == "" {
-				info.AudioCodec = strings.ToUpper(s.CodecName)
-			}
+			info.AudioCodec = codecDisplayName(s.CodecName, s.Profile, s.CodecLongName)
 			info.Channels = s.Channels
 			info.SampleRate, _ = strconv.Atoi(s.SampleRate)
 			info.BitDepth = s.BitsPerSample
@@ -153,4 +148,73 @@ func ratio(s string) float64 {
 		return 0
 	}
 	return float64(int64(a/b*1000+0.5)) / 1000
+}
+
+// ffCodecs maps ffprobe's codec ids to the names the QuickTime parser
+// uses, so a ProRes clip reads the same whichever way it was probed and
+// the Clips filter has one entry per codec.
+var ffCodecs = map[string]string{
+	"h264": "H.264", "hevc": "HEVC", "av1": "AV1", "vp9": "VP9", "vp8": "VP8", "mpeg4": "MPEG-4 Visual", "mpeg2video": "MPEG-2",
+	"mpeg1video": "MPEG-1", "mjpeg": "Motion JPEG", "dnxhd": "DNxHD", "cfhd": "CineForm", "prores_raw": "ProRes RAW",
+	"v210": "Uncompressed 10-bit 4:2:2", "v410": "Uncompressed 10-bit 4:4:4", "rawvideo": "Uncompressed", "dvvideo": "DV",
+	"jpeg2000": "JPEG 2000", "png": "PNG", "gif": "GIF", "qtrle": "Animation", "hap": "Hap", "ffv1": "FFV1", "vc1": "VC-1", "wmv3": "WMV",
+	"aac": "AAC", "mp3": "MP3", "mp2": "MP2", "flac": "FLAC", "alac": "Apple Lossless", "ac3": "AC-3", "eac3": "E-AC-3", "opus": "Opus",
+	"vorbis": "Vorbis", "wmav2": "WMA", "truehd": "Dolby TrueHD", "dts": "DTS", "amr_nb": "AMR", "amr_wb": "AMR",
+}
+
+// codecDisplayName names a codec the way the industry does: ProRes by
+// flavour, DNx by family, PCM for every linear PCM layout.
+func codecDisplayName(name, profile, long string) string {
+	switch name {
+	case "prores":
+		switch {
+		case strings.Contains(profile, "XQ"):
+			return "ProRes 4444 XQ"
+		case strings.Contains(profile, "4444"):
+			return "ProRes 4444"
+		case strings.Contains(profile, "HQ"):
+			return "ProRes 422 HQ"
+		case strings.Contains(profile, "LT"):
+			return "ProRes 422 LT"
+		case strings.Contains(profile, "Proxy"):
+			return "ProRes 422 Proxy"
+		default:
+			return "ProRes 422"
+		}
+	case "dnxhd":
+		if strings.Contains(profile, "DNxHR") {
+			return "DNxHR"
+		}
+		return "DNxHD"
+	case "h264":
+		if strings.Contains(profile, "Intra") {
+			return "H.264 Intra"
+		}
+	}
+	if strings.HasPrefix(name, "pcm_") {
+		return "PCM"
+	}
+	if c, ok := ffCodecs[name]; ok {
+		return c
+	}
+	if long != "" {
+		// "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10" → "H.264"
+		if i := strings.Index(long, " / "); i > 0 {
+			return long[:i]
+		}
+		return long
+	}
+	return strings.ToUpper(name)
+}
+
+// containerName trims ffprobe's long format names: "QuickTime / MOV" →
+// "QuickTime", "MXF (Material eXchange Format)" → "MXF".
+func containerName(long string) string {
+	if i := strings.Index(long, " / "); i > 0 {
+		long = long[:i]
+	}
+	if i := strings.Index(long, " ("); i > 0 {
+		long = long[:i]
+	}
+	return strings.TrimSpace(long)
 }

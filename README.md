@@ -275,6 +275,19 @@ on one copy and every copy has them. **Export CSV…** writes the current
 list with every column; a project page has the same button for just its
 clips.
 
+### Proxies
+
+Post keeps camera originals in an **Online** folder and the proxies cut
+from them in an **Offline** folder beside it (any spelling: `Online`,
+`00_ONLINE`, `Online footage`). Lumpy pairs the two wherever they sit on
+a drive and shows, on the project page and in the drive's details, how
+many originals have a proxy, which still need one, and how big those
+are. **Copy list** puts the names of the unproxied clips on the
+clipboard for whoever makes them. An original counts as proxied when a
+video with the same name, with or without a `_proxy`, `_prx`, `S03` or
+`_1` suffix, is anywhere in the Offline folder; RED clips count once,
+not per chunk.
+
 ### Menu bar
 
 Lumpy.app also lives in the menu bar: the NAS glyph shows the running

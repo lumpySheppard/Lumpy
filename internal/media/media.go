@@ -90,6 +90,13 @@ var containers = map[string]string{
 	".cr3": "Canon RAW", ".raf": "Fujifilm RAW", ".bwf": "BWF",
 }
 
+// impliedCodecs names the codec a raw format's extension already
+// decides, so a RED or Blackmagic card is filterable by codec without
+// opening the files (which Lumpy and ffprobe cannot read anyway).
+var impliedCodecs = map[string]string{
+	".r3d": "REDCODE RAW", ".braw": "Blackmagic RAW", ".ari": "ARRIRAW", ".arx": "ARRIRAW", ".crm": "Cinema RAW Light",
+}
+
 // fromName fills in what a camera's file name says: RED's
 // A001_C001_0101XY (camera A, reel 001, clip C001) and Blackmagic's
 // A001_01011234_C001.
@@ -143,8 +150,12 @@ func Probe(path string) (*Info, error) {
 			info.Container = strings.ToUpper(ext[1:])
 		}
 	default:
-		if c, ok := containers[strings.ToLower(filepath.Ext(path))]; ok {
+		ext := strings.ToLower(filepath.Ext(path))
+		if c, ok := containers[ext]; ok {
 			info.Container = c
+		}
+		if c, ok := impliedCodecs[ext]; ok {
+			info.VideoCodec = c
 		}
 		fromName(path, info)
 		if p := ffprobePath(); p != "" && (info.Kind == Video || info.Kind == Audio) {

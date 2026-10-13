@@ -176,6 +176,7 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/drives/{id}/file", s.fileDetail)
 	api("PATCH /api/drives/{id}/file", s.setFileEdits)
 	api("GET /api/drives/{id}/stream", s.streamFile)
+	api("GET /api/drives/{id}/proxies", s.driveProxies)
 	api("GET /api/media", s.listMedia)
 	api("GET /api/media.csv", s.exportMedia)
 	api("GET /api/settings", s.getSettings)
@@ -202,6 +203,7 @@ func (s *Server) Handler() http.Handler {
 	api("PATCH /api/projects/{id}", s.updateProject)
 	api("DELETE /api/projects/{id}", s.deleteProject)
 	api("POST /api/projects/{id}/transfer", s.runTransfer)
+	api("GET /api/projects/{id}/proxies", s.projectProxies)
 	api("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) (any, error) { return s.jobs.List(400), nil })
 	api("POST /api/jobs/{id}/cancel", s.cancelJob)
 
