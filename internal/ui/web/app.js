@@ -1416,6 +1416,17 @@ function wireFile(driveId, path, m) {
   };
 }
 
+// ---------- appearance ----------
+// Dark by default; light, or whatever the Mac is set to.
+function applyAppearance() {
+  const pref = localGet("appearance", "dark");
+  const light = pref === "light" || (pref === "system" && window.matchMedia("(prefers-color-scheme: light)").matches);
+  document.documentElement.dataset.theme = light ? "light" : "dark";
+  if (native) nativeCall("appearance", { theme: light ? "light" : "dark" });
+}
+window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", applyAppearance);
+applyAppearance();
+
 // ---------- settings ----------
 async function openSettings(focus) {
   let u;
@@ -1448,6 +1459,10 @@ async function openSettings(focus) {
             <div class="field"><label>GitHub token <span class="hint">· optional; only needed if the Lumpy repository is made private</span></label><input id="upd-token" type="password" value="${u.hasToken ? "••••••••••••" : ""}" placeholder="github_pat_…" autocomplete="off"></div>
           </div>
         </div></div>
+      <div class="sec"><div class="sec-title">${ICON.gear}General</div>
+        <div class="box"><div class="fields"><div class="field"><label>Appearance</label>
+          <div class="seg" id="appearance">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([v, l]) => `<button data-appearance="${v}" class="${localGet("appearance", "dark") === v ? "on" : ""}">${l}</button>`).join("")}</div></div></div></div></div>
+
       <div class="sec"><div class="sec-title">${ICON.drive}Drives</div>
         <div class="box">
           <div class="fields">
@@ -1515,6 +1530,11 @@ async function openSettings(focus) {
   const rl = $("#upd-relaunch");
   if (rl) rl.onclick = () => nativeCall("relaunch");
   if (focus === "updates") setTimeout(() => $("#sec-updates").scrollIntoView({ block: "start" }), 20);
+  for (const b of document.querySelectorAll("[data-appearance]")) b.onclick = () => {
+    localSet("appearance", b.dataset.appearance);
+    document.querySelectorAll("[data-appearance]").forEach((x) => x.classList.toggle("on", x === b));
+    applyAppearance();
+  };
   // Preferences save as they change.
   for (const el of document.querySelectorAll("[data-pref]")) el.onchange = async () => {
     const body = {}; body[el.dataset.pref] = el.type === "checkbox" ? el.checked : el.tagName === "SELECT" ? +el.value : el.value;

@@ -226,7 +226,17 @@ to finish*; **Relaunch Lumpy** quits and reopens the app, which now
 reports the new version in Settings. Drives, labels, projects and clip
 metadata are all still there.
 
-## 12. Menu bar
+## 12. Light mode
+
+1. Gear → **General** → Appearance → **Light**. **Expect:** the whole
+   window turns light at once, the title bar included; the terminal in
+   Offload, clip previews and the menu bar panel stay dark. Quit and
+   reopen: still light.
+2. **System** follows the Mac's own setting (System Settings →
+   Appearance), including Auto switching at sunset. **Dark** is the
+   default.
+
+## 13. Menu bar
 
 1. Start an offload, then close the Lumpy window (not Quit).
 
@@ -237,7 +247,7 @@ Lumpy**, which brings the window back. The offload keeps running with
 the window closed. **Quit** in the panel (or ⌘Q) quits, with a warning
 if a job is running.
 
-## 13. Logging without the app open
+## 14. Logging without the app open
 
 ```sh
 lumpy agent install

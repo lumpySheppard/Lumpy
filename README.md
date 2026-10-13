@@ -288,7 +288,9 @@ Dock icon, the menu bar panel or ⌘0 bring the window back.
 
 ### Settings
 
-Under the gear: **Drives** (hide the Mac's internal volumes and mounted
+Under the gear: **General** (Appearance: **System**, **Light** or
+**Dark**; Lumpy is dark by default, the terminal, previews and the menu
+bar panel stay dark either way); **Drives** (hide the Mac's internal volumes and mounted
 disk images, log new drives automatically or not, read clip metadata
 during scans, rescan plugged-in drives on a timer, folder exclusions
 such as `.git, node_modules, Render*` left out of scans, and a list of

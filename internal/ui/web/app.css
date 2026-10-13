@@ -226,7 +226,7 @@ main { flex: 1; overflow: auto; padding: 20px; }
 .badge.bad { background: rgba(255,92,92,.16); color: var(--bad); }
 .badge.info { background: var(--accent-soft); color: var(--accent-2); }
 .badge.live { background: rgba(61,220,132,.14); color: var(--ok); }
-.badge.proj { background: color-mix(in srgb, var(--pc, var(--accent)) 18%, transparent); color: color-mix(in srgb, var(--pc, var(--accent)) 80%, #fff); }
+.badge.proj { background: color-mix(in srgb, var(--pc, var(--accent)) 18%, transparent); color: color-mix(in srgb, var(--pc, var(--accent)) 80%, var(--text)); }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; color: var(--muted); font-size: 12px; }
 .card-foot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .card-foot .btn { flex: none; }
@@ -536,3 +536,50 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 3px; paddi
   .history div { grid-template-columns: 1fr; gap: 2px; }
   .selbar { margin: 16px -14px -14px; padding: 10px 14px; }
 }
+
+/* Light appearance (Settings → General). The terminal, previews and the
+   menu bar panel stay dark on purpose. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f2f2f5;
+  --bg-2: #e8e8ed;
+  --panel: #ffffff;
+  --panel-2: #f6f6f9;
+  --card: #ffffff;
+  --line: rgba(0, 0, 0, 0.09);
+  --line-2: rgba(0, 0, 0, 0.16);
+  --text: #1b1b1f;
+  --text-2: #4a4a52;
+  --muted: #76767f;
+  --accent: #8a3ffc;
+  --accent-2: #7a2ff0;
+  --accent-soft: rgba(138, 63, 252, 0.14);
+  --ok: #1a9e5a;
+  --warn: #b98400;
+  --orange: #d9741a;
+  --bad: #d93025;
+  --blue: #2b7fd9;
+  --cyan: #0b94c2;
+  --shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+}
+:root[data-theme="light"] .topbar { background: linear-gradient(180deg, #fbfbfd, var(--bg)); }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,.18); background-clip: padding-box; border: 3px solid transparent; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.3); background-clip: padding-box; border: 3px solid transparent; }
+:root[data-theme="light"] .brand-glyph { filter: drop-shadow(0 1px 3px rgba(0,0,0,.25)); }
+:root[data-theme="light"] .card { box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+:root[data-theme="light"] .card:hover { box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+:root[data-theme="light"] .panel, :root[data-theme="light"] .sheet { box-shadow: var(--shadow); }
+:root[data-theme="light"] .sheet-head { background: linear-gradient(180deg, rgba(0,0,0,.02), transparent); }
+:root[data-theme="light"] .popover { background: rgba(250,250,252,.84); border-color: rgba(0,0,0,.12); box-shadow: 0 24px 64px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.6); }
+:root[data-theme="light"] .popover .job { background: rgba(0,0,0,.03); border-color: rgba(0,0,0,.08); }
+:root[data-theme="light"] .selbar { background: rgba(245,245,248,.92); }
+:root[data-theme="light"] table.grouped tr.grp td { background: rgba(0,0,0,.035); }
+:root[data-theme="light"] .bbar .track .fill-unknown { background: repeating-linear-gradient(90deg, #bdbdc6 0 4px, #d8d8de 4px 8px); }
+:root[data-theme="light"] .bbar .track .fill-likely { background: repeating-linear-gradient(90deg, #d9a826 0 4px, #f0d27a 4px 8px); }
+:root[data-theme="light"] .sdot.none { background: #c3c3cb; }
+:root[data-theme="light"] .sdot.likely { background: repeating-linear-gradient(45deg, #d9a826 0 2px, #f0d27a 2px 4px); }
+:root[data-theme="light"] .bar.cap > i { background-image: linear-gradient(90deg, #a6a6b1 0%, #b4ad8f 30%, #d1b64e 55%, #e3ac2a 75%, #ee8a22 85%, #e23a3a 90%, #d41f1f 100%); }
+:root[data-theme="light"] .tabs button.on, :root[data-theme="light"] .seg button.on { box-shadow: none; }
+:root[data-theme="light"] .act-btn.on { background: var(--bg-2); }
+:root[data-theme="light"] .scrim { background: rgba(0,0,0,.35); }
+:root[data-theme="light"] .term, :root[data-theme="light"] .preview { color-scheme: dark; }

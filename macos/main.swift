@@ -285,6 +285,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             resolve(id, true, in: from)
             popover.performClose(nil)
             NSApp.terminate(nil)
+        case "appearance":
+            // The window chrome follows the page's light or dark theme.
+            let light = (body["theme"] as? String) == "light"
+            window.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+            resolve(id, true, in: from)
         case "resize":
             if let h = body["height"] as? Double {
                 popover.contentSize = NSSize(width: 320, height: min(max(h + 2, 100), 640))

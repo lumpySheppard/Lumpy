@@ -6,6 +6,15 @@
 <title>Lumpy</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23a855f7'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="app.css">
+<script>
+  // Appearance before the first paint: dark (default), light, or system.
+  (function () {
+    var pref = "dark";
+    try { pref = localStorage.getItem("appearance") || "dark"; } catch (e) {}
+    var light = pref === "light" || (pref === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+  })();
+</script>
 </head>
 <body>
 <div id="app">
