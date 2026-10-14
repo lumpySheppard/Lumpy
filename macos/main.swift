@@ -205,7 +205,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             let was = jobStates[id]
             jobStates[id] = state
             let live = state == "running" || state == "queued"
-            guard jobsPrimed, !live, let prev = was, prev == "running" || prev == "queued" else { continue }
+            // A job not seen before that is already over ran between two
+            // polls: jobs stay listed all session, so it is new.
+            let wasLive = was == nil || was == "running" || was == "queued"
+            guard jobsPrimed, !live, wasLive else { continue }
             if let text = job["notify"] as? String, !text.isEmpty {
                 postNotification(title: job["title"] as? String ?? "Lumpy", body: text, id: "job-\(id)")
             }
