@@ -195,16 +195,23 @@ func plural(n int) string {
 
 // applyArchive moves the unused footage of an analysis into a folder
 // inside each project folder (keeping paths), or to the Trash. One job
-// per drive; every drive involved must be plugged in and idle.
+// per drive; every drive involved must be plugged in and idle. With
+// Folders given, only unused clips in those folders of the table are
+// touched; clips already inside the target folder are left alone.
 func (s *Server) applyArchive(w http.ResponseWriter, r *http.Request) (any, error) {
 	p, err := s.projectFrom(r)
 	if err != nil {
 		return nil, err
 	}
 	var body struct {
-		Token  string `json:"token"`
-		Action string `json:"action"`
-		Folder string `json:"folder"`
+		Token   string `json:"token"`
+		Action  string `json:"action"`
+		Folder  string `json:"folder"`
+		Folders []struct {
+			DriveID string `json:"driveId"`
+			Source  string `json:"source"`
+			Folder  string `json:"folder"`
+		} `json:"folders"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, badRequest("bad request: %v", err)
@@ -226,15 +233,26 @@ func (s *Server) applyArchive(w http.ResponseWriter, r *http.Request) (any, erro
 	if run == nil || run.project != p.ID {
 		return nil, badRequest("that analysis has expired; choose the timeline export again")
 	}
+	chosen := map[string]bool{}
+	for _, f := range body.Folders {
+		chosen[f.DriveID+"\x00"+f.Source+"\x00"+f.Folder] = true
+	}
 	byDrive := map[string][]job.ArchiveOp{}
 	var order []string
 	for _, it := range run.report.Items {
 		if it.Used {
 			continue
 		}
+		src := run.sources[it.Source]
+		top := catalog.TopOf(src, it.Path)
+		if len(chosen) > 0 && !chosen[it.DriveID+"\x00"+src.Folder+"\x00"+top] {
+			continue
+		}
+		if !trash && top == folder {
+			continue // already put aside
+		}
 		op := job.ArchiveOp{Path: it.Path}
 		if !trash {
-			src := run.sources[it.Source]
 			rel := it.Path
 			if src.Folder != "" {
 				rel = strings.TrimPrefix(it.Path, src.Folder+"/")
@@ -247,7 +265,10 @@ func (s *Server) applyArchive(w http.ResponseWriter, r *http.Request) (any, erro
 		byDrive[it.DriveID] = append(byDrive[it.DriveID], op)
 	}
 	if len(order) == 0 {
-		return nil, badRequest("nothing is unused")
+		if len(chosen) > 0 {
+			return nil, badRequest("nothing unused in the folders ticked")
+		}
+		return nil, badRequest("nothing is unused, or it is already in %s", folder)
 	}
 	drives, _ := s.db.Drives()
 	titles := map[string]string{}

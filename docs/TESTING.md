@@ -230,11 +230,13 @@ ready to send to post.
    pick it. **Expect:** the clips named are "used", every other clip in
    the folder is "not used", sizes by folder, and a name that is not in
    the folder appears under "not in this project".
-3. **Move … unused into the folder**. **Expect:** a job in Activity;
+3. Untick one folder in the table. **Expect:** the buttons' counts drop
+   and its clips leave the unused list. Tick it again.
+4. **Move … unused into the folder**. **Expect:** a job in Activity;
    in Finder the unused clips are now under `_Unused` inside the
    project folder, in their old sub-folders; the drive's file browser
    in Lumpy shows them there with their checksums intact.
-4. Choose the export again (the moved clips are still in the project)
+5. Choose the export again (the moved clips are still in the project)
    and **Move … unused to the Trash…**, then confirm. **Expect:** the
    clips are in the Trash, gone from the library, and the project's
    health no longer counts them.

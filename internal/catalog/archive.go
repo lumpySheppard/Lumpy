@@ -175,14 +175,7 @@ func (db *DB) Archive(sources []Source, refs []ArchiveRef) (*ArchiveReport, erro
 		it := items[id]
 		it.Shared = stems[clipStem(it.Name)] > 1
 		src := sources[it.Source]
-		rel := it.Path
-		if src.Folder != "" {
-			rel = strings.TrimPrefix(it.Path, src.Folder+"/")
-		}
-		top := "."
-		if i := strings.IndexByte(rel, '/'); i >= 0 {
-			top = rel[:i]
-		}
+		top := TopOf(src, it.Path)
 		fk := it.DriveID + "\x00" + src.Folder + "\x00" + top
 		fo := folders[fk]
 		if fo == nil {
@@ -220,6 +213,20 @@ func (db *DB) Archive(sources []Source, refs []ArchiveRef) (*ArchiveReport, erro
 		return a.DriveID+a.Source+a.Folder < b.DriveID+b.Source+b.Folder
 	})
 	return rep, nil
+}
+
+// TopOf is the top-level folder of p below a source folder, or "." for
+// a file at the source's top level: the unit the Archive table and its
+// folder choice work in.
+func TopOf(src Source, p string) string {
+	rel := p
+	if src.Folder != "" {
+		rel = strings.TrimPrefix(p, src.Folder+"/")
+	}
+	if i := strings.IndexByte(rel, '/'); i >= 0 {
+		return rel[:i]
+	}
+	return "."
 }
 
 // likePrefix escapes a path for LIKE ... ESCAPE '\'.

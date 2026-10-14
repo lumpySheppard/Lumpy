@@ -979,10 +979,29 @@ function archivePanel(p) {
     <input type="file" id="arc-file" multiple hidden accept=".fcpxml,.xml,.edl,.txt,.csv">
     ${a ? archiveResult(p, a) : ""}</section>`;
 }
+// Which folders of the table an action touches: every folder with
+// something unused, until some are unticked.
+function archiveFolderKey(f) { return JSON.stringify([f.driveId, f.source, f.folder]); }
+function archiveTopOf(src, path) {
+  const rel = src.folder ? path.slice(src.folder.length + 1) : path;
+  const i = rel.indexOf("/");
+  return i >= 0 ? rel.slice(0, i) : ".";
+}
+function archiveSelected(a) {
+  if (!a.sel) a.sel = new Set(a.folders.filter((f) => f.unusedFiles).map(archiveFolderKey));
+  return a.sel;
+}
 function archiveResult(p, a) {
   const n = (v) => v.toLocaleString();
-  const unplugged = a.drives.filter((d) => d.unusedFiles && !d.connected).map((d) => driveTitle(d.id));
-  const rows = a.folders.map((f) => { const d = driveOf(f.driveId); return `<tr><td><div class="name" style="font-weight:500"><span class="dot" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(driveTitle(f.driveId))} <span class="hint">›</span> <span class="mono">${esc(f.source ? f.source + "/" : "")}${f.folder === "." ? "" : esc(f.folder)}</span></div></td><td class="num">${n(f.files)}</td><td class="num" style="color:${f.unusedFiles ? "var(--warn)" : "var(--muted)"};font-weight:${f.unusedFiles ? 600 : 400}">${n(f.unusedFiles)}</td><td class="num">${f.unusedBytes ? bytes(f.unusedBytes) : "—"}</td></tr>`; }).join("");
+  const sel = archiveSelected(a);
+  const picked = a.folders.filter((f) => f.unusedFiles && sel.has(archiveFolderKey(f)));
+  const selFiles = picked.reduce((t, f) => t + f.unusedFiles, 0), selBytes = picked.reduce((t, f) => t + f.unusedBytes, 0);
+  const pickedKeys = new Set(picked.map(archiveFolderKey));
+  const inPick = (c) => { const src = p.sources[c.source] || { folder: "" }; return pickedKeys.has(JSON.stringify([c.driveId, src.folder, archiveTopOf(src, c.path)])); };
+  const shown = a.unused.filter(inPick);
+  const unplugged = a.drives.filter((d) => !d.connected && picked.some((f) => f.driveId === d.id)).map((d) => driveTitle(d.id));
+  const all = a.folders.filter((f) => f.unusedFiles).length;
+  const rows = a.folders.map((f) => { const d = driveOf(f.driveId); const k = archiveFolderKey(f); const on = f.unusedFiles && sel.has(k); return `<tr class="${f.unusedFiles ? "" : "dim"} ${f.unusedFiles && !on ? "off" : ""}"><td class="pickcell">${f.unusedFiles ? `<input type="checkbox" class="pick" data-arc-folder="${esc(k)}" ${on ? "checked" : ""} title="Include this folder">` : ""}</td><td><div class="name" style="font-weight:500"><span class="dot" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(driveTitle(f.driveId))} <span class="hint">›</span> <span class="mono">${esc(f.source ? f.source + "/" : "")}${f.folder === "." ? "" : esc(f.folder)}</span></div></td><td class="num">${n(f.files)}</td><td class="num" style="color:${f.unusedFiles ? "var(--warn)" : "var(--muted)"};font-weight:${f.unusedFiles ? 600 : 400}">${n(f.unusedFiles)}</td><td class="num">${f.unusedBytes ? bytes(f.unusedBytes) : "—"}</td></tr>`; }).join("");
   return `
     <div class="stat-row" style="margin-top:14px">
       <div class="stat ok"><div class="v">${n(a.usedFiles)}</div><div class="l">clips the edit uses (${bytes(a.usedBytes)})</div></div>
@@ -990,10 +1009,10 @@ function archiveResult(p, a) {
       <div class="stat ${a.notFoundTotal ? "bad" : "dim"}"><div class="v">${n(a.notFoundTotal)}</div><div class="l">in the edit, not in this project (of ${n(a.refs)} referenced)</div></div>
     </div>
     ${a.notFoundTotal ? `<details class="notes" style="margin-top:10px"><summary>${n(a.notFoundTotal)} referenced clip${a.notFoundTotal === 1 ? "" : "s"} not in this project${a.notFound.length < a.notFoundTotal ? ` (first ${a.notFound.length})` : ""}</summary><div class="chips" style="margin-top:6px">${a.notFound.map((x) => `<span class="chip">${esc(x)}</span>`).join("")}</div><p class="hint" style="margin:6px 0 0">Stock, graphics, music, or footage in a folder outside this project. Nothing is done with these.</p></details>` : ""}
-    ${a.folders.length ? `<table class="list compact" style="margin-top:12px"><thead><tr><th>Drive · folder</th><th class="num">Clips</th><th class="num">Unused</th><th class="num">Unused size</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
-    ${a.unusedFiles ? `<details class="notes" style="margin-top:10px"><summary>${n(a.unusedFiles)} unused clip${a.unusedFiles === 1 ? "" : "s"}${a.unused.length < a.unusedFiles ? ` (first ${a.unused.length})` : ""}</summary><div class="chips" style="margin-top:6px">${a.unused.map((c) => `<span class="chip" title="${esc(driveTitle(c.driveId) + ": " + c.path)}">${esc(c.name)}<small>${bytes(c.bytes)}${c.files > 1 ? ` · ${c.files} parts` : ""}</small></span>`).join("")}</div></details>
+    ${a.folders.length ? `<p class="hint" style="margin:12px 0 4px">Tick the folders to clear. Output, graphics and audio folders are often best left alone.</p><table class="list compact arc-folders"><thead><tr><th class="pickcell">${all > 1 ? `<input type="checkbox" class="pick" id="arc-all" ${picked.length === all ? "checked" : ""} title="All or none">` : ""}</th><th>Drive · folder</th><th class="num">Clips</th><th class="num">Unused</th><th class="num">Unused size</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    ${a.unusedFiles ? `<details class="notes" style="margin-top:10px"><summary>${n(selFiles)} unused clip${selFiles === 1 ? "" : "s"} in the ${picked.length} folder${picked.length === 1 ? "" : "s"} ticked${shown.length < selFiles ? ` (first ${shown.length})` : ""}</summary><div class="chips" style="margin-top:6px">${shown.map((c) => `<span class="chip" title="${esc(driveTitle(c.driveId) + ": " + c.path)}">${esc(c.name)}<small>${bytes(c.bytes)}${c.files > 1 ? ` · ${c.files} parts` : ""}</small></span>`).join("") || '<span class="hint">Nothing ticked.</span>'}</div></details>
       <div class="step-run" style="margin-top:12px;flex-wrap:wrap"><span class="hint">Move the unused clips into a folder named</span><input class="path-input" id="arc-folder" value="_Unused" spellcheck="false" style="max-width:180px"><span class="hint">inside each project folder, keeping their paths, or to the Trash.</span></div>
-      <div class="confirm-actions" style="margin-top:10px;justify-content:flex-start">${unplugged.length ? `<span class="badge">${ICON.plug}Plug in ${esc(unplugged.join(" and "))}</span>` : `<button class="btn primary" id="arc-move">${ICON.folder}Move ${n(a.unusedFiles)} unused into the folder</button><button class="btn danger" id="arc-trash">${ICON.trash}Move ${n(a.unusedFiles)} unused to the Trash…</button>`}</div>
+      <div class="confirm-actions" style="margin-top:10px;justify-content:flex-start">${unplugged.length ? `<span class="badge">${ICON.plug}Plug in ${esc(unplugged.join(" and "))}</span>` : `<button class="btn primary" id="arc-move" ${selFiles ? "" : "disabled"}>${ICON.folder}Move ${n(selFiles)} unused into the folder</button><button class="btn danger" id="arc-trash" ${selFiles ? "" : "disabled"}>${ICON.trash}Move ${n(selFiles)} unused to the Trash…</button><span class="hint">${bytes(selBytes)} in ${picked.length} of ${all} folder${all === 1 ? "" : "s"}</span>`}</div>
       <p class="hint" style="margin:8px 0 0">Matching is by clip name, so a name the edit uses anywhere keeps every clip with that name. Clips in the Trash stay there until you empty it. The library follows the files either way.</p>`
     : `<div class="alert ok" style="margin-top:12px"><b>Everything in this project is used by the edit.</b> Nothing to move.</div>`}`;
 }
@@ -1016,9 +1035,14 @@ function wireArchive(p) {
   };
   const a = S.archive && S.archive.project === p.id ? S.archive : null;
   if (!a) return;
+  const sel = archiveSelected(a);
+  for (const el of document.querySelectorAll("[data-arc-folder]")) el.onchange = () => { if (el.checked) sel.add(el.dataset.arcFolder); else sel.delete(el.dataset.arcFolder); renderProjectPage(); };
+  const allBox = $("#arc-all");
+  if (allBox) allBox.onchange = () => { sel.clear(); if (allBox.checked) for (const f of a.folders) if (f.unusedFiles) sel.add(archiveFolderKey(f)); renderProjectPage(); };
+  const folders = () => a.folders.filter((f) => f.unusedFiles && sel.has(archiveFolderKey(f))).map((f) => ({ driveId: f.driveId, source: f.source, folder: f.folder }));
   const apply = async (action) => {
     try {
-      await api(`/api/projects/${p.id}/archive/apply`, { method: "POST", body: { token: a.token, action, folder: ($("#arc-folder") || {}).value || "_Unused" } });
+      await api(`/api/projects/${p.id}/archive/apply`, { method: "POST", body: { token: a.token, action, folder: ($("#arc-folder") || {}).value || "_Unused", folders: folders() } });
       S.archive = null;
       toast(action === "trash" ? "Moving unused clips to the Trash… (see Activity)" : "Moving unused clips… (see Activity)");
       await loadJobs();
@@ -1031,7 +1055,9 @@ function wireArchive(p) {
   if (tr) tr.onclick = () => {
     const box = document.createElement("div");
     box.className = "confirm";
-    box.innerHTML = `<div><b>Move ${a.unusedFiles.toLocaleString()} clips (${bytes(a.unusedBytes)}) to the Trash?</b><br>They stay in the Trash until you empty it, and can be put back from there. Lumpy's library forgets them now.</div><div class="confirm-actions"><button class="btn" id="arc-no">Cancel</button><button class="btn danger-fill" id="arc-yes">Move to Trash</button></div>`;
+    const picked = a.folders.filter((f) => f.unusedFiles && sel.has(archiveFolderKey(f)));
+    const files = picked.reduce((t, f) => t + f.unusedFiles, 0), size = picked.reduce((t, f) => t + f.unusedBytes, 0);
+    box.innerHTML = `<div><b>Move ${files.toLocaleString()} clips (${bytes(size)}) from ${picked.length} folder${picked.length === 1 ? "" : "s"} to the Trash?</b><br>They stay in the Trash until you empty it, and can be put back from there. Lumpy's library forgets them now.</div><div class="confirm-actions"><button class="btn" id="arc-no">Cancel</button><button class="btn danger-fill" id="arc-yes">Move to Trash</button></div>`;
     $("#archive-panel h2").after(box);
     $("#arc-no").onclick = () => box.remove();
     $("#arc-yes").onclick = () => { box.remove(); apply("trash"); };

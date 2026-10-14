@@ -324,7 +324,10 @@ what the edit refers to that isn't in the project at all (stock, music,
 graphics). Matching is by clip name, so a name the edit uses anywhere
 keeps every clip with that name, and a RED clip's chunks count as one.
 
-Then either **Move … unused into the folder** (an `_Unused` folder,
+Tick the folders to clear in the table (every folder with something
+unused starts ticked; output, graphics and audio folders are often best
+left alone) and the counts, the list and the buttons follow. Then either
+**Move … unused into the folder** (an `_Unused` folder,
 or any name you type, inside each project folder, keeping the clips'
 paths so they can be put back) or **Move … unused to the Trash**,
 which asks first. Every drive involved must be plugged in. Both run as

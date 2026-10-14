@@ -52,15 +52,37 @@ func TestArchiveThroughAPI(t *testing.T) {
 		t.Errorf("unused: %+v", a.Unused)
 	}
 
-	// Move the unused clips aside: paths kept under Job/_Unused.
+	// Move only Day02's unused clips aside: Day01's RED clip stays.
 	var started struct{ Jobs []int }
-	if code := call(t, s, ts, "POST", "/api/projects/"+pid+"/archive/apply", `{"token":"`+a.Token+`","action":"move","folder":"_Unused"}`, &started); code != 200 || len(started.Jobs) != 1 {
+	if code := call(t, s, ts, "POST", "/api/projects/"+pid+"/archive/apply", `{"token":"`+a.Token+`","action":"move","folder":"_Unused","folders":[{"driveId":"`+id+`","source":"Job","folder":"Day02"}]}`, &started); code != 200 || len(started.Jobs) != 1 {
 		t.Fatalf("apply: %d %+v", code, started)
 	}
 	for _, j := range waitJobs(t, s, ts) {
 		if j.State != "ok" {
 			t.Errorf("job %d: %s %s", j.ID, j.State, j.Error)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(raid, "Job", "Day01", "A001", "A001_C002_0101XY.RDC")); err != nil {
+		t.Errorf("Day01 should be untouched: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(raid, "Job", "_Unused", "Day02", "B001", "C0002.MP4")); err != nil {
+		t.Errorf("Day02 should be moved: %v", err)
+	}
+	// Then everything: the RED clip moves, what is already in _Unused is
+	// left where it is rather than nested deeper.
+	if code := call(t, s, ts, "POST", "/api/projects/"+pid+"/archive", `{"paths":["`+strings.ReplaceAll(edl, `\`, `\\`)+`"],"uploads":[{"name":"list.txt","text":"C0001.MP4\n"}]}`, &a); code != 200 || a.UnusedFiles != 3 {
+		t.Fatalf("analyse again: %d %+v", code, a)
+	}
+	if code := call(t, s, ts, "POST", "/api/projects/"+pid+"/archive/apply", `{"token":"`+a.Token+`","action":"move","folder":"_Unused"}`, &started); code != 200 {
+		t.Fatalf("apply all: %d", code)
+	}
+	for _, j := range waitJobs(t, s, ts) {
+		if j.State != "ok" {
+			t.Errorf("job %d: %s %s", j.ID, j.State, j.Error)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(raid, "Job", "_Unused", "_Unused")); err == nil {
+		t.Error("_Unused was nested inside itself")
 	}
 	for _, p := range []string{"Job/_Unused/Day01/A001/A001_C002_0101XY.RDC/A001_C002_0101XY_001.R3D", "Job/_Unused/Day02/B001/C0002.MP4", "Job/_Unused/Day02/S001/T01.WAV", "Job/Day01/B001/C0001.MP4"} {
 		if _, err := os.Stat(filepath.Join(raid, filepath.FromSlash(p))); err != nil {
