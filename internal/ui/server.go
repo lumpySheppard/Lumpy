@@ -39,6 +39,9 @@ type Server struct {
 	token    string
 	jobs     Jobs
 	addr     string
+	// App is set when Lumpy.app runs the engine: the app posts the
+	// notifications itself.
+	App bool
 
 	pub     publisher
 	pubDone chan struct{}
@@ -73,7 +76,11 @@ func New(db *catalog.DB, lockPath string, meta job.Meta) *Server {
 		pub: publisher{wake: make(chan struct{}, 1)}, pubDone: make(chan struct{})}
 	// The status page is refreshed after each job, so coworkers see a
 	// finished offload or check within moments.
-	s.jobs.OnDone = func(*Job) { go s.publishOnce(context.Background(), false) }
+	s.jobs.Notify = s.notifyText
+	s.jobs.OnDone = func(j *Job) {
+		go s.publishOnce(context.Background(), false)
+		go s.notifyDone(j)
+	}
 	job.ApplyPrefs(db.Prefs())
 	return s
 }
@@ -216,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/projects/{id}/archive", s.analyseArchive)
 	api("POST /api/projects/{id}/archive/apply", s.applyArchive)
 	api("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) (any, error) { return s.jobs.List(400), nil })
+	api("POST /api/notify/test", s.notifyTest)
 	api("POST /api/jobs/{id}/cancel", s.cancelJob)
 
 	// Refuse requests addressed to any other host name, so a web page

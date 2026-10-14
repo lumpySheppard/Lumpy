@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,11 @@ type Job struct {
 	Failures int
 	Warnings int
 	Error    string
+	// Summary is the one line that says how the job went, once it has
+	// ended; Notify is that line again when the user wants telling, so
+	// Lumpy.app can post it as a notification.
+	Summary string
+	Notify  string
 	// Params are what started the job, so it can be run again: an
 	// offload's source, destinations and name.
 	Params map[string]any
@@ -40,6 +46,7 @@ type Job struct {
 	cancel context.CancelFunc
 	needs  []string // drives the job must have to itself
 	fn     func(ctx context.Context, r *job.Report) error
+	began  time.Time
 }
 
 const maxLines = 5000
@@ -72,6 +79,8 @@ type JobView struct {
 	Failures int                `json:"failures"`
 	Warnings int                `json:"warnings"`
 	Error    string             `json:"error,omitempty"`
+	Summary  string             `json:"summary,omitempty"`
+	Notify   string             `json:"notify,omitempty"`
 	Progress *job.ProgressState `json:"progress"`
 	Params   map[string]any     `json:"params,omitempty"`
 	Needs    []string           `json:"needs,omitempty"` // drives a queued job waits for
@@ -89,6 +98,7 @@ func (j *Job) view(tail int) JobView {
 	}
 	v := JobView{ID: j.ID, Kind: j.Kind, Title: j.Title, Command: j.Command, DriveID: j.DriveID, State: j.State, LineCount: j.count,
 		Started: j.Started, Ended: j.Ended, Failures: j.Failures, Warnings: j.Warnings, Error: j.Error, Params: j.Params,
+		Summary: j.Summary, Notify: j.Notify,
 		Lines: append(make([]string, 0, len(lines)), lines...)} // never null: a queued job has no lines yet
 	if j.State == "queued" {
 		v.Needs = append([]string(nil), j.needs...)
@@ -114,6 +124,10 @@ type Jobs struct {
 	next    int
 	all     []*Job
 	pending []*Job // queued, oldest first
+	// Notify, when set, is asked as a job ends (with the job's mu held,
+	// its outcome filled in) whether the user wants telling: it returns
+	// the notification's text, or "" for none.
+	Notify func(*Job) string
 	// OnDone, when set, is called after a job ends.
 	OnDone func(*Job)
 }
@@ -196,7 +210,8 @@ func (js *Jobs) run(j *Job) {
 	ctx, cancel := context.WithCancel(context.Background())
 	j.mu.Lock()
 	j.cancel = cancel
-	j.Started = time.Now().Unix()
+	j.began = time.Now()
+	j.Started = j.began.Unix()
 	j.mu.Unlock()
 	go func() {
 		err := j.fn(ctx, j.report)
@@ -214,6 +229,10 @@ func (js *Jobs) run(j *Job) {
 		default:
 			j.State = "ok"
 		}
+		j.Summary = summarise(j.State, time.Since(j.began), failures, warnings, j.Error)
+		if js.Notify != nil {
+			j.Notify = js.Notify(j)
+		}
 		j.mu.Unlock()
 		cancel()
 		if js.OnDone != nil {
@@ -221,6 +240,42 @@ func (js *Jobs) run(j *Job) {
 		}
 		js.kick()
 	}()
+}
+
+// summarise is the one line that says how a job went: "Done in 4m 12s ·
+// 2 problems".
+func summarise(state string, took time.Duration, failures, warnings int, errText string) string {
+	var parts []string
+	switch state {
+	case "cancelled":
+		parts = append(parts, "Cancelled after "+tookText(took))
+	case "error":
+		parts = append(parts, "Stopped after "+tookText(took))
+	default:
+		parts = append(parts, "Done in "+tookText(took))
+	}
+	if failures > 0 {
+		parts = append(parts, fmt.Sprintf("%d problem%s", failures, plural(failures)))
+	}
+	if warnings > 0 {
+		parts = append(parts, fmt.Sprintf("%d warning%s", warnings, plural(warnings)))
+	}
+	if errText != "" {
+		parts = append(parts, errText)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func tookText(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
 }
 
 // kick starts every queued job whose drives are now free, in order.

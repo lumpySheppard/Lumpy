@@ -94,3 +94,22 @@ func TestJobsQueuePerDrive(t *testing.T) {
 		t.Fatalf("%d jobs still pending", n)
 	}
 }
+
+func TestSummarise(t *testing.T) {
+	cases := []struct {
+		state     string
+		took      time.Duration
+		f, w      int
+		err, want string
+	}{
+		{"ok", 4*time.Minute + 12*time.Second, 0, 0, "", "Done in 4m 12s"},
+		{"failed", 3 * time.Second, 2, 1, "", "Done in 3s · 2 problems · 1 warning"},
+		{"cancelled", 90 * time.Minute, 0, 0, "", "Cancelled after 1h 30m"},
+		{"error", time.Second, 0, 0, "disk full", "Stopped after 1s · disk full"},
+	}
+	for _, c := range cases {
+		if got := summarise(c.state, c.took, c.f, c.w, c.err); got != c.want {
+			t.Errorf("summarise(%s): %q, want %q", c.state, got, c.want)
+		}
+	}
+}

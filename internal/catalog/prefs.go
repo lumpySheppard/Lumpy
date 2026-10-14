@@ -25,11 +25,18 @@ type Prefs struct {
 	// Gentle reads one file at a time and holds reads to about 150 MB/s,
 	// so the Mac stays responsive while Lumpy works.
 	Gentle bool `json:"gentle"`
+	// Notify posts a macOS notification when an offload, transfer or
+	// check ends (and when anything else goes wrong); NotifyProblemsOnly
+	// keeps it to jobs with problems. Webhook is a Slack, Discord or
+	// Teams incoming webhook URL that gets the same line.
+	Notify             bool   `json:"notify"`
+	NotifyProblemsOnly bool   `json:"notifyProblemsOnly"`
+	Webhook            string `json:"webhook"`
 }
 
 // DefaultPrefs are a fresh library's preferences.
 func DefaultPrefs() Prefs {
-	return Prefs{HideInternal: true, HideImages: true, AutoLog: true, AutoMetadata: true}
+	return Prefs{HideInternal: true, HideImages: true, AutoLog: true, AutoMetadata: true, Notify: true}
 }
 
 // Prefs reads the preferences.

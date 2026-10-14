@@ -3,6 +3,7 @@
 // gives the page native folder pickers, Save dialogs and Show in Finder.
 import Cocoa
 import UniformTypeIdentifiers
+import UserNotifications
 import WebKit
 
 /// A mutable value shared with a callback that may run on another thread.
@@ -11,7 +12,7 @@ final class Box<T> {
     init(_ value: T) { self.value = value }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, UNUserNotificationCenterDelegate {
     var window: NSWindow!
     var web: WKWebView!
     var engine: Process?
@@ -25,6 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     let popover = NSPopover()
     var menuWeb: WKWebView!
     var statusTimer: Timer?
+    // The last state seen for each job, so a job that ends between two
+    // polls gets one notification; nothing is posted for what was
+    // already over when polling began.
+    var jobStates: [Int: String] = [:]
+    var jobsPrimed = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -57,6 +63,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
         setupStatusItem()
         startEngine()
+        setupNotifications()
+    }
+
+    // MARK: notifications
+
+    /// Job notifications come from the engine's view of each job: when a
+    /// job it marked for notifying ends, the app posts one.
+    func setupNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func postNotification(title: String, body: String, id: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+    }
+
+    /// Shown even while Lumpy is the front app: the job may have run
+    /// for an hour with the window behind something else.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+
+    /// Clicking a notification brings the window up.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        DispatchQueue.main.async { self.showWindow() }
+        completionHandler()
     }
 
     // MARK: menu bar
@@ -144,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         req.setValue(token, forHTTPHeaderField: "X-Lumpy-Token")
         URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
             guard let data = data, let jobs = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+            DispatchQueue.main.async { self?.noteJobs(jobs) }
             var title = ""
             for job in jobs where (job["state"] as? String) == "running" {
                 if let p = job["progress"] as? [String: Any], let done = p["done"] as? Double, let total = p["total"] as? Double, total > 0 {
@@ -155,6 +195,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
             DispatchQueue.main.async { self?.statusItem.button?.title = title }
         }.resume()
+    }
+
+    /// Posts a notification for each job that has ended since the last
+    /// poll and carries a notify text.
+    func noteJobs(_ jobs: [[String: Any]]) {
+        for job in jobs {
+            guard let id = job["id"] as? Int, let state = job["state"] as? String else { continue }
+            let was = jobStates[id]
+            jobStates[id] = state
+            let live = state == "running" || state == "queued"
+            guard jobsPrimed, !live, let prev = was, prev == "running" || prev == "queued" else { continue }
+            if let text = job["notify"] as? String, !text.isEmpty {
+                postNotification(title: job["title"] as? String ?? "Lumpy", body: text, id: "job-\(id)")
+            }
+        }
+        jobsPrimed = true
     }
 
     func showWindow() {

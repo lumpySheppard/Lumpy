@@ -23,6 +23,7 @@ func uiCmd(ctx context.Context, c *cmdCtx) error {
 		return err
 	}
 	srv := ui.New(c.db, filepath.Join(filepath.Dir(p), "agent.lock"), job.Meta{Version: version, Hostname: c.host})
+	srv.App = c.appMode
 	url, hs, ln, err := srv.Listen(c.port)
 	if err != nil {
 		return err

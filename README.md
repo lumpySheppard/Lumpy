@@ -270,6 +270,17 @@ checksummed and has at least two verified copies on other drives. With
 exactly one copy everywhere it says **Backed up once · keep the card**,
 because the card is still the second copy.
 
+### Notifications
+
+When an offload, transfer or check ends, Lumpy posts a macOS
+notification with how it went ("Done in 4m 12s", or the number of
+problems); rescans and metadata reads only when something went wrong.
+Settings → Notifications turns it off or keeps it to problems, and takes
+a **webhook** URL (a Slack, Discord or Teams incoming webhook): the same
+line is posted there, with the Mac's name, so the team hears when a
+copy is done. **Send a test** checks the URL. The first notification
+asks for permission, like any app.
+
 ### One job at a time per drive
 
 A drive does one thing at a time. Start a check while an offload is

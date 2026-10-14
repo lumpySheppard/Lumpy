@@ -92,6 +92,16 @@ its details naming the two drives, and "safe to format" on the map and
 in the menu bar panel. Offload another card to one drive only.
 **Expect:** that card says **Backed up once · keep the card**.
 
+## 2b-ii. Notifications
+
+Start a check of DRIVE_1 and switch to another app. **Expect:** when it
+ends, a macOS notification "Check DRIVE_1 · Done in …" (the first time,
+macOS asks whether Lumpy may notify). In Settings → Notifications, paste
+a Slack or Discord incoming webhook and click **Send a test**.
+**Expect:** a "this is a test" line in the channel, then a line per
+finished job. Turn on **Only when something went wrong**: a clean check
+posts nothing.
+
 ## 2c. The queue
 
 Start a check of DRIVE_1 and, while it runs, **Checksum new files** on

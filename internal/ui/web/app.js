@@ -74,6 +74,7 @@ const ICON = {
   export: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>',
   down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 4v16M6 14l6 6 6-6"/></svg>',
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20V4M6 10l6-6 6 6"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
   history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 3"/></svg>',
   eject: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 15l7-9 7 9z"/><path d="M5 19h14"/></svg>',
   plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0V8zM12 18v4"/></svg>',
@@ -1825,6 +1826,17 @@ async function openSettings(focus) {
           ${hiddenDrives.length ? `<p class="hint" style="margin:12px 0 6px;color:var(--text-2);font-weight:550">Never logged</p><div class="checks">${hiddenDrives.map((d) => `<label><span class="dot" style="background:${d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(d.title)}<span class="hint">${esc(d.name !== d.title ? d.name : "")}</span><button class="btn small" data-unhide="${esc(d.id)}" style="margin-left:auto">Log again</button></label>`).join("")}</div>` : ""}
         </div></div>
 
+      <div class="sec"><div class="sec-title">${ICON.bell}Notifications</div>
+        <div class="box">
+          <div class="fields">
+            <div class="field"><label>On this Mac</label>
+              <label class="switch" style="margin-top:7px" title="Rescans and metadata reads only when something went wrong">Notify when an offload, transfer or check finishes <input type="checkbox" data-pref="notify" ${pf.notify ? "checked" : ""}></label>
+              <label class="switch" style="margin-top:8px">Only when something went wrong <input type="checkbox" data-pref="notifyProblemsOnly" ${pf.notifyProblemsOnly ? "checked" : ""}></label></div>
+            <div class="field"><label>Webhook <span class="hint">· a Slack, Discord or Teams incoming webhook URL; the same line is posted there, so the team hears when a copy is done</span></label>
+              <div style="display:flex;gap:8px;align-items:center"><input data-pref="webhook" value="${esc(pf.webhook || "")}" placeholder="https://hooks.slack.com/services/…" spellcheck="false" style="flex:1;min-width:0"><button class="btn small" id="webhook-test">Send a test</button></div></div>
+          </div>
+        </div></div>
+
       <div class="sec"><div class="sec-title">${ICON.history}Library
           <div class="right"><button class="btn small" id="lib-optimise" title="Compacts the database file">Optimise</button>${native ? `<button class="btn small" id="lib-reveal">${ICON.reveal}Show in Finder</button>` : ""}</div></div>
         <div class="box">
@@ -1885,6 +1897,11 @@ async function openSettings(focus) {
     const body = {}; body[el.dataset.pref] = el.type === "checkbox" ? el.checked : el.tagName === "SELECT" ? +el.value : el.value;
     try { S.settings.prefs = await api("/api/prefs", { method: "PUT", body }); if (el.dataset.pref === "exclude") el.value = S.settings.prefs.exclude; loadState(); }
     catch (e) { toast(e.message, true); }
+  };
+  $("#webhook-test").onclick = async () => {
+    const webhook = document.querySelector("[data-pref=webhook]").value.trim();
+    if (!webhook) return toast("Paste a webhook URL first", true);
+    try { await api("/api/notify/test", { method: "POST", body: { webhook } }); toast("Test posted · check the channel"); } catch (e) { toast(e.message, true); }
   };
   for (const b of document.querySelectorAll("[data-unhide]")) b.onclick = async () => {
     const d = driveOf(b.dataset.unhide); if (!d) return;
