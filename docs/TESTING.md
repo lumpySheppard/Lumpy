@@ -53,7 +53,8 @@ long ID like `A1B2C3D4-…`, not `name:…`.
 ## 1b. The map
 
 1. Open the **Map** tab. **Expect:** this Mac on the left with a dotted
-   green line to each plugged-in drive (labelled USB, Thunderbolt…),
+   green line to each plugged-in drive (click the Mac to see each one's
+   bus),
    the drives in the middle, each project on the right with lines to
    the drives that hold it, labelled with the size on that drive and
    whether it is backed up. Double-click a drive: its details open.

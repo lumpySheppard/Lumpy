@@ -162,7 +162,8 @@ side and a wire takes the facing ones, so wires never run under a node
 wherever you drag things. The line's label says how much of the
 project is on that drive and whether that part is backed up (green
 verified, yellow partly, red not at all, dotted unproven); dotted green
-lines from the Mac show what is plugged in and on which bus. Click a
+lines from the Mac show what is plugged in, and the Mac's card says on
+which bus. Click a
 node and what it touches lights up, with a card that opens the project,
 the drive's details, or the Connected tab; double-click a drive for its
 details, a project for its page. Drag to pan, ⌘ + scroll to zoom, drag a node to move it

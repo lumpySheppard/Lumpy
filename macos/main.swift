@@ -106,9 +106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 NSBezierPath(roundedRect: NSRect(x: 3.5, y: CGFloat(3 + i * 4), width: 5, height: 1.8), xRadius: 0.9, yRadius: 0.9).fill()
             }
             let l = NSBezierPath()
-            l.move(to: NSPoint(x: 11, y: 12.5))
-            l.line(to: NSPoint(x: 11, y: 3.5))
-            l.line(to: NSPoint(x: 14.5, y: 3.5))
+            l.move(to: NSPoint(x: 11, y: 11.9)) // as tall as the three bays
+            l.line(to: NSPoint(x: 11, y: 3.9))
+            l.line(to: NSPoint(x: 14.5, y: 3.9))
             l.lineWidth = 1.8
             l.lineCapStyle = .round
             l.lineJoinStyle = .round

@@ -1863,7 +1863,9 @@ function mapModel() {
       edges.push({ from: "p" + p.id, to: "d" + id, cls: st, label: a.bytes ? `${bytes(a.bytes)} · ${EDGE_LABEL[st] || Math.round((a.backed / a.bytes) * 100) + "% backed up"}` : "empty" });
     }
   }
-  for (const d of order) if (d.connected) edges.push({ from: "mac", to: "d" + d.id, cls: "live", label: d.bus || "plugged in" });
+  // The Mac's wires carry no label: the dotted green line says plugged
+  // in, and the Mac's card lists the bus of each.
+  for (const d of order) if (d.connected) edges.push({ from: "mac", to: "d" + d.id, cls: "live", label: "" });
   return { nodes, edges };
 }
 
@@ -1926,7 +1928,7 @@ function renderMap() {
     return `<g class="edge-g ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>`;
   };
   const edgeLabel = (e) => {
-    const g = edgeGeom(at(e.from), at(e.to));
+    const g = e.label ? edgeGeom(at(e.from), at(e.to)) : null;
     if (!g) return "";
     return `<div class="e-lbl ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}" style="left:${g.mx}px;top:${g.my}px">${esc(e.label)}</div>`;
   };
