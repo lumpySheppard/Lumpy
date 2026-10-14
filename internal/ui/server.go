@@ -25,6 +25,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/agent"
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/job"
+	"github.com/lumpysheppard/lumpy/internal/media"
 	"github.com/lumpysheppard/lumpy/internal/smart"
 	"github.com/lumpysheppard/lumpy/internal/volume"
 )
@@ -191,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/drives/{id}/file", s.fileDetail)
 	api("PATCH /api/drives/{id}/file", s.setFileEdits)
 	api("GET /api/drives/{id}/stream", s.streamFile)
+	api("GET /api/drives/{id}/thumb", s.thumb)
 	api("GET /api/drives/{id}/proxies", s.driveProxies)
 	api("POST /api/drives/{id}/health", s.health)
 	api("POST /api/drives/{id}/eject", s.eject)
@@ -505,7 +507,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 		}
 	}
 	return map[string]any{
-		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects,
+		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects, "ffmpeg": media.FFmpeg() != "",
 		"agent": agent.Status(), "version": s.meta.Version, "home": filepath.Dir(s.lockPath),
 		"update": s.updateSummary(), "recent": s.db.RecentOffloads(),
 	}, nil

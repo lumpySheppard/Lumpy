@@ -238,6 +238,21 @@ main { flex: 1; overflow: auto; padding: 20px; }
 .bbar.tiny .track { height: 5px; }
 
 /* Backup dots: folders and files in the file browser. */
+.strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); gap: 12px; margin-top: 12px; }
+.clip-tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; }
+.clip-tile:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.clip-tile .thumb { position: relative; aspect-ratio: 16 / 9; background: #0b0b0f; overflow: hidden; }
+.clip-tile .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.clip-tile .thumb .noimg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
+.clip-tile .thumb .noimg svg { width: 22px; height: 22px; opacity: .55; }
+.clip-tile .thumb .tc, .clip-tile .thumb .dur { position: absolute; bottom: 6px; font-size: 10.5px; padding: 2px 6px; border-radius: 5px; background: rgba(0,0,0,.62); color: #fff; z-index: 1; }
+.clip-tile .thumb .tc { left: 6px; }
+.clip-tile .thumb .dur { right: 6px; }
+.clip-tile .thumb .scrub { position: absolute; top: 0; bottom: 0; left: 0; width: 25%; background: rgba(255,255,255,.08); border-bottom: 2px solid var(--accent); opacity: 0; pointer-events: none; transition: opacity .12s, left .08s; }
+.clip-tile .thumb[data-dur]:not([data-dur=""]):hover .scrub { opacity: 1; }
+.clip-tile .meta { padding: 8px 10px 9px; display: grid; gap: 3px; }
+.clip-tile .meta b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clip-tile .meta small { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
 .sdot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; background: var(--muted); }
 .sdot.full { background: var(--ok); box-shadow: 0 0 5px rgba(61,220,132,.6); }
 .sdot.partial { background: var(--warn); }

@@ -124,6 +124,7 @@ function nativeCall(action, args = {}) {
 const S = {
   tab: localGet("tab", "map") === "activity" ? "logged" : localGet("tab", "map"),
   view: localGet("view", "grid"),
+  mediaView: localGet("mediaView", "table"),
   sort: localGet("sort", "seen"),
   colorBy: localGet("colorBy", "project"),
   desc: localGet("desc", "1") === "1",
@@ -1666,6 +1667,7 @@ function renderMedia() {
       <label class="select"><select id="m-rate">${opt("", "Any frame rate", m.rate)}${(d.rates || []).map((r) => opt(r, fps(r) + " fps", m.rate)).join("")}</select></label>
       <label class="select"><select id="m-qc">${opt("", "Any QC", m.qc)}${opt("none", "Not checked", m.qc)}${opt("ok", "OK", m.qc)}${opt("flag", "Flagged", m.qc)}${opt("reject", "Rejected", m.qc)}</select></label>
       <div class="search"><span class="search-icon">${ICON.search}</span><input id="m-q" type="search" placeholder="Clip, scene, take, camera, reel, notes, tag…" value="${esc(m.q)}" autocomplete="off" spellcheck="false"></div>
+      <div class="seg" id="m-view">${[["table", "Table"], ["strip", "Filmstrip"]].map(([v, l]) => `<button data-mview="${v}" class="${S.mediaView === v ? "on" : ""}">${l}</button>`).join("")}</div>
       <span class="sortgrp"><label class="select" title="Sort"><select id="m-sort">${SORTS.map(([k, v]) => opt(k, "Sort: " + v, S.mediaSort)).join("")}</select></label>
       <button class="icon-btn" id="m-dir" title="Reverse order">${S.mediaDesc ? ICON.down : ICON.up}</button></span>
       <button class="btn" id="m-export" title="This list with every column, for post">${ICON.export}Export CSV…</button>
@@ -1674,6 +1676,11 @@ function renderMedia() {
   const reload = () => { for (const k of ["project", "drive", "kind", "format", "codec", "rate", "qc"]) m[k] = $("#m-" + k).value; loadMedia(); };
   for (const k of ["project", "drive", "kind", "format", "codec", "rate", "qc"]) $("#m-" + k).onchange = reload;
   $("#m-sort").onchange = (e) => { S.mediaSort = e.target.value; localSet("mediaSort", S.mediaSort); renderMediaTable(); };
+  for (const b of document.querySelectorAll("[data-mview]")) b.onclick = () => {
+    S.mediaView = b.dataset.mview; localSet("mediaView", S.mediaView);
+    document.querySelectorAll("[data-mview]").forEach((x) => x.classList.toggle("on", x === b));
+    renderMediaTable();
+  };
   $("#m-dir").onclick = () => { S.mediaDesc = !S.mediaDesc; localSet("mediaDesc", S.mediaDesc ? "1" : "0"); $("#m-dir").innerHTML = S.mediaDesc ? ICON.down : ICON.up; renderMediaTable(); };
   let t;
   $("#m-q").oninput = (e) => { m.q = e.target.value; clearTimeout(t); t = setTimeout(loadMedia, 220); };
@@ -1711,7 +1718,7 @@ function renderMediaTable() {
       ${flagged ? `<span class="pill">Flagged:<b style="color:var(--warn)">${flagged}</b></span>` : ""}
       ${rejected ? `<span class="pill">Rejected:<b style="color:var(--bad)">${rejected}</b></span>` : ""}
     </div>
-    <table class="list media-table"><thead><tr><th></th><th>Clip</th><th>Drive</th><th>Format</th><th class="num">fps</th><th class="num">Length</th><th>Start TC</th><th>Audio</th><th>Scene / take</th><th>QC</th><th>Camera</th></tr></thead><tbody>
+    ${S.mediaView === "strip" ? `<div class="strip">${files.map((f) => clipTile(f, byId[f.driveId])).join("")}</div>` : `<table class="list media-table"><thead><tr><th></th><th>Clip</th><th>Drive</th><th>Format</th><th class="num">fps</th><th class="num">Length</th><th>Start TC</th><th>Audio</th><th>Scene / take</th><th>QC</th><th>Camera</th></tr></thead><tbody>
     ${files.map((f) => {
       const dr = byId[f.driveId];
       const st = f.copies > 0 ? "full" : f.xxh64 ? "none" : "unknown";
@@ -1725,9 +1732,61 @@ function renderMediaTable() {
         <td>${esc(f.videoCodec ? clipFormat(f) : f.kind === "audio" ? "" : (f.container || KIND_LABEL[f.kind] || ""))}${f.extra && f.extra.clip ? ` <small class="hint">${esc(f.extra.clip)}${f.extra.chunk ? " · part " + esc(f.extra.chunk) : ""}</small>` : ""}</td>
         <td class="num">${fps(f.frameRate)}</td><td class="num">${dur(f.durationMs)}</td><td class="mono">${esc(f.timecode)}</td>
         <td>${esc(audio)}</td><td>${esc(sc)}</td><td>${qcBadge(f.edits.qc, true)}</td><td>${esc(f.camera)}${f.reel ? `<small class="hint"> ${esc(f.reel)}</small>` : ""}</td></tr>`;
-    }).join("")}</tbody></table>
-    ${files.length >= d.limit ? `<p class="hint" style="margin:10px 0 0">Showing the first ${d.limit.toLocaleString()}. Filter to see the rest, or export the CSV.</p>` : ""}`;
+    }).join("")}</tbody></table>`}
+    ${files.length >= d.limit ? `<p class="hint" style="margin:10px 0 0">Showing the first ${d.limit.toLocaleString()}. Filter to see the rest, or export the CSV.</p>` : ""}
+    ${S.mediaView === "strip" && !S.state.ffmpeg ? `<p class="hint" style="margin:10px 0 0">Stills show here; video frames need ffmpeg: in Terminal, <code>brew install ffmpeg</code>.</p>` : ""}`;
 }
+
+// ---------- filmstrip ----------
+// Four frames across each clip; moving the mouse across a tile steps
+// through them.
+const SCRUB = [0.1, 0.35, 0.6, 0.85];
+const NO_THUMB = /\.(r3d|braw|ari|arx|crm|dng|cr2|cr3|arw|nef|raf|heic|heif|psd|exr)$/i;
+function thumbURL(driveId, path, at) {
+  return `/api/drives/${encodeURIComponent(driveId)}/thumb?path=${encodeURIComponent(path)}&at=${(at || 0).toFixed(1)}&t=${encodeURIComponent(token)}`;
+}
+function clipTile(f, dr) {
+  const name = f.path.split("/").pop();
+  const connected = !!(dr && dr.connected);
+  const st = f.copies > 0 ? "full" : f.xxh64 ? "none" : "unknown";
+  const line = [f.videoCodec ? clipFormat(f) : f.container || KIND_LABEL[f.kind] || "", f.width ? `${f.width}×${f.height}` : "", f.frameRate ? fps(f.frameRate) + " fps" : ""].filter(Boolean).join(" · ");
+  const secs = (f.durationMs || 0) / 1000;
+  const can = connected && (f.kind === "video" || f.kind === "image") && !NO_THUMB.test(name);
+  const pic = can ? `<img loading="lazy" alt="" src="${thumbURL(f.driveId, f.path, secs * SCRUB[0])}" data-pos="0">`
+    : `<div class="noimg">${ICON.film}<span>${connected ? f.kind === "audio" ? "Audio" : "No preview" : "Plug in " + esc(dr ? dr.title : f.driveId)}</span></div>`;
+  return `<div class="clip-tile" data-file="${esc(f.path)}" data-file-drive="${esc(f.driveId)}" title="${esc(f.path)}">
+    <div class="thumb" data-dur="${secs > 0 && f.kind === "video" ? secs : ""}">${pic}${f.timecode ? `<span class="tc mono">${esc(f.timecode)}</span>` : ""}${f.durationMs ? `<span class="dur">${dur(f.durationMs)}</span>` : ""}<i class="scrub"></i></div>
+    <div class="meta"><b>${esc(name)}</b><small>${esc(line) || "&nbsp;"}</small><small><span class="sdot ${st}"></span>${esc(dr ? dr.title : f.driveId)}${f.copies ? ` <span class="hint">+${f.copies}</span>` : ""}${f.edits.qc ? qcBadge(f.edits.qc, true) : ""}</small></div></div>`;
+}
+document.addEventListener("mousemove", (e) => {
+  const th = e.target.closest && e.target.closest(".clip-tile .thumb");
+  if (!th || !th.dataset.dur) return;
+  const img = th.querySelector("img");
+  if (!img) return;
+  const rect = th.getBoundingClientRect();
+  const i = Math.max(0, Math.min(SCRUB.length - 1, Math.floor(((e.clientX - rect.left) / rect.width) * SCRUB.length)));
+  th.querySelector(".scrub").style.left = `${(i / SCRUB.length) * 100}%`;
+  if (img.dataset.pos === String(i)) return;
+  img.dataset.pos = String(i);
+  const tile = th.closest(".clip-tile");
+  img.src = thumbURL(tile.dataset.fileDrive, tile.dataset.file, +th.dataset.dur * SCRUB[i]);
+});
+document.addEventListener("mouseout", (e) => {
+  const th = e.target.closest && e.target.closest(".clip-tile .thumb");
+  if (!th || th.contains(e.relatedTarget)) return;
+  const img = th.querySelector("img");
+  if (!img || !th.dataset.dur || img.dataset.pos === "0") return;
+  img.dataset.pos = "0";
+  const tile = th.closest(".clip-tile");
+  img.src = thumbURL(tile.dataset.fileDrive, tile.dataset.file, +th.dataset.dur * SCRUB[0]);
+});
+// A frame that can't be made (ffmpeg missing, an unreadable file)
+// becomes a placeholder rather than a broken image.
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!img || img.tagName !== "IMG" || !img.closest(".clip-tile")) return;
+  img.replaceWith(Object.assign(document.createElement("div"), { className: "noimg", innerHTML: `${ICON.film}<span>No preview</span>` }));
+}, true);
 
 // ---------- file sheet ----------
 async function openFile(driveId, path, back) {

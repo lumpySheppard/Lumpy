@@ -42,6 +42,29 @@ func ffprobePath() string {
 	return ffPath
 }
 
+var (
+	ffmpegOnce sync.Once
+	ffmpegPath string
+)
+
+// FFmpeg finds ffmpeg on the PATH or in the usual Homebrew locations;
+// "" when it isn't installed.
+func FFmpeg() string {
+	ffmpegOnce.Do(func() {
+		if p, err := exec.LookPath("ffmpeg"); err == nil {
+			ffmpegPath = p
+			return
+		}
+		for _, p := range []string{"/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"} {
+			if _, err := os.Stat(p); err == nil {
+				ffmpegPath = p
+				return
+			}
+		}
+	})
+	return ffmpegPath
+}
+
 type ffOut struct {
 	Format struct {
 		FormatLongName string            `json:"format_long_name"`

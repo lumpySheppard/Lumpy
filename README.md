@@ -270,6 +270,17 @@ checksummed and has at least two verified copies on other drives. With
 exactly one copy everywhere it says **Backed up once · keep the card**,
 because the card is still the second copy.
 
+### Filmstrip
+
+The Clips page has a **Filmstrip** view beside the table: a tile per
+clip with a frame from it, its start timecode and length, format and
+drive. Move the mouse across a tile to step through four frames of the
+clip; click it for the file's sheet. Frames come from plugged-in drives
+(a tile says which drive to plug in otherwise), through ffmpeg for
+video (`brew install ffmpeg`), and are kept in a `thumbs` folder next
+to the library so each is made once. RED, BRAW and ARRIRAW clips have
+no frame; stills do.
+
 ### Drive health
 
 With smartmontools installed (`brew install smartmontools`), Lumpy

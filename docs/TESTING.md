@@ -92,6 +92,13 @@ its details naming the two drives, and "safe to format" on the map and
 in the menu bar panel. Offload another card to one drive only.
 **Expect:** that card says **Backed up once · keep the card**.
 
+## 2a-ii. Filmstrip
+
+Clips → **Filmstrip** with DRIVE_1 plugged in. **Expect:** a tile per
+clip with a frame, start timecode and length; moving the mouse across
+a video tile steps through four frames; unplug the drive and reload:
+tiles say "Plug in DRIVE_1". Clicking a tile opens the file sheet.
+
 ## 2b-i. Drive health
 
 With `brew install smartmontools` done, plug in a Thunderbolt or SATA
