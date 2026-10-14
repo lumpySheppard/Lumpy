@@ -54,7 +54,8 @@ function backupOf(b, d) {
 function render() {
   const el = $("#mb");
   if (!state) return;
-  const running = jobs.filter((j) => j.state === "running" || j.state === "queued");
+  const running = jobs.filter((j) => j.state === "running");
+  const queued = jobs.filter((j) => j.state === "queued").reverse(); // oldest first: the order they will run
   const recent = jobs.filter((j) => j.state !== "running").slice(0, 1);
   const vols = state.drives.filter((d) => d.connected);
   const low = (d) => d.size > 0 && d.free < d.size * 0.1;
@@ -62,14 +63,14 @@ function render() {
     <div class="mb-head">${GLYPH}<b>Lumpy</b><span class="hint">${esc(state.version || "")}</span></div>
     <div class="mb-sec mb-jobs">
       ${running.length ? running.map((j) => { const p = j.progress || {}; const pct = p.total ? Math.min(100, (p.done / p.total) * 100) : 0; const eta = p.rate > 0 && p.total > p.done ? duration((p.total - p.done) / p.rate) + " left" : "";
-        if (j.state === "queued") { const names = (j.needs || []).map((id) => { const d = state.drives.find((x) => x.id === id); return d ? d.title : id; });
-          return `<div class="mb-job"><div class="t"><span>${esc(j.title)}</span><span class="badge">Queued</span></div><div class="s"><span>waits for ${esc(names.join(" and ") || "another job")} to be free</span><button class="btn small" data-cancel="${j.id}">Cancel</button></div></div>`; }
         return `<div class="mb-job"><div class="t"><span>${esc(j.title)}</span><span class="badge">${p.label ? esc(p.label) : "Running"}</span></div>
           <div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
           <div class="s"><span><b>${pct.toFixed(0)}%</b></span><span>${bytes(p.done || 0)} of ${bytes(p.total || 0)}</span><span>${bytes(p.rate || 0)}/s</span><span>${eta}</span><button class="btn small" data-cancel="${j.id}">Cancel</button></div>
           ${p.current ? `<div class="cur">${esc(p.current)}</div>` : ""}</div>`; }).join("")
-      : recent.length ? recent.map((j) => { const [cls, label] = STATE[j.state] || ["", j.state]; return `<div class="mb-job"><div class="t"><span>${esc(j.title)}</span><span class="badge ${cls}">${label}${j.failures ? " · " + j.failures : ""}</span></div><div class="s"><span>${clock(j.ended || j.started)}</span>${j.params ? `<button class="btn small" data-again="${j.id}">Run again</button>` : ""}</div></div>`; }).join("")
+      : queued.length ? "" : recent.length ? recent.map((j) => { const [cls, label] = STATE[j.state] || ["", j.state]; return `<div class="mb-job"><div class="t"><span>${esc(j.title)}</span><span class="badge ${cls}">${label}${j.failures ? " · " + j.failures : ""}</span></div><div class="s"><span>${clock(j.ended || j.started)}</span>${j.params ? `<button class="btn small" data-again="${j.id}">Run again</button>` : ""}</div></div>`; }).join("")
       : `<div class="mb-empty">Nothing running</div>`}
+      ${queued.map((j, i) => { const names = (j.needs || []).map((id) => { const d = state.drives.find((x) => x.id === id); return d ? d.title : id; });
+        return `<div class="mb-next"><span class="n">${i ? "Then" : "Up next"}</span><span class="j">${esc(j.title)}<small>when ${esc(names.join(" and ") || "the drive")} is free</small></span><button class="x" data-cancel="${j.id}" title="Cancel">×</button></div>`; }).join("")}
     </div>
     <div class="mb-sec mb-stats"><span><b>${vols.length}</b> plugged in</span><i>·</i><span><b>${state.drives.length}</b> in the library</span><i>·</i><span><b>${lib ? lib.media.toLocaleString() : "…"}</b> clips</span></div>
     ${vols.length ? `<div class="mb-sec mb-drives">${vols.slice(0, 8).map((d) => { const [st, label] = backupOf(d.backups, d); return `<div class="mb-drive"><span class="sdot ${st || "none"}" title="${esc(label)}"></span><span class="n">${esc(d.title)}<small>${esc(label)}</small></span><span class="f ${low(d) ? "low" : ""}">${bytes(d.free)} free</span></div>`; }).join("")}${vols.length > 8 ? `<div class="mb-empty">and ${vols.length - 8} more</div>` : ""}</div>` : ""}

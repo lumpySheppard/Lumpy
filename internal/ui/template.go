@@ -202,14 +202,23 @@ func (s *Server) createFromTemplate(w http.ResponseWriter, r *http.Request) (any
 		if !add {
 			return nil
 		}
+		// The mount point comes back with symlinks resolved (/private/var
+		// for /var on macOS); the new folder's path must match it.
+		if real, err := filepath.EvalSymlinks(full); err == nil {
+			full = real
+		}
 		v, err := volume.Of(full)
 		if err != nil {
 			rep.Warn("not adding a project: %v", err)
 			return nil
 		}
-		rel, err := filepath.Rel(v.Mount, full)
-		if err != nil {
-			return err
+		mount := v.Mount
+		if real, err := filepath.EvalSymlinks(mount); err == nil {
+			mount = real
+		}
+		rel, err := filepath.Rel(mount, full)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("%s is not inside %s", full, v.Name)
 		}
 		// Log the drive (which also indexes the new folder), then make
 		// the project of that folder.

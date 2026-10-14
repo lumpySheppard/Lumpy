@@ -1526,6 +1526,8 @@ function updateJob(el, j) {
 
   const prog = el.querySelector(".job-progress");
   prog.hidden = !running && !queued;
+  prog.querySelector(".bar").style.display = queued ? "none" : "";
+  el.querySelector(".term-wrap").hidden = queued; // nothing to show until it starts
   if (queued) {
     prog.querySelector(".bar > i").style.width = "0%";
     prog.querySelector(".job-stats").innerHTML = `<span><b>Queued</b></span><span>waits for ${esc((j.needs || []).map(driveTitle).join(" and ") || "another job")} to be free</span>`;
