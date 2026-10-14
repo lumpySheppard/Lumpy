@@ -305,6 +305,20 @@ on one copy and every copy has them. **Export CSV…** writes the current
 list with every column; a project page has the same button for just its
 clips.
 
+### New project folder
+
+**Projects → New project folder…** makes a job's folders from a
+template: the Post Haste templates on this Mac are listed (any `.pht`
+in Post Haste's Templates folder), or choose any folder. Fill in
+Project Number, Client, Project Name, Date and Editor; the folder is
+named by a pattern with those tokens (`[Project Number]_[Client]_
+[Project Name]_[Date]_[Editor]` by default, with a live preview) and
+tokens in the template's own file and folder names and small text
+files are filled in too. Choose where it goes, and whether Lumpy should
+make a project of it (with the copies wanted). The folder is created as
+a job, the drive is logged, and the new project opens. The number steps
+on and the client, editor, destination and template are remembered.
+
 ### Proxies
 
 Post keeps camera originals in an **Online** folder and the proxies cut

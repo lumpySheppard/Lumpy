@@ -204,6 +204,8 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/export.csv", s.export)
 	api("GET /api/browse", s.browse)
 	api("POST /api/offload", s.offload)
+	api("GET /api/templates", s.listTemplates)
+	api("POST /api/templates/create", s.createFromTemplate)
 	api("GET /api/projects", s.projects)
 	api("POST /api/projects", s.createProject)
 	api("GET /api/projects/{id}", s.projectDetail)

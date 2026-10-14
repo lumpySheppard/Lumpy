@@ -776,6 +776,11 @@ function sourceLabel(src) {
 // state poll.
 async function loadProjects() {
   try { S.projects = await api("/api/projects"); } catch (e) { toast(e.message, true); return; }
+  if (S.openProjectNamed && !S.jobs.some((j) => j.kind === "template" && j.state === "running")) {
+    const p = [...S.projects].reverse().find((x) => x.name === S.openProjectNamed);
+    S.openProjectNamed = null;
+    if (p) { S.tab = "projects"; S.project = p.id; localSet("tab", S.tab); return render(); }
+  }
   if (S.tab === "projects" && !S.project) renderProjects();
   if (S.tab === "map") renderMap();
 }
@@ -788,9 +793,9 @@ function renderProjects() {
   if (!ps.length) {
     main.innerHTML = `<div class="empty">${ICON.film}<h2>No projects yet</h2>
       <p>A project is the folders that hold one piece of work: a feature across five drives, or one music video that shares a shuttle with three other jobs. Lumpy shows how well it's backed up, wherever the copies are, and plans the copies that get every file onto two drives.</p>
-      <p><button class="btn primary" id="new-project">${ICON.plus}New project</button></p></div>`;
+      <p><button class="btn primary" id="new-project">${ICON.plus}New project</button> <button class="btn" id="new-folder">${ICON.folder}New project folder…</button></p></div>`;
   } else {
-    main.innerHTML = `<div class="section-head"><h2>Projects</h2><span>${ps.length}</span><div class="right"><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
+    main.innerHTML = `<div class="section-head"><h2>Projects</h2><span>${ps.length}</span><div class="right"><button class="btn" id="new-folder" title="Make a project's folders from your Post Haste template">${ICON.folder}New project folder…</button><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
       <div class="grid">${ps.map((p) => {
         const h = p.health;
         const bad = h.soleBytes + h.shortBytes;
@@ -804,6 +809,8 @@ function renderProjects() {
       }).join("")}</div>`;
   }
   $("#new-project").onclick = () => newProjectDialog([]);
+  const nf = $("#new-folder");
+  if (nf) nf.onclick = () => templateDialog();
 }
 
 async function loadProject(id, refresh) {
@@ -1122,6 +1129,76 @@ async function loadProxies(id) {
   sec.hidden = false;
   sec.innerHTML = `<div class="sec-title">${ICON.film}Proxies <span class="hint" style="font-weight:400">Online originals and the Offline proxies beside them</span></div>${pairs.map(proxyPairCard).join("")}`;
   wireProxies(pairs);
+}
+
+// ---------- new project folder ----------
+// A project's folders from a template: the Post Haste templates on this
+// Mac, or any folder. Post Haste's parameters name the folder.
+const TEMPLATE_KEYS = ["Project Number", "Client", "Project Name", "Date", "Editor"];
+function fillTemplate(s, params) {
+  for (const [key, val] of Object.entries(params)) {
+    for (const k of [key, key.replace(/ /g, "")]) {
+      s = s.replace(new RegExp("[\\[{%<]\\s*" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*[\\]}%>]", "gi"), val);
+    }
+  }
+  return s;
+}
+async function templateDialog() {
+  let data;
+  try { data = await api("/api/templates"); } catch (e) { return toast(e.message, true); }
+  const st = data.settings;
+  const f = { template: st.template || (data.templates[0] || {}).path || "", dest: st.dest || "", pattern: st.pattern, addProject: st.addProject, target: st.target,
+    params: { "Project Number": String(st.nextNumber), "Client": st.client || "", "Project Name": "", "Date": data.today, "Editor": st.editor || "" } };
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  const render = () => {
+    const tpl = data.templates.find((t) => t.path === f.template);
+    const name = fillTemplate(f.pattern, f.params).replace(/[/:\\]/g, "-").trim();
+    openSheet(`<div class="sheet-head"><h2>New project folder</h2><div class="actions"><button class="icon-btn" id="tp-close">${ICON.x}</button></div></div>
+      <div class="sheet-body" style="padding-top:14px">
+        <div class="sec"><div class="sec-title">${ICON.folder}Template</div><div class="box">
+          <div class="fields"><div class="field"><label>Template</label><select class="plain" id="tp-template">${data.templates.map((t) => `<option value="${esc(t.path)}" ${t.path === f.template ? "selected" : ""}>${esc(t.name)}</option>`).join("")}${f.template && !tpl ? `<option value="${esc(f.template)}" selected>${esc(f.template.split("/").pop())}</option>` : ""}</select></div>
+            <div class="field"><label>Or another template or folder</label><div class="path-row"><input class="path-input" id="tp-template-path" value="${esc(f.template)}" spellcheck="false" placeholder="A .pht bundle or any folder"><button class="btn" id="tp-pick-template">Choose…</button></div></div></div>
+          ${tpl ? `<p class="hint" style="margin:10px 0 0">${tpl.folders.length} folder${tpl.folders.length === 1 ? "" : "s"}, ${tpl.files} file${tpl.files === 1 ? "" : "s"}: <span class="mono">${tpl.folders.map(esc).join("  ·  ")}</span></p>` : `<p class="hint" style="margin:10px 0 0">${data.templates.length ? "" : `No Post Haste templates found in <span class="mono">${esc(data.postHaste)}</span>. `}Choose a template or folder above.</p>`}
+        </div></div>
+        <div class="sec"><div class="sec-title">${ICON.tag}Parameters</div><div class="box"><div class="fields">
+          ${TEMPLATE_KEYS.map((k) => `<div class="field ${k === "Project Name" ? "wide" : ""}"><label>${esc(k)}</label><input data-tp="${esc(k)}" value="${esc(f.params[k])}" ${k === "Date" ? 'type="date"' : ""} ${k === "Project Number" ? 'inputmode="numeric"' : ""} placeholder="${k === "Project Name" ? "ARIA" : ""}" spellcheck="false"></div>`).join("")}
+          <div class="field wide"><label>Folder name · tokens: ${TEMPLATE_KEYS.map((k) => `<span class="mono">[${esc(k)}]</span>`).join(" ")}</label><input class="path-input" id="tp-pattern" value="${esc(f.pattern)}" spellcheck="false"></div>
+        </div>
+        <div class="step-run" style="margin-top:12px"><span class="hint">Preview</span><span class="chip">${ICON.folder}${esc(name || "…")}</span></div></div></div>
+        <div class="sec"><div class="sec-title">${ICON.drive}Where</div><div class="box">
+          <div class="field"><label>Create it in</label><div class="path-row"><input class="path-input" id="tp-dest" value="${esc(f.dest)}" spellcheck="false" placeholder="/Volumes/RAID/01_PROJECTS"><button class="btn" id="tp-pick-dest">Choose…</button></div></div>
+          <label class="switch" style="margin-top:12px">Add it to Lumpy as a project <input type="checkbox" id="tp-add" ${f.addProject ? "checked" : ""}></label>
+          <label class="hint" style="margin-left:14px">Copies wanted <select class="plain" id="tp-target">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${f.target === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        </div></div>
+      </div>
+      <div class="sheet-foot"><button class="btn" id="tp-cancel">Cancel</button><button class="btn primary" id="tp-ok" ${name && f.template && f.dest && f.params["Project Name"].trim() ? "" : "disabled"}>Create project folder</button></div>`, true);
+    $("#tp-close").onclick = $("#tp-cancel").onclick = close;
+    $("#tp-template").onchange = (e) => { f.template = e.target.value; render(); };
+    $("#tp-template-path").onchange = (e) => { f.template = e.target.value.trim(); render(); };
+    $("#tp-pick-template").onclick = async () => {
+      if (native) { const paths = await nativeCall("pickFiles", { message: "Choose a Post Haste template (.pht) or a folder to copy" }); if (paths && paths.length) { f.template = paths[0]; render(); } }
+      else { const p = await pickFolder(f.template); if (p) { f.template = p; render(); } }
+    };
+    for (const el of document.querySelectorAll("[data-tp]")) el.oninput = () => { f.params[el.dataset.tp] = el.value; const chip = $(".step-run .chip"); if (chip) chip.innerHTML = ICON.folder + esc(fillTemplate($("#tp-pattern").value, f.params).replace(/[/:\\]/g, "-").trim() || "…"); $("#tp-ok").disabled = !f.params["Project Name"].trim() || !f.template || !f.dest; };
+    $("#tp-pattern").oninput = (e) => { f.pattern = e.target.value; const chip = $(".step-run .chip"); if (chip) chip.innerHTML = ICON.folder + esc(fillTemplate(f.pattern, f.params).replace(/[/:\\]/g, "-").trim() || "…"); };
+    $("#tp-dest").onchange = (e) => { f.dest = e.target.value.trim(); render(); };
+    $("#tp-pick-dest").onclick = async () => { const p = await pickFolder(f.dest); if (p) { f.dest = p; render(); } };
+    $("#tp-add").onchange = (e) => { f.addProject = e.target.checked; };
+    $("#tp-target").onchange = (e) => { f.target = +e.target.value; };
+    $("#tp-ok").onclick = async () => {
+      $("#tp-ok").disabled = true;
+      try {
+        const r = await api("/api/templates/create", { method: "POST", body: { template: f.template, dest: f.dest, pattern: f.pattern, params: f.params, addProject: f.addProject, target: f.target } });
+        close();
+        toast(`Creating ${r.name}… (see Activity)`);
+        if (f.addProject) S.openProjectNamed = f.params["Project Name"];
+        await loadJobs();
+      } catch (e) { toast(e.message, true); $("#tp-ok").disabled = false; }
+    };
+    const first = $('[data-tp="Project Name"]');
+    if (first && !f.params["Project Name"]) setTimeout(() => first.focus(), 30);
+  };
+  render();
 }
 
 // addSourceDialog lets the user pick a drive and, inside it, a folder

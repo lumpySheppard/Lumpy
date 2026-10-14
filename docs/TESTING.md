@@ -186,6 +186,17 @@ has dropped.
 **Expect:** the drive shows *last seen …*; the plan still lists any step
 that needs it, as *Plug in DRIVE_2*.
 
+## 8b. A project folder from the Post Haste template
+
+1. **Projects → New project folder…**. **Expect:** your Post Haste
+   templates listed, with their top-level folders; the number, date and
+   editor filled in; the preview updating as you type.
+2. Fill in the client and a project name, choose a drive folder to
+   create it in, leave *Add it to Lumpy as a project* on, and create.
+   **Expect:** a job in Activity, the folder tree in Finder with the
+   film leader in 04_Graphics Sources, and the new project page opening
+   with that folder as its source. Next time the number is one higher.
+
 ## 9. Clips: codec, frame rate, timecode
 
 1. Open the **Clips** tab.
