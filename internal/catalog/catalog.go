@@ -197,6 +197,13 @@ func Open(path string) (*DB, error) {
 		s.Close()
 		return nil, fmt.Errorf("opening drive library %s: %w", path, err)
 	}
+	// Clip rows for files that left their drive before the trigger above
+	// existed are dropped once.
+	var mc string
+	if err := s.QueryRow(`SELECT value FROM settings WHERE key = 'media_clean'`).Scan(&mc); err != nil || mc != "1" {
+		s.Exec(`DELETE FROM media WHERE NOT EXISTS (SELECT 1 FROM files f WHERE f.drive_id = media.drive_id AND f.path = media.path)`)
+		s.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('media_clean', '1')`)
+	}
 	var v string
 	if err := s.QueryRow(`SELECT value FROM settings WHERE key = 'counters'`).Scan(&v); err != nil || v != "1" {
 		s.Exec(`UPDATE drives SET files = (SELECT COUNT(*) FROM files WHERE drive_id = drives.id),
@@ -217,6 +224,9 @@ CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
 	UPDATE drives SET files = files + 1, bytes = bytes + NEW.size,
 		hashed = hashed + (NEW.xxh64 IS NOT NULL), damaged = damaged + (NEW.bad_hash IS NOT NULL)
 	WHERE id = NEW.drive_id;
+END;
+CREATE TRIGGER IF NOT EXISTS media_ad AFTER DELETE ON files BEGIN
+	DELETE FROM media WHERE drive_id = OLD.drive_id AND path = OLD.path;
 END;
 CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
 	UPDATE drives SET files = files - 1, bytes = bytes - OLD.size,
