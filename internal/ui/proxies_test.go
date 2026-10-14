@@ -10,6 +10,7 @@ import (
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/job"
+	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
 func TestProxiesThroughAPI(t *testing.T) {
@@ -60,5 +61,43 @@ func TestProxiesThroughAPI(t *testing.T) {
 	call(t, s, ts, "GET", "/api/projects/"+strconv.FormatInt(p.ID, 10)+"/proxies", "", &views)
 	if len(views) != 0 {
 		t.Errorf("outside view: %+v", views)
+	}
+}
+
+func TestEjectThroughAPI(t *testing.T) {
+	s, ts, vols := setup(t)
+	os.MkdirAll(filepath.Join(vols, "CARD", "CLIPS"), 0o755)
+	os.WriteFile(filepath.Join(vols, "CARD", "CLIPS", "C001.mov"), []byte("footage"), 0o644)
+	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
+	var st struct{ Drives []DriveView }
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	id := st.Drives[0].ID
+	if !st.Drives[0].Connected {
+		t.Fatal("not connected")
+	}
+	// Ejecting takes the mount away, like unplugging.
+	old := volume.Eject
+	defer func() { volume.Eject = old }()
+	var ejected string
+	volume.Eject = func(mount string) error { ejected = mount; return os.Rename(mount, mount+".gone") }
+	if code := call(t, s, ts, "POST", "/api/drives/"+id+"/eject", "", nil); code != 200 {
+		t.Fatalf("eject: %d", code)
+	}
+	if ejected != filepath.Join(vols, "CARD") {
+		t.Errorf("ejected %q", ejected)
+	}
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	if st.Drives[0].Connected {
+		t.Error("still connected after eject")
+	}
+	if code := call(t, s, ts, "POST", "/api/drives/"+id+"/eject", "", nil); code != 400 {
+		t.Errorf("eject when unplugged: %d", code)
+	}
+	var detail struct {
+		Events []struct{ Kind string }
+	}
+	call(t, s, ts, "GET", "/api/drives/"+id, "", &detail)
+	if len(detail.Events) == 0 || detail.Events[0].Kind != "eject" {
+		t.Errorf("events: %+v", detail.Events)
 	}
 }

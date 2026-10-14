@@ -75,6 +75,7 @@ const ICON = {
   down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 4v16M6 14l6 6 6-6"/></svg>',
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20V4M6 10l6-6 6 6"/></svg>',
   history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 3"/></svg>',
+  eject: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 15l7-9 7 9z"/><path d="M5 19h14"/></svg>',
   plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0V8zM12 18v4"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
   gauge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-4"/></svg>',
@@ -331,7 +332,10 @@ const PIC = {
     <g fill="#d9b24a"><rect x="24" y="7" width="2.6" height="6" rx=".6"/><rect x="28" y="7" width="2.6" height="6" rx=".6"/><rect x="32" y="7" width="2.6" height="6" rx=".6"/><rect x="36" y="7" width="2.6" height="6" rx=".6"/><rect x="40" y="7" width="2.6" height="6" rx=".6"/></g>
     <rect x="21" y="21" width="22" height="16" rx="2" fill="var(--pc, #8a5cf6)"/><path d="M24 26h12M24 30h8" stroke="rgba(0,0,0,.35)" stroke-width="2" stroke-linecap="round"/>
     <circle class="led" cx="41" cy="40.5" r="1.4"/>`,
-  mac: `<rect x="10" y="6" width="44" height="30" rx="3" fill="#34343d" stroke="#5c5c68"/><rect x="13" y="9" width="38" height="24" rx="1.5" fill="#15151a"/><rect x="13" y="9" width="38" height="24" rx="1.5" fill="var(--pc, #8a5cf6)" opacity=".35"/><path d="M4 38h56l-3 4H7z" fill="#4a4a55" stroke="#5c5c68" stroke-width=".8"/><rect x="26" y="38" width="12" height="2" fill="#2a2a31"/><circle class="led" cx="32" cy="7.6" r=".9"/>`,
+  mac: `<rect x="8" y="9" width="48" height="32" rx="6" fill="#a9a9b4" stroke="#7d7d8a"/><rect x="8" y="9" width="48" height="6" rx="3" fill="#c3c3cc"/><path d="M12 15h40" stroke="#8d8d99" stroke-width=".8"/>
+    <g fill="#5f5f6b"><circle cx="16" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><circle cx="24" cy="21" r="1"/><circle cx="28" cy="21" r="1"/><circle cx="32" cy="21" r="1"/><circle cx="36" cy="21" r="1"/><circle cx="40" cy="21" r="1"/><circle cx="44" cy="21" r="1"/><circle cx="48" cy="21" r="1"/><circle cx="18" cy="24.5" r="1"/><circle cx="22" cy="24.5" r="1"/><circle cx="26" cy="24.5" r="1"/><circle cx="30" cy="24.5" r="1"/><circle cx="34" cy="24.5" r="1"/><circle cx="38" cy="24.5" r="1"/><circle cx="42" cy="24.5" r="1"/><circle cx="46" cy="24.5" r="1"/></g>
+    <g fill="#2a2a31" stroke="#55555f" stroke-width=".6"><rect x="13" y="33" width="5" height="2.6" rx="1.3"/><rect x="20" y="33" width="5" height="2.6" rx="1.3"/><rect x="27" y="32.6" width="9" height="3.2" rx=".8"/></g>
+    <rect x="11" y="39" width="42" height="2" rx="1" fill="#6f6f7b"/><circle class="led" cx="50" cy="34.3" r="1.1"/>`,
   raid: `<rect x="12" y="3" width="40" height="42" rx="5" fill="#34343d" stroke="#5c5c68"/><rect x="12" y="3" width="40" height="7" rx="3" fill="var(--pc, #8a5cf6)"/>
     <g fill="#1c1c22" stroke="#62626e" stroke-width=".8"><rect x="17" y="14" width="24" height="5.5" rx="1.2"/><rect x="17" y="21.5" width="24" height="5.5" rx="1.2"/><rect x="17" y="29" width="24" height="5.5" rx="1.2"/><rect x="17" y="36.5" width="24" height="5.5" rx="1.2"/></g>
     <g class="leds"><circle class="led" cx="46" cy="16.75" r="1.5"/><circle class="led" cx="46" cy="24.25" r="1.5"/><circle class="led" cx="46" cy="31.75" r="1.5"/><circle class="led" cx="46" cy="39.25" r="1.5"/></g>`,
@@ -377,7 +381,7 @@ function driveCard(d) {
     ${sum ? `<div class="summary">${esc(sum)}</div><button class="more" data-act="open">More</button>` : ""}
     <div class="badges">${backupBadge(d)}${checkBadge(d)}${projectBadges(d)}</div>
     <div class="card-foot"><span><i class="dot ${d.connected ? "live" : ""}" style="background:${dot};color:${dot}"></i>${d.connected ? "Plugged in now" : "Last seen • " + when(d.lastSeen)}</span>
-      <span class="card-acts">${S.selecting ? `<input type="checkbox" class="pick" data-pick="${esc(d.id)}" ${S.selected.has(d.id) ? "checked" : ""}>` : `<button class="icon-btn card-edit" data-act="edit" title="Edit labels">${ICON.edit}</button><button class="btn small" data-act="open">Details</button>`}</span></div>
+      <span class="card-acts">${S.selecting ? `<input type="checkbox" class="pick" data-pick="${esc(d.id)}" ${S.selected.has(d.id) ? "checked" : ""}>` : `${d.connected ? `<button class="icon-btn card-edit" data-act="eject" title="Eject, so it can be unplugged">${ICON.eject}</button>` : ""}<button class="icon-btn card-edit" data-act="edit" title="Edit labels">${ICON.edit}</button><button class="btn small" data-act="open">Details</button>`}</span></div>
   </article>`;
 }
 
@@ -582,6 +586,7 @@ async function openDetail(id, refresh, focusLabels) {
       <div class="actions">
         <label class="switch" title="Project plans won't copy backups onto this drive: camera cards that get wiped, loaners, the edit SSD">No backups here <input type="checkbox" id="no-backups" ${l.noBackups ? "checked" : ""}></label>
         <label class="switch" title="Lumpy will not log or check this drive when it's plugged in">Never log <input type="checkbox" id="never-log" ${l.neverLog ? "checked" : ""}></label>
+        ${d.connected ? `<button class="icon-btn" id="eject" title="Eject: unmount it so it can be unplugged">${ICON.eject}</button>` : ""}
         <button class="btn danger" id="forget">Remove</button>
         <button class="icon-btn" id="close" title="Close">${ICON.x}</button>
       </div>
@@ -706,6 +711,8 @@ function wireDetail(d) {
   act("#cancel-check", "cancel", "Queued check cancelled");
   const rv = $("#reveal");
   if (rv) rv.onclick = () => nativeCall("reveal", { path: d.mount });
+  const ej = $("#eject");
+  if (ej) ej.onclick = () => { ej.disabled = true; ejectDrive(d.id); };
   let t;
   $("#tree-filter").oninput = (e) => { clearTimeout(t); t = setTimeout(() => loadTree(d.id, "", $("#tree"), 0, e.target.value.trim()), 200); };
 }
@@ -974,8 +981,8 @@ function wireProjectPage(p) {
 function archivePanel(p) {
   const a = S.archive && S.archive.project === p.id ? S.archive : null;
   return `<section class="panel" id="archive-panel"><h2>Archive</h2>
-    <p class="hint">When the cut is locked, hand Lumpy the timeline export and it says which originals the edit uses and which it doesn't. FCPXML (Final Cut Pro, Resolve), Premiere Pro or FCP 7 XML, an EDL, or a plain list of clip names; several at once is fine (the cut, the trailer, the socials).</p>
-    <div class="step-run" style="margin-top:0;flex-wrap:wrap"><button class="btn ${a ? "" : "primary"}" id="arc-pick">${ICON.film}Choose timeline export…</button>${a ? a.files.map((f) => `<span class="chip">${esc(f)}</span>`).join("") : ""}</div>
+    <p class="hint">When the cut is locked, hand Lumpy the timeline exports and it says which originals the edits use and which they don't. FCPXML (Final Cut Pro, Resolve), Premiere Pro or FCP 7 XML, an EDL, or a plain list of clip names. Add as many as the job has: the cut, the trailer, the socials; a clip any of them uses is kept.</p>
+    <div class="step-run" style="margin-top:0;flex-wrap:wrap"><button class="btn ${a ? "" : "primary"}" id="arc-pick">${ICON.plus}${a ? "Add another export…" : "Choose timeline exports…"}</button>${a ? a.files.map((f, i) => `<span class="chip">${esc(f)}<button class="chip-x" data-arc-drop="${i}" title="Leave this export out">${ICON.x}</button></span>`).join("") : ""}</div>
     <input type="file" id="arc-file" multiple hidden accept=".fcpxml,.xml,.edl,.txt,.csv">
     ${a ? archiveResult(p, a) : ""}</section>`;
 }
@@ -1017,21 +1024,31 @@ function archiveResult(p, a) {
     : `<div class="alert ok" style="margin-top:12px"><b>Everything in this project is used by the edit.</b> Nothing to move.</div>`}`;
 }
 function wireArchive(p) {
-  const run = async (body) => {
+  // The exports chosen so far, in the order the chips show them: paths
+  // picked natively first, then files read in the browser.
+  const inputs = S.archiveInputs && S.archiveInputs.project === p.id ? S.archiveInputs : (S.archiveInputs = { project: p.id, paths: [], uploads: [] });
+  const run = async () => {
     const btn = $("#arc-pick");
     btn.disabled = true;
-    try { const a = await api(`/api/projects/${p.id}/archive`, { method: "POST", body }); S.archive = { ...a, project: p.id }; renderProjectPage(); $("#archive-panel").scrollIntoView({ block: "nearest" }); }
+    if (!inputs.paths.length && !inputs.uploads.length) { S.archive = null; renderProjectPage(); return; }
+    try { const a = await api(`/api/projects/${p.id}/archive`, { method: "POST", body: { paths: inputs.paths, uploads: inputs.uploads } }); S.archive = { ...a, project: p.id }; renderProjectPage(); $("#archive-panel").scrollIntoView({ block: "nearest" }); }
     catch (e) { toast(e.message, true); btn.disabled = false; }
   };
   $("#arc-pick").onclick = async () => {
-    if (native) { const paths = await nativeCall("pickFiles", {}); if (paths && paths.length) run({ paths }); }
+    if (native) { const paths = await nativeCall("pickFiles", {}); if (paths && paths.length) { for (const x of paths) if (!inputs.paths.includes(x)) inputs.paths.push(x); run(); } }
     else $("#arc-file").click();
   };
   $("#arc-file").onchange = async (e) => {
     const files = [...e.target.files];
     if (!files.length) return;
     const uploads = await Promise.all(files.map((f) => f.text().then((text) => ({ name: f.name, text }))));
-    run({ uploads });
+    for (const u of uploads) if (!inputs.uploads.some((x) => x.name === u.name && x.text === u.text)) inputs.uploads.push(u);
+    run();
+  };
+  for (const b of document.querySelectorAll("[data-arc-drop]")) b.onclick = () => {
+    const i = +b.dataset.arcDrop;
+    if (i < inputs.paths.length) inputs.paths.splice(i, 1); else inputs.uploads.splice(i - inputs.paths.length, 1);
+    run();
   };
   const a = S.archive && S.archive.project === p.id ? S.archive : null;
   if (!a) return;
@@ -1818,7 +1835,7 @@ async function openSettings(focus) {
 // it touches lights up; open it from the card, or double-click.
 const MAP = { k: 1, x: 0, y: 0, pos: {}, sel: null, drag: null, fitted: false, dirty: false };
 try { MAP.pos = JSON.parse(localGet("map.pos", "{}")) || {}; } catch { MAP.pos = {}; }
-const NODE = { mac: [176, 62], project: [210, 70], drive: [250, 72] };
+const NODE = { mac: [176, 62], project: [300, 96], drive: [250, 72] };
 const EDGE_LABEL = { full: "verified", none: "no backup", unknown: "unproven", likely: "probably backed up", empty: "empty" };
 
 function mapModel() {
@@ -1922,7 +1939,9 @@ function renderMap() {
       const p = n.p, h = p.health || {}, pct = h.bytes ? Math.round((h.backedBytes / h.bytes) * 100) : 0;
       const st = backupState(h.backedBytes || 0, h.bytes || 0, h.unknownBytes || 0, h.likelyBytes || 0);
       const nd = new Set(((h.sources) || []).map((x) => x.driveId)).size;
-      return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}</b><small>${nd} drive${nd === 1 ? "" : "s"} · ${h.bytes ? pct + "% backed up" : "empty"}</small><div class="n-bar"><i class="${st}" style="width:${pct}%"></i></div></div></div>`;
+      const todo = (h.soleBytes || 0) + (h.shortBytes || 0);
+      const line = !h.bytes ? "empty" : todo ? `<span class="warn">${bytes(todo)} still to copy</span>` : h.unknownBytes ? `<span class="hint">${bytes(h.unknownBytes)} unproven</span>` : `<span class="ok">${ICON.check}every file on ${p.target} drives</span>`;
+      return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}<em>${p.target}× copies</em></b><small>${h.bytes ? `${bytes(h.bytes)} · ${(h.contents || 0).toLocaleString()} files · ` : ""}${nd} drive${nd === 1 ? "" : "s"}</small><div class="n-bar"><i class="${st}" style="width:${pct}%"></i></div><small class="n-foot">${h.bytes ? pct + "% backed up" : ""}${h.bytes ? " · " : ""}${line}</small></div></div>`;
     }
     const d = n.d, color = cardColor(d);
     return `<div class="${cls} ${d.connected ? "live" : ""}" data-node="${n.id}" style="${box};--pc:${color || "var(--muted)"}"><div class="n-pic">${drivePic(driveKind(d), color || "var(--muted)", d.connected)}</div><div class="n-body"><b>${esc(d.title)}</b><small>${bytes(d.free)} free${d.connected ? "" : " · seen " + when(d.lastSeen)}</small></div>${capRing(Math.max(0, d.size - d.free), d.size, "sm")}</div>`;
@@ -1960,7 +1979,7 @@ function mapCard(m, id) {
   }
   const d = n.d;
   const ins = m.edges.filter((e) => e.to === id && e.from !== "mac");
-  return `<div class="map-card" style="--pc:${cardColor(d) || "var(--accent)"}"><div class="mc-head"><b>${esc(d.title)}</b><button class="btn small primary" data-open="drive" data-id="${esc(d.id)}">Details</button></div>
+  return `<div class="map-card" style="--pc:${cardColor(d) || "var(--accent)"}"><div class="mc-head"><b>${esc(d.title)}</b>${d.connected ? `<button class="btn small" data-eject="${esc(d.id)}" title="Unmount it so it can be unplugged">${ICON.eject}Eject</button>` : ""}<button class="btn small primary" data-open="drive" data-id="${esc(d.id)}">Details</button></div>
     <div class="cap"><b>${bytes(d.size)}</b><span class="sep">•</span><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)} free</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
     <div class="badges" style="margin-top:6px">${backupBadge(d)}${checkBadge(d)}</div>
     <div class="mc-list">${ins.map((e) => { const p = (S.projects || []).find((x) => "p" + x.id === e.from); return p ? `<div data-node-go="${e.from}"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span>${esc(p.name)}<small class="${e.cls}">${esc(e.label)}</small></div>` : ""; }).join("") || '<span class="hint">In no project.</span>'}</div></div>`;
@@ -2047,6 +2066,7 @@ function wireMap(m) {
     else openNode("d" + b.dataset.id);
   };
   for (const el of box.querySelectorAll("[data-node-go]")) el.onclick = () => { MAP.sel = el.dataset.nodeGo; renderMap(); };
+  for (const b of box.querySelectorAll("[data-eject]")) b.onclick = () => { b.disabled = true; ejectDrive(b.dataset.eject); };
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab === "map" && MAP.sel) { MAP.sel = null; renderMap(); } });
 
@@ -2121,8 +2141,20 @@ $("#main").onclick = async (e) => {
   if (!card) return;
   if (S.selecting) { S.selected.has(card.dataset.drive) ? S.selected.delete(card.dataset.drive) : S.selected.add(card.dataset.drive); return render(); }
   const act = e.target.closest("[data-act]");
+  if (act && act.dataset.act === "eject") return ejectDrive(card.dataset.drive);
   openDetail(card.dataset.drive, false, act && act.dataset.act === "edit");
 };
+
+// ejectDrive unmounts a plugged-in drive so it can be unplugged.
+async function ejectDrive(id) {
+  try {
+    await api(`/api/drives/${encodeURIComponent(id)}/eject`, { method: "POST" });
+    toast(`${driveTitle(id)} ejected. Safe to unplug.`);
+    await loadState();
+    if (S.detail === id) openDetail(id, true);
+    if (S.tab === "map") renderMap();
+  } catch (e) { toast(e.message, true); }
+}
 $("#scrim").onclick = () => { closeSheet(); };
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("#activity-pop").hidden) return toggleActivity(false);

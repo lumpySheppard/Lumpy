@@ -155,7 +155,9 @@ both drives at once. No manifest is needed.
 
 The first tab is a map: this Mac on the left, every drive in the
 middle, and the projects on the right, with a line from each project to
-each drive that holds part of it. Every node has a connector on each
+each drive that holds part of it. A project node shows how many copies
+it wants, its size, file and drive counts, its backup bar and what is
+still to copy. Every node has a connector on each
 side and a wire takes the facing ones, so wires never run under a node
 wherever you drag things. The line's label says how much of the
 project is on that drive and whether that part is backed up (green
@@ -174,7 +176,11 @@ SSD, a camera card or a RAID enclosure, from what macOS says about it;
 change it under **Details → Labels → Picture on the card**), its light on
 when it is plugged in, and a ring showing how full it is: pale until
 70%, yellow after, red in the last 10%. Cards are tinted with the
-project's colour.
+project's colour. A plugged-in drive has an **Eject** button on its
+card, in its details and on the map, which unmounts it the way the
+Finder does so it can be unplugged; Lumpy refuses while one of its own
+jobs is still reading or writing the drive, and says so when something
+else has files open on it.
 
 Lumpy keeps a library of every drive it has seen in
 `~/Library/Application Support/Lumpy/catalog.db`. Drives are recognised by
@@ -314,11 +320,13 @@ not per chunk.
 ### Archive: what the edit didn't use
 
 When the cut is locked, open the project and, under **Archive**, choose
-the timeline export: FCPXML (Final Cut Pro, DaVinci Resolve), Premiere
+the timeline exports: FCPXML (Final Cut Pro, DaVinci Resolve), Premiere
 Pro or FCP 7 XML, a CMX 3600 EDL, or a plain list of clip names (one
-per line, or a CSV with a file-name column). Several at once is fine:
-the cut, the trailer, the socials. Lumpy matches the clips the edit
-refers to against every video, audio and still in the project's
+per line, or a CSV with a file-name column). Pick several at once
+(⌘-click in the file dialog) or add them one at a time with **Add
+another export…**; each shows as a chip with an × to leave it out
+again. A clip any of them uses is kept. Lumpy matches the clips the
+edits refer to against every video, audio and still in the project's
 folders and shows what is used, what isn't (by folder, with sizes), and
 what the edit refers to that isn't in the project at all (stock, music,
 graphics). Matching is by clip name, so a name the edit uses anywhere

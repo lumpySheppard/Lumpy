@@ -183,6 +183,7 @@ func (s *Server) Handler() http.Handler {
 	api("PATCH /api/drives/{id}/file", s.setFileEdits)
 	api("GET /api/drives/{id}/stream", s.streamFile)
 	api("GET /api/drives/{id}/proxies", s.driveProxies)
+	api("POST /api/drives/{id}/eject", s.eject)
 	api("GET /api/media", s.listMedia)
 	api("GET /api/media.csv", s.exportMedia)
 	api("GET /api/settings", s.getSettings)
@@ -540,6 +541,30 @@ func (s *Server) driveDetail(w http.ResponseWriter, r *http.Request) (any, error
 		"backups":  backups,
 		"projects": memberships[d.ID],
 	}, nil
+}
+
+// eject unmounts a plugged-in drive so it can be unplugged, unless a
+// job is still reading or writing it.
+func (s *Server) eject(w http.ResponseWriter, r *http.Request) (any, error) {
+	d, err := s.drive(r)
+	if err != nil {
+		return nil, err
+	}
+	v := s.mountOf(d.ID)
+	if v == nil {
+		return nil, badRequest("%s is not plugged in", d.Title())
+	}
+	if s.jobs.Busy(d.ID) {
+		return nil, badRequest("a job is still running on %s; let it finish or cancel it first", d.Title())
+	}
+	if err := volume.Eject(v.Mount); err != nil {
+		return nil, badRequest("%s: %v", d.Title(), err)
+	}
+	s.mu.Lock()
+	s.volsAt = time.Time{} // so the next poll sees it gone
+	s.mu.Unlock()
+	s.db.Log(d.ID, "eject", "ejected from this Mac", 0)
+	return map[string]any{"ok": true}, nil
 }
 
 func (s *Server) setLabels(w http.ResponseWriter, r *http.Request) (any, error) {

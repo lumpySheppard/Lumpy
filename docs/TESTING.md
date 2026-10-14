@@ -41,6 +41,15 @@ long ID like `A1B2C3D4-…`, not `name:…`.
 4. Open a drive's **Details** and give it a display name, client, project
    and color. Close and reopen the app: the labels are kept.
 
+## 1a. Eject
+
+1. On a plugged-in drive's card, click the eject arrow next to the
+   pencil (or **Eject** in its details). **Expect:** the drive
+   disappears from Finder's sidebar, its card says *Last seen* a moment
+   later, and the toast says it is safe to unplug.
+2. Start a checksum on a drive and try to eject it. **Expect:** a
+   refusal naming the running job.
+
 ## 1b. The map
 
 1. Open the **Map** tab. **Expect:** this Mac on the left with a dotted
@@ -225,11 +234,13 @@ ready to send to post.
 1. Make a project of DRIVE_1's test folder. Export the timeline from
    Resolve or Premiere (File → Export → FCPXML or Final Cut Pro XML),
    or write a text file with the names of two of the clips, one per
-   line.
-2. On the project page, **Archive** → **Choose timeline export…** and
+   line. Make a second list with one more clip, to add afterwards.
+2. On the project page, **Archive** → **Choose timeline exports…** and
    pick it. **Expect:** the clips named are "used", every other clip in
    the folder is "not used", sizes by folder, and a name that is not in
-   the folder appears under "not in this project".
+   the folder appears under "not in this project". **Add another
+   export…** with the second list: one more clip becomes "used" and
+   both chips show; the × on a chip takes its clips back out.
 3. Untick one folder in the table. **Expect:** the buttons' counts drop
    and its clips leave the unused list. Tick it again.
 4. **Move … unused into the folder**. **Expect:** a job in Activity;
