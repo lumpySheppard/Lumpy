@@ -263,6 +263,8 @@ main { flex: 1; overflow: auto; padding: 20px; }
 .badge.bad { background: rgba(255,92,92,.16); color: var(--bad); }
 .badge.info { background: var(--accent-soft); color: var(--accent-2); }
 .badge.live { background: rgba(61,220,132,.14); color: var(--ok); }
+.badge.strong { font-weight: 700; background: rgba(61,220,132,.22); box-shadow: 0 0 0 1px rgba(61,220,132,.35) inset; }
+.node small .ok { color: var(--ok); } .node small .warn { color: var(--warn); }
 .badge.proj { background: color-mix(in srgb, var(--pc, var(--accent)) 18%, transparent); color: color-mix(in srgb, var(--pc, var(--accent)) 80%, var(--text)); }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; color: var(--muted); font-size: 12px; }
 .card-foot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

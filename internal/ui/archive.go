@@ -279,9 +279,6 @@ func (s *Server) applyArchive(w http.ResponseWriter, r *http.Request) (any, erro
 		if s.mountOf(id) == nil {
 			return nil, badRequest("%s is not plugged in", titles[id])
 		}
-		if s.jobs.Busy(id) {
-			return nil, badRequest("%s already has a job running", titles[id])
-		}
 	}
 	s.takeArchive(body.Token)
 	var ids []int

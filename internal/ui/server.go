@@ -477,7 +477,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	running := 0
 	for _, j := range s.jobs.List(0) {
-		if j.State == "running" {
+		if j.State == "running" || j.State == "queued" {
 			running++
 		}
 	}
@@ -620,13 +620,6 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) (any, error) {
 	return entries, nil
 }
 
-func (s *Server) requireIdle(d *catalog.Drive) error {
-	if s.jobs.Busy(d.ID) {
-		return badRequest("%s already has a job running", d.Title())
-	}
-	return nil
-}
-
 func (s *Server) verify(w http.ResponseWriter, r *http.Request) (any, error) {
 	d, err := s.drive(r)
 	if err != nil {
@@ -639,9 +632,6 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) (any, error) {
 		}
 		s.db.Log(d.ID, "queued", "full check requested", 0)
 		return map[string]any{"queued": true}, nil
-	}
-	if err := s.requireIdle(d); err != nil {
-		return nil, err
 	}
 	j := s.jobs.Start("verify", "Check "+d.Title(), "lumpy drive verify "+shellQuote(d.Title()), d.ID, func(ctx context.Context, rep *job.Report) error {
 		return job.HashDrive(ctx, s.db, v, true, rep)
@@ -658,9 +648,6 @@ func (s *Server) hash(w http.ResponseWriter, r *http.Request) (any, error) {
 	if v == nil {
 		return nil, badRequest("%s is not plugged in", d.Title())
 	}
-	if err := s.requireIdle(d); err != nil {
-		return nil, err
-	}
 	j := s.jobs.Start("hash", "Checksum new files on "+d.Title(), "lumpy drive hash "+shellQuote(d.Title()), d.ID, func(ctx context.Context, rep *job.Report) error {
 		return job.HashDrive(ctx, s.db, v, false, rep)
 	})
@@ -675,9 +662,6 @@ func (s *Server) rescan(w http.ResponseWriter, r *http.Request) (any, error) {
 	v := s.mountOf(d.ID)
 	if v == nil {
 		return nil, badRequest("%s is not plugged in", d.Title())
-	}
-	if err := s.requireIdle(d); err != nil {
-		return nil, err
 	}
 	j := s.jobs.Start("rescan", "Rescan "+d.Title(), "lumpy catalog "+shellQuote(v.Mount), d.ID, func(ctx context.Context, rep *job.Report) error {
 		_, err := job.CatalogDrive(ctx, s.db, v, rep)
@@ -845,7 +829,15 @@ func (s *Server) offload(w http.ResponseWriter, r *http.Request) (any, error) {
 	s.db.RememberOffload(body.Source, body.Dests)
 	title := fmt.Sprintf("Offload %s to %d drive(s)", name, len(body.Dests))
 	params := map[string]any{"source": body.Source, "dests": body.Dests, "name": body.Name, "sourceCheck": !skip}
-	j := s.jobs.Start("offload", title, strings.Join(cmd, " "), "", func(ctx context.Context, rep *job.Report) error {
+	// The card and every destination drive: the offload waits for any
+	// job already on one of them.
+	var drives []string
+	for _, p := range append([]string{body.Source}, body.Dests...) {
+		if v, err := volume.Of(p); err == nil {
+			drives = append(drives, v.ID)
+		}
+	}
+	j := s.jobs.StartWhenFree("offload", title, strings.Join(cmd, " "), drives, func(ctx context.Context, rep *job.Report) error {
 		return job.Offload(ctx, job.OffloadOptions{Source: body.Source, Dests: body.Dests, Name: body.Name,
 			Meta: s.meta, Library: s.db, SkipSourceVerify: skip}, rep)
 	})

@@ -261,6 +261,26 @@ drive's file browser, or select whole drives on the Logged tab
 (**Select**) and choose **Add to project**. Files without checksums show
 as unproven until the drive is plugged in and checksummed.
 
+### Safe to format
+
+A camera card (a drive with camera folders at its root, pictured as a
+card, or marked *no backups here*) says **Safe to format** on its card,
+in its details, on the map and in the menu bar once every file on it is
+checksummed and has at least two verified copies on other drives. With
+exactly one copy everywhere it says **Backed up once · keep the card**,
+because the card is still the second copy.
+
+### One job at a time per drive
+
+A drive does one thing at a time. Start a check while an offload is
+still writing to that drive, or a second offload onto the same drive,
+and the new job waits in the queue (shown as **Queued** in Activity and
+the menu bar, with Cancel) and starts by itself when the drive is free.
+Jobs on other drives run alongside. **Gentle mode** (Settings → Drives)
+reads one file at a time and holds reads to about 150 MB/s, so the Mac
+and the drive stay responsive for whoever is editing; checks take
+longer.
+
 ### Checking a drive
 
 ```sh

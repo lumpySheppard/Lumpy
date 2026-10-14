@@ -22,6 +22,9 @@ type Prefs struct {
 	// Exclude is a comma-separated list of names, or prefixes ending in
 	// *, left out of library scans at any depth.
 	Exclude string `json:"exclude"`
+	// Gentle reads one file at a time and holds reads to about 150 MB/s,
+	// so the Mac stays responsive while Lumpy works.
+	Gentle bool `json:"gentle"`
 }
 
 // DefaultPrefs are a fresh library's preferences.

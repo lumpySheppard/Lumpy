@@ -278,8 +278,7 @@ func TestPlanStepsShowRunningAndBusy(t *testing.T) {
 
 	// Hold a transfer A -> B open and look at the plan.
 	release := make(chan struct{})
-	j := s.jobs.Start("transfer", "t", "", ids["A"], func(ctx context.Context, r *job.Report) error { <-release; return nil })
-	s.jobs.mark(j, ids["B"])
+	s.jobs.StartWhenFree("transfer", "t", "", []string{ids["A"], ids["B"]}, func(ctx context.Context, r *job.Report) error { <-release; return nil })
 	var detail struct{ Transfers []TransferView }
 	call(t, s, ts, "GET", "/api/projects/"+strconv.FormatInt(p.ID, 10), "", &detail)
 	close(release)

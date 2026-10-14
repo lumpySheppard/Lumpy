@@ -164,7 +164,7 @@ let lastJobSig = "";
 async function loadJobs() {
   try {
     S.jobs = await api("/api/jobs");
-    const running = S.jobs.filter((j) => j.state === "running").length;
+    const running = S.jobs.filter((j) => j.state === "running" || j.state === "queued").length;
     $("#count-jobs").textContent = running || "";
     const sig = S.jobs.map((j) => j.id + j.state).join();
     if (sig !== lastJobSig) {
@@ -239,10 +239,25 @@ function capBar(used, size) {
 function lowSpace(d) { return d.size > 0 && d.free < d.size * 0.1; }
 
 
+// A camera card is safe to format once every file on it is checksummed
+// and has at least two verified copies on other drives. One copy
+// everywhere is "backed up once": the card is still the second copy.
+function isCard(d) { return driveKind(d) === "card" || !!(d.labels && d.labels.noBackups); }
+function safeToFormat(d) {
+  const b = d.backups;
+  if (!b || !d.files || d.damaged || !isCard(d)) return "";
+  if (b.unknown || b.likely || b.none) return "";
+  if (b.minCopies >= 2) return "safe";
+  if (b.minCopies >= 1) return "once";
+  return "";
+}
 function backupBadge(d) {
   const b = d.backups;
   if (d.damaged) return `<span class="badge bad">${ICON.warn}${d.damaged} damaged</span>`;
   if (!b || !d.files) return "";
+  const fmt = safeToFormat(d);
+  if (fmt === "safe") return `<span class="badge ok strong" title="Every file on this card has at least two verified copies on other drives">${ICON.check}Safe to format · ${b.minCopies}× elsewhere</span>`;
+  if (fmt === "once") return `<span class="badge warn" title="Every file has exactly one verified copy elsewhere; the card is still the second copy">${ICON.warn}Backed up once · keep the card</span>`;
   const st = backupState(b.enough + b.short, b.files, b.unknown, b.likely);
   if (st === "unknown") return `<span class="badge">${ICON.dash}No checksums yet</span>`;
   if (st === "none") return `<span class="badge bad">${ICON.warn}No backup</span>`;
@@ -626,6 +641,8 @@ async function openDetail(id, refresh, focusLabels) {
             ${d.connected ? `<button class="btn small" id="hash" ${d.busy ? "disabled" : ""}>Checksum new files</button>` : ""}
             <button class="btn small primary" id="verify" ${d.busy || (d.verifyRequested && !d.connected) ? "disabled" : ""}>${d.connected ? "Check drive now" : d.verifyRequested ? "Check queued" : "Queue check"}</button>
           </div></div>
+        ${safeToFormat(d) === "safe" ? `<div class="alert ok" style="margin-bottom:12px"><b>Safe to format.</b> Every file on this card has at least ${b.minCopies} verified copies on other drives${holders.length ? ": " + holders.map(([t]) => esc(t)).join(", ") : ""}.</div>`
+          : safeToFormat(d) === "once" ? `<div class="alert warn" style="margin-bottom:12px"><b>Backed up once.</b> Every file has one verified copy elsewhere, so this card is still the second copy. Make another before formatting it.</div>` : ""}
         ${backupBar(b.enoughBytes + b.shortBytes, b.bytes, b.unknownBytes, b.likelyBytes, { size: "big" })}
         <div class="stat-row" style="margin-top:12px">
           <div class="stat ${missing ? "bad" : b.minCopies > 0 ? "ok" : ""}"><div class="v">${b.minCopies < 0 ? "—" : missing ? missing.toLocaleString() : b.minCopies + "×"}</div><div class="l">${b.minCopies < 0 ? "no checksums yet" : missing ? "files not backed up" : "fewest copies elsewhere"}</div></div>
@@ -1379,7 +1396,7 @@ function toggleActivity(open) {
   if (show) renderJobsInto($("#activity-jobs"), S.jobs, "Nothing has run yet. Offloads, drive checks and rescans show their progress here.");
 }
 
-const STATE_BADGE = { running: ["info", "Running"], ok: ["ok", "Done"], cancelled: ["warn", "Cancelled"], error: ["bad", "Error"] };
+const STATE_BADGE = { running: ["info", "Running"], queued: ["", "Queued"], ok: ["ok", "Done"], cancelled: ["warn", "Cancelled"], error: ["bad", "Error"] };
 function lineClass(l) {
   if (/^FAIL/.test(l)) return "t-fail";
   if (/^BAD /.test(l)) return "t-bad";
@@ -1422,6 +1439,7 @@ function jobShell(j) {
 
 function updateJob(el, j) {
   const running = j.state === "running";
+  const queued = j.state === "queued";
   const p = j.progress;
   el.querySelector(".job-head h3").textContent = j.title;
   const [cls, label] = j.state === "failed" ? ["bad", `${j.failures} problem(s)`] : STATE_BADGE[j.state] || ["", j.state];
@@ -1430,13 +1448,13 @@ function updateJob(el, j) {
   badge.textContent = label;
   el.querySelector(".job-head .when").textContent = short(j.started) + (j.ended ? " · " + duration(j.ended - j.started || 1) : "");
   const actions = el.querySelector(".job-head .actions");
-  const wantCancel = running ? "1" : j.params ? "again" : "";
+  const wantCancel = running || queued ? "1" : j.params ? "again" : "";
   if (actions.dataset.cancel !== wantCancel) {
     actions.dataset.cancel = wantCancel;
-    actions.innerHTML = running ? `<button class="btn small" data-cancel="${j.id}">${ICON.x}Cancel</button>`
+    actions.innerHTML = running || queued ? `<button class="btn small" data-cancel="${j.id}">${ICON.x}Cancel</button>`
       : j.params ? `<button class="btn small" title="Fill the offload form with this job's source and destinations">${ICON.refresh}Run again</button>` : "";
     const b = actions.querySelector("button");
-    if (b && running) b.onclick = async () => { try { await api(`/api/jobs/${j.id}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, true); } };
+    if (b && (running || queued)) b.onclick = async () => { try { await api(`/api/jobs/${j.id}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, true); } };
     else if (b) b.onclick = () => {
       // Same source, same destinations: a disconnected card or a
       // cancelled run is picked up where it stopped.
@@ -1448,7 +1466,12 @@ function updateJob(el, j) {
   }
 
   const prog = el.querySelector(".job-progress");
-  prog.hidden = !running;
+  prog.hidden = !running && !queued;
+  if (queued) {
+    prog.querySelector(".bar > i").style.width = "0%";
+    prog.querySelector(".job-stats").innerHTML = `<span><b>Queued</b></span><span>waits for ${esc((j.needs || []).map(driveTitle).join(" and ") || "another job")} to be free</span>`;
+    prog.querySelector(".job-current").textContent = "";
+  }
   if (running) {
     const pct = p && p.total ? Math.min(100, (p.done / p.total) * 100) : 0;
     prog.querySelector(".bar > i").style.width = pct.toFixed(1) + "%";
@@ -1460,7 +1483,7 @@ function updateJob(el, j) {
   }
 
   const outcome = el.querySelector(".job-outcome");
-  const results = running ? [] : j.lines.filter((l) => /^(OK|BAD) /.test(l));
+  const results = running ? [] : (j.lines || []).filter((l) => /^(OK|BAD) /.test(l));
   outcome.hidden = !results.length && !j.error;
   outcome.innerHTML = (j.error ? `<div class="t-fail">${esc(j.error)}</div>` : "") +
     results.map((l) => `<div class="${lineClass(l)}">${esc(l.replace(/\s{2,}/g, "  "))}</div>`).join("");
@@ -1788,7 +1811,8 @@ async function openSettings(focus) {
         <div class="box">
           <div class="fields">
             <div class="field"><label>Which volumes count as drives</label>
-              <label class="switch" style="margin-top:7px">Hide the Mac's internal volumes <input type="checkbox" data-pref="hideInternal" ${pf.hideInternal ? "checked" : ""}></label>
+              <label class="switch" style="margin-top:7px" title="One file at a time, reads held to about 150 MB/s: slower, but the Mac and the drive stay responsive for whoever is editing">Gentle mode <input type="checkbox" data-pref="gentle" ${pf.gentle ? "checked" : ""}></label>
+              <label class="switch" style="margin-top:8px">Hide the Mac's internal volumes <input type="checkbox" data-pref="hideInternal" ${pf.hideInternal ? "checked" : ""}></label>
               <label class="switch" style="margin-top:8px">Hide mounted disk images (.dmg, .iso) <input type="checkbox" data-pref="hideImages" ${pf.hideImages ? "checked" : ""}></label></div>
             <div class="field"><label>Logging</label>
               <label class="switch" style="margin-top:7px" title="Off: only drives already in the library are kept up to date when plugged in">Log new drives when plugged in <input type="checkbox" data-pref="autoLog" ${pf.autoLog ? "checked" : ""}></label>
@@ -2023,7 +2047,7 @@ function renderMap() {
       return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}<em>${p.target}× copies</em></b><small>${h.bytes ? `${bytes(h.bytes)} · ${(h.contents || 0).toLocaleString()} files · ` : ""}${nd} drive${nd === 1 ? "" : "s"}</small><div class="n-bar"><i class="${st}" style="width:${pct}%"></i></div><small class="n-foot">${h.bytes ? pct + "% backed up" : ""}${h.bytes ? " · " : ""}${line}</small></div></div>`;
     }
     const d = n.d, color = cardColor(d);
-    return `<div class="${cls} ${d.connected ? "live" : ""}" data-node="${n.id}" style="${box};--pc:${color || "var(--muted)"}"><div class="n-pic">${drivePic(driveKind(d), color || "var(--muted)", d.connected)}</div><div class="n-body"><b>${esc(d.title)}</b><small>${bytes(d.free)} free${d.connected ? "" : " · seen " + when(d.lastSeen)}</small></div>${capRing(Math.max(0, d.size - d.free), d.size, "sm")}</div>`;
+    return `<div class="${cls} ${d.connected ? "live" : ""}" data-node="${n.id}" style="${box};--pc:${color || "var(--muted)"}"><div class="n-pic">${drivePic(driveKind(d), color || "var(--muted)", d.connected)}</div><div class="n-body"><b>${esc(d.title)}</b><small>${safeToFormat(d) === "safe" ? `<span class="ok">Safe to format</span>` : safeToFormat(d) === "once" ? `<span class="warn">Backed up once</span>` : `${bytes(d.free)} free${d.connected ? "" : " · seen " + when(d.lastSeen)}`}</small></div>${capRing(Math.max(0, d.size - d.free), d.size, "sm")}</div>`;
   };
   main.innerHTML = `<div class="map ${sel ? "has-sel" : ""}" id="map">
     <div class="map-world" id="map-world" style="width:${W}px;height:${H}px">

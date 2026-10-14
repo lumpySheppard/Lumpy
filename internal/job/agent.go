@@ -136,6 +136,7 @@ var (
 func ApplyPrefs(p catalog.Prefs) {
 	AutoLog = p.AutoLog
 	AutoMetadata = p.AutoMetadata
+	Gentle = p.Gentle
 	volume.Hide.Internal = p.HideInternal
 	volume.Hide.Images = p.HideImages
 	scan.SetExtraIgnores(p.ExcludeList())

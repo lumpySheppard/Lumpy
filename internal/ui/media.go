@@ -198,9 +198,6 @@ func (s *Server) probeDrive(w http.ResponseWriter, r *http.Request) (any, error)
 	if v == nil {
 		return nil, badRequest("%s is not plugged in", d.Title())
 	}
-	if err := s.requireIdle(d); err != nil {
-		return nil, err
-	}
 	j := s.jobs.Start("metadata", "Read metadata on "+d.Title(), "lumpy drive metadata "+shellQuote(d.Title()), d.ID, func(ctx context.Context, rep *job.Report) error {
 		return job.ProbeDrive(ctx, s.db, v, 0, rep)
 	})

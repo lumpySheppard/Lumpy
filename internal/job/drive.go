@@ -232,7 +232,9 @@ func HashDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, all bool, 
 	// spinning disk is read one file at a time to avoid seeking, while an
 	// SSD or RAID reads several files at once.
 	workers := hashWorkers(v)
-	if workers > 1 {
+	if Gentle {
+		r.Info("Reading gently: one file at a time, about %d MB/s", GentleRate>>20)
+	} else if workers > 1 {
 		r.Info("Reading %d files at a time (solid-state drive)", workers)
 	}
 	type result struct {
@@ -548,6 +550,9 @@ func recordOffload(db *catalog.DB, src string, srcVerified bool, sourceBad map[s
 // a solid-state drive on USB (readers and hubs are the weak link there),
 // 4 for a solid-state drive on Thunderbolt, PCI or SATA.
 func hashWorkers(v *volume.Volume) int {
+	if Gentle {
+		return 1
+	}
 	if n, err := strconv.Atoi(os.Getenv("LUMPY_HASH_WORKERS")); err == nil && n > 0 && n <= 16 {
 		return n
 	}

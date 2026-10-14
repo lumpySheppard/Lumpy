@@ -334,9 +334,6 @@ func (s *Server) runTransfer(w http.ResponseWriter, r *http.Request) (any, error
 	if src == nil || dst == nil {
 		return nil, badRequest("both drives must be plugged in")
 	}
-	if s.jobs.Busy(src.ID) || s.jobs.Busy(dst.ID) {
-		return nil, badRequest("one of the drives already has a job running")
-	}
 	h, err := s.projectHealth(p)
 	if err != nil {
 		return nil, err
@@ -370,11 +367,10 @@ func (s *Server) runTransfer(w http.ResponseWriter, r *http.Request) (any, error
 	title := fmt.Sprintf("%s: copy %s from %s to %s", p.Name, job.Bytes(step.Bytes), srcTitle, dstTitle)
 	cmd := fmt.Sprintf("lumpy project transfer %s --from %s --to %s --folder %s", shellQuote(p.Name), shellQuote(srcTitle), shellQuote(dstTitle), shellQuote(folder))
 	files := step.Files
-	j := s.jobs.Start("transfer", title, cmd, src.ID, func(ctx context.Context, rep *job.Report) error {
+	j := s.jobs.StartWhenFree("transfer", title, cmd, []string{src.ID, dst.ID}, func(ctx context.Context, rep *job.Report) error {
 		return job.Transfer(ctx, job.TransferOptions{Source: src, Dest: dst, Folder: folder, Files: files,
 			Meta: s.meta, Library: s.db, SkipSourceVerify: skip}, rep)
 	})
-	s.jobs.mark(j, dst.ID)
 	return map[string]any{"job": j.ID}, nil
 }
 

@@ -33,6 +33,7 @@ func hashFile(ctx context.Context, path string, f hashing.Format, prog *Progress
 			if prog != nil {
 				prog.Add(m)
 			}
+			pace(m)
 		}
 		if err == io.EOF {
 			return h.Hex(), n, nil

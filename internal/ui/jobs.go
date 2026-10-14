@@ -38,6 +38,8 @@ type Job struct {
 	part   string
 	report *job.Report
 	cancel context.CancelFunc
+	needs  []string // drives the job must have to itself
+	fn     func(ctx context.Context, r *job.Report) error
 }
 
 const maxLines = 5000
@@ -72,6 +74,7 @@ type JobView struct {
 	Error    string             `json:"error,omitempty"`
 	Progress *job.ProgressState `json:"progress"`
 	Params   map[string]any     `json:"params,omitempty"`
+	Needs    []string           `json:"needs,omitempty"` // drives a queued job waits for
 	Lines    []string           `json:"lines"`
 	// LineCount is how many lines the job has written in all; Lines are
 	// the last of them.
@@ -86,7 +89,10 @@ func (j *Job) view(tail int) JobView {
 	}
 	v := JobView{ID: j.ID, Kind: j.Kind, Title: j.Title, Command: j.Command, DriveID: j.DriveID, State: j.State, LineCount: j.count,
 		Started: j.Started, Ended: j.Ended, Failures: j.Failures, Warnings: j.Warnings, Error: j.Error, Params: j.Params,
-		Lines: append([]string(nil), lines...)}
+		Lines: append(make([]string, 0, len(lines)), lines...)} // never null: a queued job has no lines yet
+	if j.State == "queued" {
+		v.Needs = append([]string(nil), j.needs...)
+	}
 	running := j.State == "running"
 	rep := j.report // set once in Start, never changed
 	j.mu.Unlock()
@@ -98,31 +104,104 @@ func (j *Job) view(tail int) JobView {
 	return v
 }
 
-// Jobs runs and remembers jobs.
+// Jobs runs and remembers jobs. A job that needs a drive another job is
+// using waits in a queue, in order, and starts when the drive is free.
+//
+// Lock order: js.mu, then a job's mu. Nothing holds a job's mu while
+// taking js.mu.
 type Jobs struct {
-	mu   sync.Mutex
-	next int
-	all  []*Job
+	mu      sync.Mutex
+	next    int
+	all     []*Job
+	pending []*Job // queued, oldest first
 	// OnDone, when set, is called after a job ends.
 	OnDone func(*Job)
 }
 
-// Start runs fn in the background as a new job. command is the lumpy
-// command that does the same thing, shown at the top of its log.
+// Start runs fn as a new job on one drive ("" for none), queued behind
+// any job already on that drive. command is the lumpy command that does
+// the same thing, shown at the top of its log.
 func (js *Jobs) Start(kind, title, command, driveID string, fn func(ctx context.Context, r *job.Report) error) *Job {
-	ctx, cancel := context.WithCancel(context.Background())
+	return js.StartWhenFree(kind, title, command, []string{driveID}, fn)
+}
+
+// StartWhenFree runs fn as a new job once none of drives has a job
+// running; until then it is queued and shows as such.
+func (js *Jobs) StartWhenFree(kind, title, command string, drives []string, fn func(ctx context.Context, r *job.Report) error) *Job {
+	var needs []string
+	for _, d := range drives {
+		if d != "" {
+			needs = append(needs, d)
+		}
+	}
 	js.mu.Lock()
 	js.next++
-	j := &Job{ID: js.next, Kind: kind, Title: title, Command: command, DriveID: driveID, State: "running", Started: time.Now().Unix(), cancel: cancel}
+	j := &Job{ID: js.next, Kind: kind, Title: title, Command: command, Started: time.Now().Unix(), needs: needs, fn: fn}
+	if len(needs) > 0 {
+		j.DriveID = needs[0]
+	}
+	if len(needs) > 1 {
+		j.DriveID2 = needs[1]
+	}
 	j.report = job.NewReportTo(j)
 	js.all = append(js.all, j)
+	free := js.freeLocked(needs)
+	if free {
+		j.State = "running"
+	} else {
+		j.State = "queued"
+		j.cancel = func() { js.dropQueued(j) }
+		js.pending = append(js.pending, j)
+	}
 	js.mu.Unlock()
+	if free {
+		js.run(j)
+	}
+	return j
+}
 
+// freeLocked says whether none of the drives has a running job. Called
+// with js.mu held.
+func (js *Jobs) freeLocked(needs []string) bool {
+	if len(needs) == 0 {
+		return true
+	}
+	for _, o := range js.all {
+		o.mu.Lock()
+		running := o.State == "running"
+		var held []string
+		if running {
+			held = append(append([]string(nil), o.needs...), o.DriveID, o.DriveID2)
+		}
+		o.mu.Unlock()
+		if !running {
+			continue
+		}
+		for _, h := range held {
+			if h == "" {
+				continue
+			}
+			for _, n := range needs {
+				if n == h {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// run starts a job's work in the background.
+func (js *Jobs) run(j *Job) {
+	ctx, cancel := context.WithCancel(context.Background())
+	j.mu.Lock()
+	j.cancel = cancel
+	j.Started = time.Now().Unix()
+	j.mu.Unlock()
 	go func() {
-		err := fn(ctx, j.report)
+		err := j.fn(ctx, j.report)
 		failures, warnings := j.report.Failures(), j.report.Warnings()
 		j.mu.Lock()
-		defer j.mu.Unlock()
 		j.Ended = time.Now().Unix()
 		j.Failures, j.Warnings = failures, warnings
 		switch {
@@ -135,14 +214,52 @@ func (js *Jobs) Start(kind, title, command, driveID string, fn func(ctx context.
 		default:
 			j.State = "ok"
 		}
+		j.mu.Unlock()
 		cancel()
 		if js.OnDone != nil {
-			j.mu.Unlock()
 			js.OnDone(j)
-			j.mu.Lock()
 		}
+		js.kick()
 	}()
-	return j
+}
+
+// kick starts every queued job whose drives are now free, in order.
+func (js *Jobs) kick() {
+	js.mu.Lock()
+	var start []*Job
+	keep := js.pending[:0]
+	for _, j := range js.pending {
+		if js.freeLocked(j.needs) {
+			j.mu.Lock()
+			j.State = "running"
+			j.mu.Unlock()
+			start = append(start, j)
+		} else {
+			keep = append(keep, j)
+		}
+	}
+	js.pending = keep
+	js.mu.Unlock()
+	for _, j := range start {
+		js.run(j)
+	}
+}
+
+// dropQueued takes a job out of the queue: cancelled before it began.
+func (js *Jobs) dropQueued(j *Job) {
+	js.mu.Lock()
+	for i, p := range js.pending {
+		if p == j {
+			js.pending = append(js.pending[:i], js.pending[i+1:]...)
+			break
+		}
+	}
+	js.mu.Unlock()
+	j.mu.Lock()
+	if j.State == "queued" {
+		j.State, j.Ended = "cancelled", time.Now().Unix()
+	}
+	j.mu.Unlock()
 }
 
 // AnyRunning reports whether any job is running now.
@@ -194,13 +311,6 @@ func (js *Jobs) RunningPair(a, b string) bool {
 	return false
 }
 
-// mark records a second drive the job occupies.
-func (js *Jobs) mark(j *Job, driveID string) {
-	j.mu.Lock()
-	j.DriveID2 = driveID
-	j.mu.Unlock()
-}
-
 // Get returns a job by id.
 func (js *Jobs) Get(id int) *Job {
 	js.mu.Lock()
@@ -242,4 +352,11 @@ func (js *Jobs) Busy(driveID string) bool {
 }
 
 // Cancel stops a running job.
-func (j *Job) Cancel() { j.cancel() }
+func (j *Job) Cancel() {
+	j.mu.Lock()
+	c := j.cancel
+	j.mu.Unlock()
+	if c != nil {
+		c()
+	}
+}

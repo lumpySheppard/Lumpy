@@ -544,6 +544,7 @@ func copyFileInner(ctx context.Context, src string, dsts []string, mtime time.Ti
 		var nerr error
 		if err == nil {
 			nm, nerr = io.ReadFull(in, bufs[next])
+			pace(nm)
 		}
 		wg.Wait()
 		n += int64(m)

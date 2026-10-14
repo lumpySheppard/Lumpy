@@ -84,6 +84,21 @@ your usual tool.
    same number of items and size as the card (select → **Get Info**), and
    contains an `ascmhl` folder.
 
+## 2b. Safe to format
+
+After the offload to two drives, look at the card. **Expect:** a bold
+green **Safe to format · 2× elsewhere** badge on its card, a banner in
+its details naming the two drives, and "safe to format" on the map and
+in the menu bar panel. Offload another card to one drive only.
+**Expect:** that card says **Backed up once · keep the card**.
+
+## 2c. The queue
+
+Start a check of DRIVE_1 and, while it runs, **Checksum new files** on
+the same drive. **Expect:** the second job shows **Queued · waits for
+DRIVE_1 to be free** and starts on its own when the check ends; Cancel
+on a queued job drops it. A job on DRIVE_2 runs alongside.
+
 ## 3. Check the copies independently
 
 Don't just take Lumpy's word for it. In Terminal:
