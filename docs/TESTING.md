@@ -92,6 +92,14 @@ its details naming the two drives, and "safe to format" on the map and
 in the menu bar panel. Offload another card to one drive only.
 **Expect:** that card says **Backed up once · keep the card**.
 
+## 2b-i. Drive health
+
+With `brew install smartmontools` done, plug in a Thunderbolt or SATA
+drive. **Expect:** within a few seconds its sheet's **Drive health**
+shows Passed (or the warnings), model, hours and temperature; **Read
+now** refreshes it. A USB enclosure shows "doesn't answer SMART over
+its connection". Without smartmontools the box says how to install it.
+
 ## 2b-ii. Notifications
 
 Start a check of DRIVE_1 and switch to another app. **Expect:** when it

@@ -87,6 +87,7 @@ func identifyWithDiskutil(mount string) (*Volume, error) {
 	}
 	v.SolidState = plistBool(p, "SolidState")
 	v.Bus = plistValue(p, "BusProtocol")
+	v.Disk = plistValue(p, "ParentWholeDisk")
 	v.Internal = plistBool(p, "Internal") && !plistBool(p, "RemovableMediaOrExternalDevice")
 	v.DiskImage = plistValue(p, "BusProtocol") == "Disk Image" || plistValue(p, "VirtualOrPhysical") == "Virtual" && plistValue(p, "BusProtocol") == ""
 	return v, nil

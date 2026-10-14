@@ -5,6 +5,7 @@ package catalog
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/lumpysheppard/lumpy/internal/smart"
 	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
@@ -184,6 +186,7 @@ func Open(path string) (*DB, error) {
 		`drives ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`,
 		`drives ADD COLUMN hashed INTEGER NOT NULL DEFAULT 0`,
 		`drives ADD COLUMN damaged INTEGER NOT NULL DEFAULT 0`,
+		`drives ADD COLUMN health TEXT NOT NULL DEFAULT ''`,
 	} {
 		s.Exec(`ALTER TABLE ` + col)
 	}
@@ -246,6 +249,8 @@ type Drive struct {
 	Free            int64     // bytes free when last seen
 	SolidState      bool      // an SSD or NVMe drive, when macOS said so
 	Bus             string    // USB, Thunderbolt, SATA… as diskutil names it
+	// Health is the drive's last SMART reading, when one was taken.
+	Health *smart.Health
 	Labels
 	Files   int
 	Bytes   int64
@@ -296,18 +301,25 @@ const driveCols = `d.id, d.name, d.size, d.fstype, d.first_seen, d.last_seen, d.
 	d.last_scan, d.last_verify, d.last_verify_ok, d.verify_requested,
 	d.free, d.nickname, d.client, d.project, d.contact, d.notes, d.color, d.never_log, d.no_backups,
 	d.solid_state, d.bus, d.icon,
-	d.files, d.bytes, d.hashed, d.damaged`
+	d.files, d.bytes, d.hashed, d.damaged, d.health`
 
 func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 	var d Drive
 	var first, last int64
 	var scanAt, verAt, verOK, req sql.NullInt64
+	var health string
 	if err := row.Scan(&d.ID, &d.Name, &d.Size, &d.FSType, &first, &last, &d.LastMount,
 		&scanAt, &verAt, &verOK, &req,
 		&d.Free, &d.Nickname, &d.Client, &d.Project, &d.Contact, &d.Notes, &d.Color, &d.NeverLog, &d.NoBackups,
 		&d.SolidState, &d.Bus, &d.Icon,
-		&d.Files, &d.Bytes, &d.Hashed, &d.Damaged); err != nil {
+		&d.Files, &d.Bytes, &d.Hashed, &d.Damaged, &health); err != nil {
 		return nil, err
+	}
+	if health != "" {
+		var h smart.Health
+		if json.Unmarshal([]byte(health), &h) == nil {
+			d.Health = &h
+		}
 	}
 	d.FirstSeen, d.LastSeen = time.Unix(first, 0), time.Unix(last, 0)
 	d.LastScan, d.LastVerify, d.VerifyRequested = unix(scanAt), unix(verAt), unix(req)
@@ -325,6 +337,16 @@ func (db *DB) SaveDrive(v *volume.Volume) error {
 			fstype = excluded.fstype, last_seen = excluded.last_seen, last_mount = excluded.last_mount,
 			solid_state = excluded.solid_state, bus = excluded.bus`,
 		v.ID, v.Name, v.Size, v.Free, v.FSType, now, now, v.Mount, v.SolidState, v.Bus)
+	return err
+}
+
+// SetHealth records a drive's SMART reading.
+func (db *DB) SetHealth(id string, h *smart.Health) error {
+	b, err := json.Marshal(h)
+	if err != nil {
+		return err
+	}
+	_, err = db.sql.Exec(`UPDATE drives SET health = ? WHERE id = ?`, string(b), id)
 	return err
 }
 

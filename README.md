@@ -270,6 +270,17 @@ checksummed and has at least two verified copies on other drives. With
 exactly one copy everywhere it says **Backed up once · keep the card**,
 because the card is still the second copy.
 
+### Drive health
+
+With smartmontools installed (`brew install smartmontools`), Lumpy
+reads each plugged-in drive's own health report (SMART) once a day and
+shows it under **Drive health** on the drive's sheet: the drive's
+verdict, hours powered on, temperature, reallocated and pending
+sectors, write life used on SSDs. A drive that reports it is failing,
+or has sectors going bad, gets a red or amber badge on its card.
+**Read now** asks again. Thunderbolt, SATA and internal drives answer;
+most USB enclosures don't on macOS, and the sheet says so.
+
 ### Notifications
 
 When an offload, transfer or check ends, Lumpy posts a macOS

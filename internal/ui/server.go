@@ -25,6 +25,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/agent"
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/job"
+	"github.com/lumpysheppard/lumpy/internal/smart"
 	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
@@ -115,6 +116,7 @@ func (s *Server) Watch(ctx context.Context) {
 			r := job.NewReportTo(nopWriter{})
 			job.AgentRunWith(ctx, s.db, r, agent.Notify, s.startQueuedCheck)
 			unlock()
+			s.refreshHealth(ctx)
 		}
 		select {
 		case <-ctx.Done():
@@ -190,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	api("PATCH /api/drives/{id}/file", s.setFileEdits)
 	api("GET /api/drives/{id}/stream", s.streamFile)
 	api("GET /api/drives/{id}/proxies", s.driveProxies)
+	api("POST /api/drives/{id}/health", s.health)
 	api("POST /api/drives/{id}/eject", s.eject)
 	api("GET /api/media", s.listMedia)
 	api("GET /api/media.csv", s.exportMedia)
@@ -295,6 +298,7 @@ type DriveView struct {
 	Busy            bool                   `json:"busy"`
 	SolidState      bool                   `json:"solidState"`
 	Bus             string                 `json:"bus"`
+	Health          *smart.Health          `json:"health,omitempty"`
 	Projects        []int64                `json:"projects"`
 	TopFolders      []string               `json:"topFolders"`
 	TopFiles        []string               `json:"topFiles"`
@@ -442,7 +446,7 @@ func (s *Server) view(d *catalog.Drive, ex *driveExtra) DriveView {
 		FSType: d.FSType, FirstSeen: ts(d.FirstSeen), LastSeen: ts(d.LastSeen), LastMount: d.LastMount,
 		Files: d.Files, Bytes: d.Bytes, Hashed: d.Hashed, Damaged: d.Damaged, LastScan: ts(d.LastScan),
 		LastVerify: ts(d.LastVerify), LastVerifyOK: d.LastVerifyOK, VerifyRequested: ts(d.VerifyRequested),
-		Busy: s.jobs.Busy(d.ID), SolidState: d.SolidState, Bus: d.Bus,
+		Busy: s.jobs.Busy(d.ID), SolidState: d.SolidState, Bus: d.Bus, Health: d.Health,
 	}
 	if m := s.mountOf(d.ID); m != nil {
 		v.Connected, v.Mount, v.Free = true, m.Mount, m.Free

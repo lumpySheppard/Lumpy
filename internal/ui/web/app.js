@@ -252,6 +252,53 @@ function safeToFormat(d) {
   if (b.minCopies >= 1) return "once";
   return "";
 }
+// A drive's SMART verdict: "bad" when it says it is failing, "warn"
+// with counters worth a look, "ok" with none, "" when never read.
+function healthState(d) {
+  const h = d.health;
+  if (!h || h.error) return "";
+  if (h.passed === false) return "bad";
+  if (h.warnings && h.warnings.length) return "warn";
+  return "ok";
+}
+function healthBadge(d) {
+  const st = healthState(d);
+  if (st === "bad") return `<span class="badge bad" title="${esc(d.health.warnings.join(" · "))}">${ICON.warn}Drive failing</span>`;
+  if (st === "warn") return `<span class="badge warn" title="${esc(d.health.warnings.join(" · "))}">${ICON.warn}${esc(d.health.warnings[0])}</span>`;
+  return "";
+}
+function hoursText(h) {
+  if (!h) return "—";
+  if (h < 48) return `${h} h`;
+  const days = Math.round(h / 24);
+  if (days < 60) return `${days} days`;
+  const months = Math.round(days / 30.4);
+  if (months < 24) return `${months} months`;
+  return `${(days / 365.25).toFixed(1)} years`;
+}
+const SMART_HINT = `Lumpy reads the drive's own health report (SMART) through smartmontools: in Terminal, <code>brew install smartmontools</code>. Thunderbolt, SATA and internal drives answer; most USB enclosures don't on macOS.`;
+function healthBox(d) {
+  const h = d.health;
+  if (!h) return `<p class="hint" style="margin:0">Not read yet. ${SMART_HINT}</p>`;
+  if (h.error) return `<p class="hint" style="margin:0"><b>${esc(h.error)}.</b> ${h.error.includes("not installed") ? SMART_HINT : "Read " + when(h.readAt) + "."}</p>`;
+  const st = healthState(d);
+  const head = st === "bad" ? `<div class="alert bad" style="margin-bottom:10px"><b>This drive reports it is failing.</b> Copy everything off it now and stop using it: ${esc(h.warnings.join(" · "))}.</div>`
+    : st === "warn" ? `<div class="alert warn" style="margin-bottom:10px"><b>Worth watching:</b> ${esc(h.warnings.join(" · "))}. Keep its files backed up elsewhere.</div>`
+    : `<div class="alert ok" style="margin-bottom:10px"><b>Passed.</b> The drive reports no problems.</div>`;
+  const row = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
+  return head + `<dl class="kv">
+    ${row("Model", esc([h.model, h.serial].filter(Boolean).join(" · ")))}
+    ${row("Powered on", hoursText(h.hours))}
+    ${row("Temperature", h.temp ? `${h.temp} °C` : "")}
+    ${row("Reallocated sectors", h.reallocated || h.pending ? String(h.reallocated || 0) : "")}
+    ${row("Pending sectors", h.pending ? String(h.pending) : "")}
+    ${row("Uncorrectable", h.uncorrect ? String(h.uncorrect) : "")}
+    ${row("Interface errors", h.crc ? String(h.crc) : "")}
+    ${row("Write life used", h.percentUsed != null && h.percentUsed > 0 ? `${h.percentUsed}%` : "")}
+    ${row("Last read", when(h.readAt))}
+  </dl>`;
+}
+
 function backupBadge(d) {
   const b = d.backups;
   if (d.damaged) return `<span class="badge bad">${ICON.warn}${d.damaged} damaged</span>`;
@@ -395,7 +442,7 @@ function driveCard(d) {
     </div>
     <div class="cap"><b>${bytes(d.size)}</b><span class="sep">•</span><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)} free</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
     ${sum ? `<div class="summary">${esc(sum)}</div><button class="more" data-act="open">More</button>` : ""}
-    <div class="badges">${backupBadge(d)}${checkBadge(d)}${projectBadges(d)}</div>
+    <div class="badges">${healthBadge(d)}${backupBadge(d)}${checkBadge(d)}${projectBadges(d)}</div>
     <div class="card-foot"><span><i class="dot ${d.connected ? "live" : ""}" style="background:${dot};color:${dot}"></i>${d.connected ? "Plugged in now" : "Last seen • " + when(d.lastSeen)}</span>
       <span class="card-acts">${S.selecting ? `<input type="checkbox" class="pick" data-pick="${esc(d.id)}" ${S.selected.has(d.id) ? "checked" : ""}>` : `${d.connected ? `<button class="icon-btn card-edit" data-act="eject" title="Eject, so it can be unplugged">${ICON.eject}</button>` : ""}<button class="icon-btn card-edit" data-act="edit" title="Edit labels">${ICON.edit}</button><button class="btn small" data-act="open">Details</button>`}</span></div>
   </article>`;
@@ -636,6 +683,10 @@ async function openDetail(id, refresh, focusLabels) {
         <div class="box"><dl class="kv"><dt>Total</dt><dd>${bytes(d.size)}</dd><dt>Used</dt><dd>${bytes(used)}</dd><dt>Free</dt><dd class="cap"><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)}${lowSpace(d) ? " · under 10%" : ""}</span></dd></dl>
         <div style="margin-top:10px">${capBar(used, d.size).replace('class="bar cap"', 'class="bar cap" style="height:7px"')}</div></div></div>
 
+      <div class="sec"><div class="sec-title">${ICON.activity}Drive health
+          <div class="right">${d.connected ? `<button class="btn small" id="health-read" title="Ask the drive for its SMART report now">${ICON.refresh}Read now</button>` : ""}</div></div>
+        <div class="box">${healthBox(d)}</div></div>
+
       <div class="sec"><div class="sec-title">${ICON.shield}Backups &amp; checks
           <div class="right">
             ${d.verifyRequested ? `<button class="btn small" id="cancel-check">Cancel queued check</button>` : ""}
@@ -731,6 +782,12 @@ function wireDetail(d) {
   if (rv) rv.onclick = () => nativeCall("reveal", { path: d.mount });
   const ej = $("#eject");
   if (ej) ej.onclick = () => { ej.disabled = true; ejectDrive(d.id); };
+  const hr = $("#health-read");
+  if (hr) hr.onclick = async () => {
+    hr.disabled = true; hr.textContent = "Reading…";
+    try { await api(`/api/drives/${encodeURIComponent(d.id)}/health`, { method: "POST" }); await loadState(); openDetail(d.id, true); }
+    catch (e) { toast(e.message, true); hr.disabled = false; hr.textContent = "Read now"; }
+  };
   let t;
   $("#tree-filter").oninput = (e) => { clearTimeout(t); t = setTimeout(() => loadTree(d.id, "", $("#tree"), 0, e.target.value.trim()), 200); };
 }

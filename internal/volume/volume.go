@@ -29,6 +29,8 @@ type Volume struct {
 	// Bus is how the drive is attached, as diskutil names it: USB,
 	// Thunderbolt, PCI-Express, SATA…
 	Bus string
+	// Disk is the whole disk the volume lives on (disk4), for SMART.
+	Disk string
 }
 
 // Hide says which mounted volumes are left out of listings: the Mac's
