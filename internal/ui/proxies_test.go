@@ -83,7 +83,10 @@ func TestEjectThroughAPI(t *testing.T) {
 	if code := call(t, s, ts, "POST", "/api/drives/"+id+"/eject", "", nil); code != 200 {
 		t.Fatalf("eject: %d", code)
 	}
-	if ejected != filepath.Join(vols, "CARD") {
+	// macOS hands back /private/var/… for a /var/… temp dir.
+	want, _ := filepath.EvalSymlinks(filepath.Join(vols, "CARD.gone"))
+	got, _ := filepath.EvalSymlinks(ejected + ".gone")
+	if got != want || filepath.Base(ejected) != "CARD" {
 		t.Errorf("ejected %q", ejected)
 	}
 	call(t, s, ts, "GET", "/api/state", "", &st)
