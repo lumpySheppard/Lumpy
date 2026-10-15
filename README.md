@@ -426,8 +426,7 @@ Dock icon, the menu bar panel or ⌘0 bring the window back.
 
 ### Settings
 
-Under the gear: **General** (Appearance: **System**, **Light** or
-**Dark**; Lumpy is dark by default, the terminal, previews and the menu
+Under the gear: **General** (Appearance: **System**, **Light**, **Dark** or **Classic** (a System 7 look: black on white, pinstriped title bars, Chicago); Lumpy is dark by default, the terminal, previews and the menu
 bar panel stay dark either way); **Drives** (hide the Mac's internal volumes and mounted
 disk images, log new drives automatically or not, read clip metadata
 during scans, rescan plugged-in drives on a timer, folder exclusions
