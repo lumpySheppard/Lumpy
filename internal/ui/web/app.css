@@ -782,9 +782,8 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .px { color: #fff; }
 :root[data-theme="classic"] .px.reading { animation: px-blink .7s steps(2) infinite; }
 @keyframes px-blink { 50% { opacity: .35; } }
-/* The capacity gauge: a square tank of dither inside a frame. */
-:root[data-theme="classic"] .ring.sq svg { transform: none; }
-:root[data-theme="classic"] .ring.sq .pct { color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
+/* The capacity ring stays a ring. */
+:root[data-theme="classic"] .ring .track { stroke: rgba(255,255,255,.22); }
 /* The menu bar. */
 :root[data-theme="classic"] .topbar { background: #000; border-bottom: 1px solid #fff; min-height: 34px; padding: 4px 14px; gap: 14px; }
 :root[data-theme="classic"] .toolbar { background: #000; }

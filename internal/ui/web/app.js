@@ -495,12 +495,6 @@ function capRing(used, size, cls = "") {
   const pct = size ? Math.max(0, Math.min(100, (used / size) * 100)) : 0;
   const r = 24, c = 2 * Math.PI * r;
   const col = pct >= 90 ? "var(--bad)" : pct >= 85 ? "var(--orange)" : pct >= 70 ? "var(--warn)" : "var(--ring)";
-  if (isClassic()) {
-    // A tank that fills from the bottom with dither; the frame takes the
-    // warning colour.
-    const h = Math.round(28 * pct / 100);
-    return `<div class="ring sq ${cls}" title="${pct.toFixed(0)}% full"><svg viewBox="0 0 36 36" shape-rendering="crispEdges" style="color:${col}"><defs><pattern id="px-d" width="2" height="2" patternUnits="userSpaceOnUse"><path d="M0 0h1v1H0zM1 1h1v1H1z" fill="currentColor"/></pattern></defs><rect x="1" y="1" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="${32 - h}" width="28" height="${h}" fill="url(#px-d)"/></svg><span class="pct">${Math.round(pct)}<small>%</small></span></div>`;
-  }
   return `<div class="ring ${cls}" title="${pct.toFixed(0)}% full"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="${r}" class="track"/><circle cx="30" cy="30" r="${r}" class="fill" style="stroke:${col};stroke-dasharray:${c.toFixed(2)};stroke-dashoffset:${(c * (1 - pct / 100)).toFixed(2)}"/></svg><span class="pct" style="color:${pct >= 70 ? col : "var(--text)"}">${Math.round(pct)}<small>%</small></span></div>`;
 }
 // loadingGlyph is a hard drive being read, for every "loading" state.
