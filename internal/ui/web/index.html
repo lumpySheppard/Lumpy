@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumpy</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23a855f7'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+<script>
+  // Appearance before the first paint: dark (default), light, or system.
+  (function () {
+    var pref = "dark", style = "modern";
+    try { pref = localStorage.getItem("appearance") || "dark"; style = localStorage.getItem("style") || "modern"; } catch (e) {}
+    if (pref === "classic") { pref = "dark"; style = "classic"; }
+    var light = pref === "light" || (pref === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+    if (style === "classic") document.documentElement.dataset.style = "classic";
+  })();
+</script>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand" title="Lumpy"><svg class="brand-glyph" viewBox="0 0 32 32" aria-label="Lumpy"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4a4a52"/><stop offset="1" stop-color="#2a2a30"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="7" fill="url(#bg)"/><rect x="2.5" y="2.5" width="27" height="27" rx="6.5" fill="none" stroke="rgba(255,255,255,.16)"/><g fill="rgba(255,255,255,.34)"><rect x="6" y="7.5" width="9" height="2.6" rx="1.3"/><rect x="6" y="12.3" width="9" height="2.6" rx="1.3"/><rect x="6" y="17.1" width="9" height="2.6" rx="1.3"/><rect x="6" y="21.9" width="9" height="2.6" rx="1.3"/></g><g fill="#3ddc84"><circle cx="17.2" cy="8.8" r=".9"/><circle cx="17.2" cy="13.6" r=".9"/><circle cx="17.2" cy="18.4" r=".9"/><circle cx="17.2" cy="23.2" r=".9"/></g><path d="M21 9v14h5.5" fill="none" stroke="#d4d4dc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="map">Map</button>
+      <button role="tab" data-tab="connected">Connected <span class="count" id="count-connected"></span></button>
+      <button role="tab" data-tab="logged">Logged <span class="count" id="count-logged"></span></button>
+      <button role="tab" data-tab="projects">Projects <span class="count" id="count-projects"></span></button>
+      <button role="tab" data-tab="media">Clips</button>
+      <button role="tab" data-tab="offload">Offload</button>
+    </nav>
+    <div class="topbar-right">
+      <span class="agent-pill" id="agent-pill" title=""></span>
+      <span class="agent-pill" id="publish-pill" title="" hidden></span>
+      <button class="update-pill" id="update-pill" hidden></button>
+      <button class="icon-btn act-btn" id="activity-btn" title="Activity: offloads, checks and scans"><span class="count live" id="count-jobs"></span></button>
+      <button class="icon-btn" id="settings" title="Settings"></button>
+    </div>
+  </header>
+
+  <section class="toolbar" id="toolbar">
+    <div class="toolbar-title" id="toolbar-title"></div>
+    <div class="seg" id="view-seg">
+      <button data-view="grid" class="on">Grid</button>
+      <button data-view="list">List</button>
+    </div>
+    <label class="select">
+      <select id="sort">
+        <option value="seen">Last seen</option>
+        <option value="name">Name</option>
+        <option value="size">Capacity</option>
+        <option value="free">Free space</option>
+        <option value="backup">Backup status</option>
+      </select>
+    </label>
+    <button class="icon-btn" id="sort-dir" title="Reverse order"></button>
+    <label class="select" title="What the card colours mean">
+      <select id="color-by">
+        <option value="project">Colour: project</option>
+        <option value="drive">Colour: drive label</option>
+        <option value="backup">Colour: backup state</option>
+        <option value="client">Colour: client</option>
+        <option value="none">Colour: none</option>
+      </select>
+    </label>
+    <div class="pills" id="pills"></div>
+    <div class="search">
+      <span class="search-icon"></span>
+      <input id="search" type="search" placeholder="Search drives or indexed names…" autocomplete="off" spellcheck="false">
+    </div>
+    <button class="btn" id="select-mode">Select</button>
+    <button class="btn" id="export"><span class="i-export"></span>Export CSV…</button>
+    <button class="icon-btn" id="refresh" title="Refresh"></button>
+  </section>
+
+  <main id="main"></main>
+</div>
+
+<div class="popover" id="activity-pop" hidden>
+  <div class="jobs" id="activity-jobs"></div>
+</div>
+<div class="scrim" id="scrim" hidden></div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true"></div>
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
