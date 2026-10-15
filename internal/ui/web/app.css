@@ -886,6 +886,32 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .list td { border-bottom: 1px dotted #fff; }
 :root[data-theme="classic"] tr.row:hover td { background: #fff; color: #000; }
 :root[data-theme="classic"] .clip-tile:hover { transform: none; }
+/* The filmstrip is a light table: white tiles on the grey desktop. The
+   data table stays dark. */
+:root[data-theme="classic"] { --dither: repeating-conic-gradient(#8f8f8f 0 25%, #c6c6c6 0 50%) 0 0 / 2px 2px; }
+:root[data-theme="classic"] #main:has(.strip) { background: var(--dither); color: #000; }
+:root[data-theme="classic"] #main:has(.strip) .media-bar, :root[data-theme="classic"] #main:has(.strip) .pill, :root[data-theme="classic"] #main:has(.strip) .btn,
+:root[data-theme="classic"] #main:has(.strip) .seg, :root[data-theme="classic"] #main:has(.strip) .select select, :root[data-theme="classic"] #main:has(.strip) .search input,
+:root[data-theme="classic"] #main:has(.strip) .clip-tile { background: #fff; border-color: #000; color: #000; box-shadow: 2px 2px 0 #000; backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root[data-theme="classic"] #main:has(.strip) .pill, :root[data-theme="classic"] #main:has(.strip) .btn, :root[data-theme="classic"] #main:has(.strip) .seg,
+:root[data-theme="classic"] #main:has(.strip) .select select, :root[data-theme="classic"] #main:has(.strip) .search input { box-shadow: none; }
+:root[data-theme="classic"] #main:has(.strip) .select select { box-shadow: 1px 1px 0 #000; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 3h8L5 8z' fill='%23000'/%3E%3C/svg%3E") no-repeat right 9px center; }
+:root[data-theme="classic"] #main:has(.strip) .seg button { color: #000; border-color: #000; }
+:root[data-theme="classic"] #main:has(.strip) .seg button.on { background: #000; color: #fff; }
+:root[data-theme="classic"] #main:has(.strip) .btn:hover { background: #000; color: #fff; }
+:root[data-theme="classic"] #main:has(.strip) .btn svg, :root[data-theme="classic"] #main:has(.strip) .icon-btn, :root[data-theme="classic"] #main:has(.strip) .toolbar-title,
+:root[data-theme="classic"] #main:has(.strip) .toolbar-title svg, :root[data-theme="classic"] #main:has(.strip) .px, :root[data-theme="classic"] #main:has(.strip) .pill b,
+:root[data-theme="classic"] #main:has(.strip) .search-icon { color: #000; }
+:root[data-theme="classic"] #main:has(.strip) .icon-btn:hover { background: #000; color: #fff; }
+:root[data-theme="classic"] #main:has(.strip) .search input::placeholder { color: #777; }
+:root[data-theme="classic"] #main:has(.strip) .clip-tile .meta b { color: #000; }
+:root[data-theme="classic"] #main:has(.strip) .clip-tile .meta small { color: #444; }
+:root[data-theme="classic"] #main:has(.strip) .clip-tile .thumb { background: #000; }
+:root[data-theme="classic"] #main:has(.strip) .clip-tile .thumb .noimg { color: #8a8a8a; }
+:root[data-theme="classic"] #main:has(.strip) .clip-tile .thumb .noimg .px { color: #8a8a8a; }
+:root[data-theme="classic"] #main:has(.strip) .clip-tile .thumb .tc, :root[data-theme="classic"] #main:has(.strip) .clip-tile .thumb .dur { background: #fff; color: #000; border-color: #000; }
+:root[data-theme="classic"] #main:has(.strip) .hint { color: #333; background: #fff; display: inline-block; padding: 4px 8px; border: 1px solid #000; }
+:root[data-theme="classic"] #main:has(.strip) .badge { background: #fff; }
 :root[data-theme="classic"] .clip-tile .thumb { background: #000; }
 :root[data-theme="classic"] .clip-tile .thumb .tc, :root[data-theme="classic"] .clip-tile .thumb .dur { border-radius: 0; background: #000; color: #fff; border: 1px solid #fff; }
 /* The map: nodes are little windows on the desktop. */

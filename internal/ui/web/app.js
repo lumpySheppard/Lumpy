@@ -1840,7 +1840,8 @@ function clipTile(f, dr) {
   const name = f.path.split("/").pop();
   const connected = !!(dr && dr.connected);
   const st = f.copies > 0 ? "full" : f.xxh64 ? "none" : "unknown";
-  const line = [f.videoCodec ? clipFormat(f) : f.container || KIND_LABEL[f.kind] || "", f.width ? `${f.width}×${f.height}` : "", f.frameRate ? fps(f.frameRate) + " fps" : ""].filter(Boolean).join(" · ");
+  // clipFormat already carries the frame size for video.
+  const line = [f.videoCodec ? clipFormat(f) : f.container || KIND_LABEL[f.kind] || "", !f.videoCodec && f.width ? `${f.width}×${f.height}` : "", f.frameRate ? fps(f.frameRate) + " fps" : ""].filter(Boolean).join(" · ");
   const secs = (f.durationMs || 0) / 1000;
   const can = connected && (f.kind === "video" || f.kind === "image") && !NO_THUMB.test(name);
   const pic = can ? `<img loading="lazy" alt="" src="${thumbURL(f.driveId, f.path, secs * SCRUB[0])}" data-pos="0">`
