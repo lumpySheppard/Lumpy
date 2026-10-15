@@ -9,10 +9,12 @@
 <script>
   // Appearance before the first paint: dark (default), light, or system.
   (function () {
-    var pref = "dark";
-    try { pref = localStorage.getItem("appearance") || "dark"; } catch (e) {}
+    var pref = "dark", style = "modern";
+    try { pref = localStorage.getItem("appearance") || "dark"; style = localStorage.getItem("style") || "modern"; } catch (e) {}
+    if (pref === "classic") { pref = "dark"; style = "classic"; }
     var light = pref === "light" || (pref === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
-    document.documentElement.dataset.theme = pref === "classic" ? "classic" : light ? "light" : "dark";
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+    if (style === "classic") document.documentElement.dataset.style = "classic";
   })();
 </script>
 </head>

@@ -472,7 +472,7 @@ const PXP = {
   raid: ["................................", "........################........", "........#..............#........", "........#.############.#........", "........#.#xxxxxxxx#.#.#........", "........#.############.#........", "........#..............#........", "........#.############.#........", "........#.#xxxxxxxx#.#.#........", "........#.############.#........", "........#..............#........", "........#.############.#........", "........#.#xxxxxxxx#.#.#........", "........#.############.#........", "........#..............#........", "........#.############.#........", "........#.#xxxxxxxx#.#.#........", "........#.############.#........", "........#..............#........", "........################........", ".........xxxxxxxxxxxxxx.........", "................................", "................................", "................................"],
 };
 const PIC_CLASSIC = Object.fromEntries(Object.entries(PXP).map(([k, rows]) => [k, pxSvg(rows, "pic")]));
-function isClassic() { return document.documentElement.dataset.theme === "classic"; }
+function isClassic() { return document.documentElement.dataset.style === "classic"; }
 // useClassicIcons swaps the glyph set the page draws with, and repaints
 // the two icons that live in the static chrome.
 function useClassicIcons(on) {
@@ -1966,11 +1966,13 @@ function wireFile(driveId, path, m) {
 // ---------- appearance ----------
 // Dark by default; light, or whatever the Mac is set to.
 function applyAppearance() {
-  const pref = localGet("appearance", "dark");
+  let pref = localGet("appearance", "dark"), style = localGet("style", "modern");
+  if (pref === "classic") { pref = "dark"; style = "classic"; localSet("appearance", pref); localSet("style", style); } // from before Classic was a style
   const light = pref === "light" || (pref === "system" && window.matchMedia("(prefers-color-scheme: light)").matches);
-  document.documentElement.dataset.theme = pref === "classic" ? "classic" : light ? "light" : "dark";
+  document.documentElement.dataset.theme = light ? "light" : "dark";
+  if (style === "classic") document.documentElement.dataset.style = "classic"; else delete document.documentElement.dataset.style;
   if (native) nativeCall("appearance", { theme: light ? "light" : "dark" });
-  const classic = pref === "classic";
+  const classic = style === "classic";
   const swapped = classic !== S.classicIcons;
   if (swapped) { S.classicIcons = classic; useClassicIcons(classic); }
   return swapped;
@@ -2012,7 +2014,9 @@ async function openSettings(focus) {
         </div></div>
       <div class="sec"><div class="sec-title">${ICON.gear}General</div>
         <div class="box"><div class="fields"><div class="field"><label>Appearance</label>
-          <div class="seg" id="appearance">${[["system", "System"], ["light", "Light"], ["dark", "Dark"], ["classic", "Classic"]].map(([v, l]) => `<button data-appearance="${v}" class="${localGet("appearance", "dark") === v ? "on" : ""}">${l}</button>`).join("")}</div></div></div></div></div>
+          <div class="seg" id="appearance">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([v, l]) => `<button data-appearance="${v}" class="${localGet("appearance", "dark") === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
+          <div class="field"><label>Style <span class="hint">· Classic is System 7 chrome: square windows, pixel glyphs, Chicago, on Light or Dark</span></label>
+          <div class="seg" id="style-seg">${[["modern", "Modern"], ["classic", "Classic"]].map(([v, l]) => `<button data-style="${v}" class="${localGet("style", "modern") === v ? "on" : ""}">${l}</button>`).join("")}</div></div></div></div></div>
 
       <div class="sec"><div class="sec-title">${ICON.drive}Drives</div>
         <div class="box">
@@ -2096,6 +2100,11 @@ async function openSettings(focus) {
   for (const b of document.querySelectorAll("[data-appearance]")) b.onclick = () => {
     localSet("appearance", b.dataset.appearance);
     document.querySelectorAll("[data-appearance]").forEach((x) => x.classList.toggle("on", x === b));
+    if (applyAppearance() && S.state) { render(); openSettings(); }
+  };
+  for (const b of document.querySelectorAll("[data-style]")) b.onclick = () => {
+    localSet("style", b.dataset.style);
+    document.querySelectorAll("[data-style]").forEach((x) => x.classList.toggle("on", x === b));
     if (applyAppearance() && S.state) { render(); openSettings(); }
   };
   // Preferences save as they change.
