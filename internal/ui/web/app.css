@@ -761,7 +761,9 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .map-legend { background: #000; }
 :root[data-theme="classic"] .tabs button, :root[data-theme="classic"] .sheet-head h2, :root[data-theme="classic"] .toolbar-title, :root[data-theme="classic"] .section-head h2,
 :root[data-theme="classic"] .card-title h3, :root[data-theme="classic"] .node b, :root[data-theme="classic"] .empty h2, :root[data-theme="classic"] .term-title,
-:root[data-theme="classic"] .mc-head b { font-family: var(--chicago); font-weight: 400; letter-spacing: 0; }
+:root[data-theme="classic"] .mc-head b, :root[data-theme="classic"] .btn, :root[data-theme="classic"] .seg button, :root[data-theme="classic"] .select select,
+:root[data-theme="classic"] select.plain, :root[data-theme="classic"] .pill, :root[data-theme="classic"] .pill b, :root[data-theme="classic"] .update-pill,
+:root[data-theme="classic"] .sec-title { font-family: var(--chicago); font-weight: 400; letter-spacing: 0; }
 :root[data-theme="classic"] .section-head h2 { text-transform: none; letter-spacing: 0; font-size: 13px; }
 :root[data-theme="classic"] .sheet-head h2 { font-size: 15px; }
 /* Pixel glyphs at whole multiples of their grid, so every pixel is a pixel. */
