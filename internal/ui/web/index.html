@@ -12,7 +12,7 @@
     var pref = "dark";
     try { pref = localStorage.getItem("appearance") || "dark"; } catch (e) {}
     var light = pref === "light" || (pref === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
-    document.documentElement.dataset.theme = light ? "light" : "dark";
+    document.documentElement.dataset.theme = pref === "classic" ? "classic" : light ? "light" : "dark";
   })();
 </script>
 </head>

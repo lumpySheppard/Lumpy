@@ -1884,8 +1884,8 @@ function wireFile(driveId, path, m) {
 function applyAppearance() {
   const pref = localGet("appearance", "dark");
   const light = pref === "light" || (pref === "system" && window.matchMedia("(prefers-color-scheme: light)").matches);
-  document.documentElement.dataset.theme = light ? "light" : "dark";
-  if (native) nativeCall("appearance", { theme: light ? "light" : "dark" });
+  document.documentElement.dataset.theme = pref === "classic" ? "classic" : light ? "light" : "dark";
+  if (native) nativeCall("appearance", { theme: light || pref === "classic" ? "light" : "dark" });
 }
 window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", applyAppearance);
 applyAppearance();
@@ -1924,7 +1924,7 @@ async function openSettings(focus) {
         </div></div>
       <div class="sec"><div class="sec-title">${ICON.gear}General</div>
         <div class="box"><div class="fields"><div class="field"><label>Appearance</label>
-          <div class="seg" id="appearance">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([v, l]) => `<button data-appearance="${v}" class="${localGet("appearance", "dark") === v ? "on" : ""}">${l}</button>`).join("")}</div></div></div></div></div>
+          <div class="seg" id="appearance">${[["system", "System"], ["light", "Light"], ["dark", "Dark"], ["classic", "Classic"]].map(([v, l]) => `<button data-appearance="${v}" class="${localGet("appearance", "dark") === v ? "on" : ""}">${l}</button>`).join("")}</div></div></div></div></div>
 
       <div class="sec"><div class="sec-title">${ICON.drive}Drives</div>
         <div class="box">
