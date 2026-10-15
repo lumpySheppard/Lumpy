@@ -759,13 +759,29 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .media-bar { background: #000; border: 1px solid #fff; padding: 8px 10px; box-shadow: 2px 2px 0 #fff; margin-bottom: 12px; }
 :root[data-theme="classic"] .list { background: #000; }
 :root[data-theme="classic"] .map-legend { background: #000; }
+/* Two faces, one rule. Chicago for chrome: what you click and what
+   names a thing (menu bar, titles, buttons, menus, pills, table
+   headers). The system face for what you read (values, descriptions,
+   labels, hints, badges). SF Mono for paths and timecodes. */
 :root[data-theme="classic"] .tabs button, :root[data-theme="classic"] .sheet-head h2, :root[data-theme="classic"] .toolbar-title, :root[data-theme="classic"] .section-head h2,
 :root[data-theme="classic"] .card-title h3, :root[data-theme="classic"] .node b, :root[data-theme="classic"] .empty h2, :root[data-theme="classic"] .term-title,
 :root[data-theme="classic"] .mc-head b, :root[data-theme="classic"] .btn, :root[data-theme="classic"] .seg button, :root[data-theme="classic"] .select select,
 :root[data-theme="classic"] select.plain, :root[data-theme="classic"] .pill, :root[data-theme="classic"] .pill b, :root[data-theme="classic"] .update-pill,
-:root[data-theme="classic"] .sec-title { font-family: var(--chicago); font-weight: 400; letter-spacing: 0; }
-:root[data-theme="classic"] .section-head h2 { text-transform: none; letter-spacing: 0; font-size: 13px; }
+:root[data-theme="classic"] .sec-title, :root[data-theme="classic"] .job-head h3, :root[data-theme="classic"] .list th, :root[data-theme="classic"] .mb-head b,
+:root[data-theme="classic"] .sheet-foot .btn { font-family: var(--chicago); font-weight: 400; letter-spacing: 0; text-transform: none; }
+/* Sizes: titles 15 / 14 / 13, controls and headers 12. */
 :root[data-theme="classic"] .sheet-head h2 { font-size: 15px; }
+:root[data-theme="classic"] .card-title h3, :root[data-theme="classic"] .empty h2 { font-size: 14px; }
+:root[data-theme="classic"] .toolbar-title, :root[data-theme="classic"] .section-head h2, :root[data-theme="classic"] .sec-title, :root[data-theme="classic"] .node b, :root[data-theme="classic"] .job-head h3, :root[data-theme="classic"] .mc-head b { font-size: 13px; }
+:root[data-theme="classic"] .tabs button, :root[data-theme="classic"] .btn, :root[data-theme="classic"] .btn.small, :root[data-theme="classic"] .seg button, :root[data-theme="classic"] .select select,
+:root[data-theme="classic"] select.plain, :root[data-theme="classic"] .pill, :root[data-theme="classic"] .list th { font-size: 12px; }
+/* What you read: the system face at 13, secondary at 12, hints and badges at 11.5. */
+:root[data-theme="classic"] body, :root[data-theme="classic"] input, :root[data-theme="classic"] textarea, :root[data-theme="classic"] .badge, :root[data-theme="classic"] .kv,
+:root[data-theme="classic"] .field label, :root[data-theme="classic"] .hint, :root[data-theme="classic"] .alert, :root[data-theme="classic"] .switch, :root[data-theme="classic"] .card-foot,
+:root[data-theme="classic"] .node small, :root[data-theme="classic"] .e-lbl, :root[data-theme="classic"] .clip-tile .meta, :root[data-theme="classic"] .job-stats, :root[data-theme="classic"] .toast,
+:root[data-theme="classic"] .sheet-head .sub { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+:root[data-theme="classic"] .badge { font-weight: 500; font-size: 11.5px; }
+:root[data-theme="classic"] .mono, :root[data-theme="classic"] .term-body, :root[data-theme="classic"] .clip-name small, :root[data-theme="classic"] .job-current, :root[data-theme="classic"] .job-outcome { font-family: var(--mono); }
 /* Pixel glyphs at whole multiples of their grid, so every pixel is a pixel. */
 :root[data-theme="classic"] .btn svg, :root[data-theme="classic"] .icon-btn svg, :root[data-theme="classic"] .sec-title svg, :root[data-theme="classic"] .toolbar-title svg,
 :root[data-theme="classic"] .section-head svg, :root[data-theme="classic"] .mc-head svg, :root[data-theme="classic"] .n-tag svg, :root[data-theme="classic"] .card-meta svg,
@@ -813,8 +829,7 @@ main.map-main { padding: 0; overflow: hidden; }
 }
 :root[data-theme="classic"] .card:hover { transform: none; border-color: #fff; box-shadow: 2px 2px 0 #fff; }
 :root[data-theme="classic"] .card.picked { outline: 2px solid #fff; outline-offset: 2px; }
-:root[data-theme="classic"] .card-title h3 { font-size: 14px; }
-:root[data-theme="classic"] .list th { font-family: inherit; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
+
 :root[data-theme="classic"] .sheet { padding-top: 13px; overflow: visible; }
 :root[data-theme="classic"] .sheet::before { border-radius: 0; }
 :root[data-theme="classic"] .sheet-head { border-bottom: 1px solid #fff; padding: 12px 16px 10px; }
