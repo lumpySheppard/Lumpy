@@ -750,9 +750,7 @@ main.map-main { padding: 0; overflow: hidden; }
   --ok: #3ddc84; --warn: #ffcc4d; --orange: #ff9f43; --bad: #ff5c5c; --blue: #4fa3ff; --cyan: #5ad7ff; --ring: #fff;
   --radius: 0px; --shadow: 2px 2px 0 #fff;
   --chicago: "ChicagoFLF", Chicago, Charcoal, Geneva, "Lucida Grande", sans-serif;
-  --stripes: repeating-linear-gradient(to bottom, #000 0 1px, #fff 1px 2px);
-  --mono: Monaco, "ChicagoFLF", ui-monospace, Menlo, monospace;
-  font: 12px/1.4 Geneva, "Lucida Grande", Verdana, "Helvetica Neue", sans-serif;
+  --stripes: repeating-linear-gradient(to bottom, transparent 0 1px, rgba(255,255,255,.85) 1px 2px);
 }
 :root[data-theme="classic"] body { background: var(--bg); -webkit-font-smoothing: antialiased; }
 :root[data-theme="classic"] #main { background: var(--bg); }
@@ -761,11 +759,30 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .media-bar { background: #000; border: 1px solid #fff; padding: 8px 10px; box-shadow: 2px 2px 0 #fff; margin-bottom: 12px; }
 :root[data-theme="classic"] .list { background: #000; }
 :root[data-theme="classic"] .map-legend { background: #000; }
-:root[data-theme="classic"] h1, :root[data-theme="classic"] h2, :root[data-theme="classic"] h3, :root[data-theme="classic"] .tabs button, :root[data-theme="classic"] .btn,
-:root[data-theme="classic"] .seg button, :root[data-theme="classic"] .toolbar-title, :root[data-theme="classic"] .sec-title, :root[data-theme="classic"] .section-head h2,
-:root[data-theme="classic"] .card-title h3, :root[data-theme="classic"] .node b, :root[data-theme="classic"] .job-head h3, :root[data-theme="classic"] .select select,
-:root[data-theme="classic"] select.plain, :root[data-theme="classic"] .pill b, :root[data-theme="classic"] .update-pill { font-family: var(--chicago); font-weight: 400; letter-spacing: 0; }
-:root[data-theme="classic"] .section-head h2 { text-transform: none; letter-spacing: 0; font-size: 12px; }
+:root[data-theme="classic"] .tabs button, :root[data-theme="classic"] .sheet-head h2, :root[data-theme="classic"] .toolbar-title, :root[data-theme="classic"] .section-head h2,
+:root[data-theme="classic"] .card-title h3, :root[data-theme="classic"] .node b, :root[data-theme="classic"] .empty h2, :root[data-theme="classic"] .term-title,
+:root[data-theme="classic"] .mc-head b { font-family: var(--chicago); font-weight: 400; letter-spacing: 0; }
+:root[data-theme="classic"] .section-head h2 { text-transform: none; letter-spacing: 0; font-size: 13px; }
+:root[data-theme="classic"] .sheet-head h2 { font-size: 15px; }
+/* Pixel glyphs at whole multiples of their grid, so every pixel is a pixel. */
+:root[data-theme="classic"] .btn svg, :root[data-theme="classic"] .icon-btn svg, :root[data-theme="classic"] .sec-title svg, :root[data-theme="classic"] .toolbar-title svg,
+:root[data-theme="classic"] .section-head svg, :root[data-theme="classic"] .mc-head svg, :root[data-theme="classic"] .n-tag svg, :root[data-theme="classic"] .card-meta svg,
+:root[data-theme="classic"] .job-head svg, :root[data-theme="classic"] .map-legend svg { width: 16px; height: 16px; }
+:root[data-theme="classic"] .badge svg, :root[data-theme="classic"] .pill svg, :root[data-theme="classic"] .card-foot svg, :root[data-theme="classic"] .tree svg, :root[data-theme="classic"] .list svg { width: 12px; height: 12px; }
+:root[data-theme="classic"] .empty svg { width: 48px; height: 48px; }
+:root[data-theme="classic"] svg.px12 { width: 12px; height: 12px; }
+:root[data-theme="classic"] .empty svg.px12 { width: 36px; height: 36px; }
+:root[data-theme="classic"] .sheet-head .drive-ico { width: 32px; height: 32px; }
+:root[data-theme="classic"] .card-pic { width: 96px; height: 72px; margin: 0 0 0 -4px; filter: none; }
+:root[data-theme="classic"] .node .n-pic { width: 64px; height: 48px; margin-left: -2px; filter: none; }
+:root[data-theme="classic"] .loading .pic { width: 96px; height: 72px; }
+:root[data-theme="classic"] .loading.small .pic { width: 32px; height: 24px; }
+:root[data-theme="classic"] .px { color: #fff; }
+:root[data-theme="classic"] .px.reading { animation: px-blink .7s steps(2) infinite; }
+@keyframes px-blink { 50% { opacity: .35; } }
+/* The capacity gauge: a square tank of dither inside a frame. */
+:root[data-theme="classic"] .ring.sq svg { transform: none; }
+:root[data-theme="classic"] .ring.sq .pct { color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
 /* The menu bar. */
 :root[data-theme="classic"] .topbar { background: #000; border-bottom: 1px solid #fff; min-height: 34px; padding: 4px 14px; gap: 14px; }
 :root[data-theme="classic"] .toolbar { background: #000; }
@@ -782,8 +799,10 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .toolbar { background: #000; border-bottom: 1px solid #fff; padding: 8px 14px; }
 :root[data-theme="classic"] .card, :root[data-theme="classic"] .sheet, :root[data-theme="classic"] .popover, :root[data-theme="classic"] .job, :root[data-theme="classic"] .toast,
 :root[data-theme="classic"] .map-card, :root[data-theme="classic"] .map-tools, :root[data-theme="classic"] .clip-tile, :root[data-theme="classic"] .node {
-  background: #000; border: 1px solid #fff; border-radius: 0; box-shadow: 2px 2px 0 #fff; backdrop-filter: none; -webkit-backdrop-filter: none; animation: none;
+  background: rgba(0,0,0,.62); border: 1px solid #fff; border-radius: 0; box-shadow: 2px 2px 0 #fff; backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%); animation: none;
 }
+:root[data-theme="classic"] .sheet, :root[data-theme="classic"] .popover, :root[data-theme="classic"] .map-card, :root[data-theme="classic"] .toast { background: rgba(8,8,10,.78); }
+:root[data-theme="classic"] .sheet-body, :root[data-theme="classic"] .sheet-head { background: transparent; }
 :root[data-theme="classic"] .card { padding-top: 26px; }
 :root[data-theme="classic"] .card::before, :root[data-theme="classic"] .sheet::before, :root[data-theme="classic"] .popover::before, :root[data-theme="classic"] .job::before {
   content: ""; position: absolute; left: 0; right: 0; top: 0; height: 13px; background: var(--stripes); border-bottom: 1px solid #fff; pointer-events: none;
@@ -793,12 +812,11 @@ main.map-main { padding: 0; overflow: hidden; }
 }
 :root[data-theme="classic"] .card:hover { transform: none; border-color: #fff; box-shadow: 2px 2px 0 #fff; }
 :root[data-theme="classic"] .card.picked { outline: 2px solid #fff; outline-offset: 2px; }
-:root[data-theme="classic"] .card-pic, :root[data-theme="classic"] .node .n-pic { filter: grayscale(1) contrast(1.15) brightness(1.1); }
 :root[data-theme="classic"] .card-title h3 { font-size: 14px; }
+:root[data-theme="classic"] .list th { font-family: inherit; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
 :root[data-theme="classic"] .sheet { padding-top: 13px; overflow: visible; }
 :root[data-theme="classic"] .sheet::before { border-radius: 0; }
-:root[data-theme="classic"] .sheet-head { background: #000; border-bottom: 1px solid #fff; padding: 12px 16px 10px; }
-:root[data-theme="classic"] .sheet-body { background: #000; }
+:root[data-theme="classic"] .sheet-head { border-bottom: 1px solid #fff; padding: 12px 16px 10px; }
 :root[data-theme="classic"] .sheet-foot { border-top: 1px solid #fff; }
 :root[data-theme="classic"] .popover, :root[data-theme="classic"] .job { position: relative; padding-top: 20px; }
 :root[data-theme="classic"] .popover { position: fixed; top: 40px; }
@@ -835,7 +853,7 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .badge.bad, :root[data-theme="classic"] .badge.qc-reject { color: var(--bad); border-color: var(--bad); background: #000; }
 :root[data-theme="classic"] .badge.info { background: #fff; color: #000; }
 :root[data-theme="classic"] .badge.proj { background: #000; color: #fff; border-color: #fff; }
-:root[data-theme="classic"] .box { background: #000; border: 1px solid #fff; border-radius: 0; }
+:root[data-theme="classic"] .box { background: rgba(0,0,0,.35); border: 1px solid #fff; border-radius: 0; }
 :root[data-theme="classic"] .alert { border: 1px solid #fff; border-radius: 0; background: #000; color: #fff; }
 :root[data-theme="classic"] .alert.bad { border-color: var(--bad); } :root[data-theme="classic"] .alert.warn { border-color: var(--warn); } :root[data-theme="classic"] .alert.ok { border-color: var(--ok); }
 :root[data-theme="classic"] .bar { height: 10px; border: 1px solid #fff; border-radius: 0; background: #000; }
@@ -852,7 +870,7 @@ main.map-main { padding: 0; overflow: hidden; }
 /* The terminal is a MacTerminal window: black on white, Monaco. */
 :root[data-theme="classic"] .term { border: 1px solid #fff; border-radius: 0; background: #000; }
 :root[data-theme="classic"] .term-bar { background: var(--stripes); border-bottom: 1px solid #fff; padding: 2px 10px; }
-:root[data-theme="classic"] .term-title { background: #000; color: #fff; padding: 0 6px; flex: 0 1 auto; margin: 0 auto; font-family: var(--chicago); }
+:root[data-theme="classic"] .term-title { background: #000; color: #fff; padding: 0 6px; flex: 0 1 auto; margin: 0 auto; }
 :root[data-theme="classic"] .term-copy { background: #000; color: #fff; }
 :root[data-theme="classic"] .term-body { color: #fff; }
 :root[data-theme="classic"] .term-body .t-prompt, :root[data-theme="classic"] .term-body .t-head { color: #fff; }
@@ -862,7 +880,7 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .term-body .t-fail, :root[data-theme="classic"] .term-body .t-bad { color: var(--bad); }
 :root[data-theme="classic"] .term-body .t-warn { color: var(--warn); }
 /* Lists. */
-:root[data-theme="classic"] .list th { color: #fff; border-bottom: 1px solid #fff; font-family: var(--chicago); font-weight: 400; text-transform: none; letter-spacing: 0; }
+:root[data-theme="classic"] .list th { color: #fff; border-bottom: 1px solid #fff; }
 :root[data-theme="classic"] .list td { border-bottom: 1px dotted #fff; }
 :root[data-theme="classic"] tr.row:hover td { background: #fff; color: #000; }
 :root[data-theme="classic"] .clip-tile:hover { transform: none; }
@@ -884,7 +902,6 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-theme="classic"] .map-card { background: #000; border-radius: 0; }
 :root[data-theme="classic"] .map-tools { border-radius: 0; padding: 2px; }
 :root[data-theme="classic"] .empty { background: #000; border: 1px solid #fff; box-shadow: 2px 2px 0 #fff; padding: 20px 24px 24px; color: #fff; }
-:root[data-theme="classic"] .empty h2 { font-family: var(--chicago); font-weight: 400; }
 :root[data-theme="classic"] .kv dt { color: #b4b4bc; }
 :root[data-theme="classic"] .hint, :root[data-theme="classic"] .card-foot, :root[data-theme="classic"] .card-title .vol, :root[data-theme="classic"] .sheet-head .sub, :root[data-theme="classic"] .job-head .when { color: #b4b4bc; }
 :root[data-theme="classic"] .swatch { border-radius: 0; }
