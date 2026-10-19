@@ -2318,7 +2318,7 @@ function renderMap() {
       ${m.edges.map(edgeLabel).join("")}
       ${m.nodes.map(node).join("")}
     </div>
-    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="hint">· drag to pan, ⌘ + scroll to zoom, drag a node to move it</span></div>
+    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="hint">· drag to pan, ⌘ + scroll to zoom, drag a node to move it, drag a connector onto a project to add or remove a drive</span></div>
     <div class="map-tools"><button class="icon-btn" data-map="out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button class="icon-btn" data-map="in" title="Zoom in">${ICON.plus}</button><button class="btn small" data-map="fit">Fit</button><button class="btn small" data-map="arrange" title="Put every node back where Lumpy lays it out">Arrange</button></div>
     ${sel ? mapCard(m, sel) : ""}
   </div>`;
@@ -2372,6 +2372,27 @@ function mapZoom(f, cx, cy) {
   MAP.k = k;
   applyMap();
 }
+// wireDrop connects a drive to a project (asking which folder) or, when
+// the project already holds the drive, offers to take it out.
+function wireDrop(a, b) {
+  const pn = a.type === "project" ? a : b, dn = a.type === "drive" ? a : b;
+  const p = pn.p, d = dn.d;
+  const held = (p.sources || []).filter((s) => s.driveId === d.id);
+  const change = async (body) => {
+    try { await api(`/api/projects/${p.id}`, { method: "PATCH", body }); await loadState(); S.projects = null; renderMap(); }
+    catch (e) { toast(e.message, true); }
+  };
+  if (!held.length) {
+    addSourceDialog((src) => change({ add: [src] }), d.id, { lock: true, title: `Add ${d.title} to ${p.name}`, ok: "Add" });
+    return;
+  }
+  openSheet(`<div class="sheet-head"><h2>Take ${esc(d.title)} out of ${esc(p.name)}?</h2><div class="actions"><button class="icon-btn" id="wd-close">${ICON.x}</button></div></div>
+    <div class="sheet-body" style="padding-top:12px"><p class="hint">${held.map((s) => esc(s.folder || "the whole drive")).join(", ")} would leave the project. Nothing on the drive is touched.</p></div>
+    <div class="sheet-foot"><button class="btn" id="wd-cancel">Keep it</button><button class="btn danger-fill" id="wd-ok">Take it out</button></div>`, true);
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  $("#wd-close").onclick = $("#wd-cancel").onclick = close;
+  $("#wd-ok").onclick = () => { close(); change({ remove: held }); };
+}
 function openNode(id) {
   if (id === "mac") { S.tab = "connected"; localSet("tab", S.tab); render(); return; }
   if (id[0] === "p") { S.tab = "projects"; S.project = +id.slice(1); localSet("tab", S.tab); render(); return; }
@@ -2385,17 +2406,53 @@ function wireMap(m) {
     if (e.ctrlKey || e.metaKey) mapZoom(Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top);
     else { MAP.x -= e.deltaX; MAP.y -= e.deltaY; applyMap(); }
   }, { passive: false });
+  // World coordinates of a pointer position.
+  const toWorld = (e) => { const r = box.getBoundingClientRect(); return { x: (e.clientX - r.left - MAP.x) / MAP.k, y: (e.clientY - r.top - MAP.y) / MAP.k }; };
+  const socketOf = (node, n, e) => {
+    // A press within the connector zone at either edge of a drive or
+    // project node starts a wire instead of moving the node.
+    if (!n || n.type === "mac") return null;
+    const r = node.getBoundingClientRect(), zone = 14 * MAP.k;
+    if (e.clientX - r.left <= zone) return { x: n.x, y: n.y + node.offsetHeight / 2 };
+    if (r.right - e.clientX <= zone) return { x: n.x + node.offsetWidth, y: n.y + node.offsetHeight / 2 };
+    return null;
+  };
   box.onpointerdown = (e) => {
     if (e.button !== 0 || e.target.closest(".map-tools, .map-card, button")) return;
     const node = e.target.closest(".node");
     const n = node ? m.nodes.find((x) => x.id === node.dataset.node) : null;
+    const socket = node && socketOf(node, n, e);
+    if (socket) {
+      MAP.drag = { wire: true, from: n, socket, node };
+      try { box.setPointerCapture(e.pointerId); } catch {}
+      box.classList.add("wiring");
+      return;
+    }
     MAP.drag = { sx: e.clientX, sy: e.clientY, x: MAP.x, y: MAP.y, node, n, nx: n && n.x, ny: n && n.y, moved: false };
     box.setPointerCapture(e.pointerId);
     if (!node) box.classList.add("panning");
   };
+  const wireTarget = (e, d) => {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const node = el && el.closest(".node");
+    const n = node ? m.nodes.find((x) => x.id === node.dataset.node) : null;
+    if (!n || n === d.from || n.type === "mac" || n.type === d.from.type) return null;
+    return { node, n };
+  };
   box.onpointermove = (e) => {
     const d = MAP.drag;
     if (!d) return;
+    if (d.wire) {
+      const w = toWorld(e), edges = world.querySelector(".map-edges");
+      let draft = edges.querySelector(".draft");
+      if (!draft) { edges.insertAdjacentHTML("beforeend", `<g class="edge-g draft"><path d=""/></g>`); draft = edges.querySelector(".draft"); }
+      const dx = (w.x - d.socket.x) / 2;
+      draft.querySelector("path").setAttribute("d", `M${d.socket.x} ${d.socket.y} C${d.socket.x + dx} ${d.socket.y} ${w.x - dx} ${w.y} ${w.x} ${w.y}`);
+      const t = wireTarget(e, d);
+      world.querySelectorAll(".node.target").forEach((x) => { if (!t || x !== t.node) x.classList.remove("target"); });
+      if (t) t.node.classList.add("target");
+      return;
+    }
     const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
     if (d.node) {
@@ -2412,6 +2469,14 @@ function wireMap(m) {
     if (!d) return;
     MAP.drag = null;
     box.classList.remove("panning");
+    if (d.wire) {
+      box.classList.remove("wiring");
+      const t = e.type === "pointerup" ? wireTarget(e, d) : null;
+      world.querySelectorAll(".draft, .node.target").forEach((x) => x.classList ? x.classList.remove("target") : x.remove());
+      world.querySelectorAll(".draft").forEach((x) => x.remove());
+      if (t) wireDrop(d.from, t.n);
+      return;
+    }
     if (d.node) {
       if (d.moved) { localSet("map.pos", JSON.stringify(MAP.pos)); renderMap(); }
       else if (MAP.last && MAP.last.id === d.n.id && Date.now() - MAP.last.at < 400) { MAP.last = null; openNode(d.n.id); }

@@ -651,6 +651,11 @@ main.map-main { padding: 0; overflow: hidden; }
 /* Connectors: a socket on each side; a wire's end dot lands on one. */
 .node::before, .node::after { content: ""; position: absolute; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--bg); border: 1.5px solid color-mix(in srgb, var(--pc, var(--accent)) 60%, var(--line-2)); }
 .node::before { left: -5px; }
+.map.wiring { cursor: crosshair; }
+.map.wiring .node { cursor: crosshair; }
+.edge-g.draft { color: var(--accent); }
+.edge-g.draft path { stroke-dasharray: 5 4; stroke-width: 2; }
+.node.target { outline: 2px solid var(--accent); outline-offset: 3px; }
 .node::after { right: -5px; }
 .node:hover { border-color: color-mix(in srgb, var(--pc, var(--accent)) 85%, var(--line)); box-shadow: 0 10px 28px rgba(0,0,0,.5), 0 0 22px color-mix(in srgb, var(--pc, var(--accent)) 35%, transparent); }
 .node.sel { border-color: color-mix(in srgb, var(--pc, var(--accent)) 100%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc, var(--accent)) 30%, transparent), 0 10px 28px rgba(0,0,0,.5); }
