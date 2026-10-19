@@ -621,7 +621,26 @@ function render() {
   main.scrollTop = keepScroll;
 }
 
+// Drives stay with their project: grouped by the first project each
+// belongs to, projects by name, drives in no project last; the chosen
+// sort applies within each group.
+function driveFamilies(ds) {
+  const names = Object.fromEntries((S.state.projects || []).map((p) => [p.id, p.name]));
+  const groups = new Map();
+  for (const d of ds) {
+    const pid = (d.projects || []).find((id) => names[id] !== undefined);
+    const k = pid === undefined ? "" : String(pid);
+    if (!groups.has(k)) groups.set(k, { name: pid === undefined ? "Not in a project" : names[pid], ds: [] });
+    groups.get(k).ds.push(d);
+  }
+  return [...groups.entries()].sort(([a, x], [b, y]) => (a === "") - (b === "") || x.name.localeCompare(y.name)).map(([, g]) => g);
+}
 function drivesHTML(ds) {
+  const fams = driveFamilies(ds);
+  if (fams.length > 1) return fams.map((g) => `<div class="section-head"><h2>${esc(g.name)}</h2><span>${g.ds.length}</span></div>${drivesHTML1(g.ds)}`).join("");
+  return drivesHTML1(ds);
+}
+function drivesHTML1(ds) {
   if (S.view === "list") {
     return `<table class="list"><thead><tr><th>Name</th><th>Client · Project</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th class="num">Files</th><th>Backups</th><th>Last check</th><th>Last seen</th></tr></thead><tbody>
       ${ds.map((d) => {
@@ -1049,7 +1068,7 @@ function renderProjectPage() {
               : ready ? `<div class="step-run"><span class="hint">Copy into folder</span><input class="path-input" data-folder="${esc(t.sourceId)}|${esc(t.destId)}" value="${esc(p.name)}" spellcheck="false"><span class="hint">on ${esc(driveTitle(t.destId))}</span></div>` : ""}
           </div>`;
         }).join("")}
-        ${data.unplacedBytes ? `<div class="alert bad" style="margin-top:10px"><b>${bytes(data.unplacedBytes)} has nowhere to go.</b> No ${anyDest ? "drive in the library" : "chosen destination"} has room for these files (each needs a drive that doesn't already hold it). ${anyDest ? "Log a drive" : "Allow a drive"} with at least ${bytes(data.unplacedBytes + data.reserve)} free, or free up space.
+        ${data.unplacedBytes ? `<div class="alert bad" style="margin-top:10px"><b>${bytes(data.unplacedBytes)} has nowhere to go.</b> No ${anyDest ? "drive in the project" : "chosen destination"} has room for these files (each needs a drive that doesn't already hold it). ${anyDest ? "Log a drive" : "Allow a drive"} with at least ${bytes(data.unplacedBytes + data.reserve)} free, or free up space.
           <div class="chips">${data.unplaced.map((g) => `<span class="chip">${driveTitle(p.sources[g.source].driveId)} / ${esc(g.folder === "." ? "(top level)" : g.folder)}<small>${bytes(g.bytes)}</small></span>`).join("")}</div></div>` : ""}
       </section>
 
@@ -1096,8 +1115,8 @@ function renderProjectPage() {
 
       <section class="panel">
         <h2>Back up onto</h2>
-        <p class="hint">Where the plan may put copies. Lumpy never copies a file onto a drive that already holds it.${(data.backupDrives || []).length ? ` <b>This project has backup drives, so copies go only onto ${esc((data.backupDrives || []).map(driveTitle).join(", "))}.</b>` : ""}</p>
-        <label class="check-row"><input type="radio" name="dest-mode" value="any" ${anyDest ? "checked" : ""}><span>Any drive in the library with room</span></label>
+        <p class="hint">Copies stay inside the project: on its backup drives, or on its own drives, or only the drives ticked here. Nothing is copied onto a drive outside the project. Lumpy never copies a file onto a drive that already holds it.${(data.backupDrives || []).length ? ` <b>This project has backup drives, so copies go only onto ${esc((data.backupDrives || []).map(driveTitle).join(", "))}.</b>` : ""}</p>
+        <label class="check-row"><input type="radio" name="dest-mode" value="any" ${anyDest ? "checked" : ""}><span>The project's own drives (backup drives first)</span></label>
         <label class="check-row"><input type="radio" name="dest-mode" value="only" ${anyDest ? "" : "checked"}><span>Only these drives</span></label>
         <div class="checks" id="dest-list" style="margin-top:8px;${anyDest ? "opacity:.55" : ""}">${(S.state.drives || []).map((d) => `<label><input type="checkbox" data-dest="${esc(d.id)}" ${dest.has(d.id) ? "checked" : ""} ${anyDest ? "disabled" : ""}><span class="dot" style="background:${d.connected ? "var(--ok)" : COLORS[d.labels.color] || "var(--muted)"}"></span>${esc(d.title)}<span class="hint">${bytes(d.free)} free${d.connected ? " · plugged in" : ""}${d.labels.noBackups ? " · marked “no backups here”" : ""}</span></label>`).join("")}</div>
         <p class="hint" style="margin:8px 0 0">Drives marked “no backups here” in their details (camera cards, loaners) are skipped unless ticked above.</p>

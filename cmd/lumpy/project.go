@@ -61,9 +61,20 @@ func projectSpaces(db *catalog.DB, p *catalog.Project) ([]catalog.DriveSpace, ma
 			mounted[v.ID] = v
 		}
 	}
+	// Copies stay inside the project, as in the app.
 	allowed := map[string]bool{}
-	for _, id := range p.DestIDs {
+	for _, id := range p.BackupDrives() {
 		allowed[id] = true
+	}
+	if len(allowed) == 0 {
+		for _, id := range p.DestIDs {
+			allowed[id] = true
+		}
+	}
+	if len(allowed) == 0 {
+		for _, id := range p.DriveIDs() {
+			allowed[id] = true
+		}
 	}
 	drives := map[string]*catalog.Drive{}
 	var spaces []catalog.DriveSpace
@@ -156,7 +167,7 @@ func projectShow(c *cmdCtx, p *catalog.Project) error {
 		}
 		c.r.Info("  backups go onto: %s", strings.Join(names, ", "))
 	} else {
-		c.r.Info("  backups go onto: any drive in the library with room")
+		c.r.Info("  backups go onto: the project's own drives")
 	}
 	plan := catalog.MakePlanRouted(h, spaces, projectLayout(p, drives), routeFor(p))
 	c.r.Info("")

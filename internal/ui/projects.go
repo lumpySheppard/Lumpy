@@ -195,14 +195,20 @@ func (s *Server) candidates(p *catalog.Project) ([]catalog.DriveSpace, []Candida
 	for _, d := range all {
 		drives[d.ID] = d
 	}
-	// Backup folders decide where copies go; failing that, the chosen
-	// destinations; failing that, any drive with room.
+	// Copies stay inside the project: backup folders decide where they
+	// go; failing that, the chosen destinations; failing that, the
+	// project's own drives. Never a drive outside the project.
 	allowed := map[string]bool{}
 	for _, id := range p.BackupDrives() {
 		allowed[id] = true
 	}
 	if len(allowed) == 0 {
 		for _, id := range p.DestIDs {
+			allowed[id] = true
+		}
+	}
+	if len(allowed) == 0 {
+		for _, id := range p.DriveIDs() {
 			allowed[id] = true
 		}
 	}
