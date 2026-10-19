@@ -915,7 +915,8 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .list { background: var(--paper); }
 :root[data-style="classic"] .list th { color: var(--ink); border-bottom: 1px solid var(--ink); }
 :root[data-style="classic"] .list td { border-bottom: 1px dotted var(--ink); }
-:root[data-style="classic"] tr.row:hover td { background: var(--ink); color: var(--paper); }
+/* Hover and selection tint rather than invert, so text stays readable. */
+:root[data-style="classic"] tr.row:hover td, :root[data-style="classic"] .tree-row.folder:hover, :root[data-style="classic"] .tree-row:hover { background: var(--accent-soft); color: var(--text); }
 :root[data-style="classic"] .clip-tile:hover { transform: none; }
 /* The filmstrip is a light table: white tiles on the grey desktop. The
    data table stays dark. */
