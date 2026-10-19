@@ -168,7 +168,9 @@ node and what it touches lights up, with a card that opens the project,
 the drive's details, or the Connected tab; double-click a drive for its
 details, a project for its page. Drag to pan, ⌘ + scroll to zoom, drag a node to move it
 (Lumpy remembers), **Fit** to see everything, **Arrange** to put the
-nodes back.
+nodes back. Drag a wire from a drive's connector onto a project (or the
+other way) to add the drive to it, choosing the folder; drop it on a
+project that already holds the drive to take it out.
 
 ### Drive library
 
