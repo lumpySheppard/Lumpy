@@ -158,7 +158,7 @@ func projectShow(c *cmdCtx, p *catalog.Project) error {
 	} else {
 		c.r.Info("  backups go onto: any drive in the library with room")
 	}
-	plan := catalog.MakePlan(h, spaces, projectLayout(p, drives))
+	plan := catalog.MakePlanRouted(h, spaces, projectLayout(p, drives), routeFor(p))
 	c.r.Info("")
 	if len(plan.Transfers) == 0 && plan.UnplacedBytes == 0 {
 		c.r.Info("OK    nothing to copy: every checksummed file is on %d drives", p.Target)
@@ -202,11 +202,13 @@ func projectTransfer(ctx context.Context, c *cmdCtx, p *catalog.Project) error {
 	if err != nil {
 		return err
 	}
-	plan := catalog.MakePlan(h, spaces, projectLayout(p, drives))
+	plan := catalog.MakePlanRouted(h, spaces, projectLayout(p, drives), routeFor(p))
 	for _, t := range plan.Transfers {
 		if t.SourceID == src.ID && t.DestID == dst.ID {
 			folder := c.folder
-			if folder == "" {
+			if t.Folder != "" {
+				folder = t.Folder // the project's own folder on that drive
+			} else if folder == "" {
 				folder = p.Name
 			}
 			return job.Transfer(ctx, job.TransferOptions{Source: src, Dest: dst, Folder: folder, Files: t.Files,
@@ -214,6 +216,20 @@ func projectTransfer(ctx context.Context, c *cmdCtx, p *catalog.Project) error {
 		}
 	}
 	return fmt.Errorf("the plan has nothing to copy from %s to %s (see `lumpy project show %s`)", drives[src.ID].Title(), drives[dst.ID].Title(), shellArg(p.Name))
+}
+
+// routeFor copies a folder's files into the project's own folder on the
+// destination drive when it has one, keeping their relative paths.
+func routeFor(p *catalog.Project) func(catalog.Origin, string) (string, bool) {
+	return func(o catalog.Origin, destID string) (string, bool) {
+		if o.Source < 0 || o.Source >= len(p.Sources) {
+			return "", false
+		}
+		if r := p.RouteFor(p.Sources[o.Source], destID); r != nil {
+			return r.Folder, true
+		}
+		return "", false
+	}
 }
 
 // shellArg quotes an argument for pasting into a shell when needed.

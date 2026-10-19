@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -13,6 +14,33 @@ import (
 type Source struct {
 	DriveID string `json:"driveId"`
 	Folder  string `json:"folder"`
+	// Role is "" for a folder that holds the work, or "backup" for a
+	// folder that exists to hold copies of it: when a project has backup
+	// folders, the plan copies only onto their drives, and files found
+	// only in backup folders are not copied anywhere.
+	Role string `json:"role,omitempty"`
+	// Exclude lists sub-folders (relative to Folder) left out of the
+	// project: scratch, drafts, renders.
+	Exclude []string `json:"exclude,omitempty"`
+	// Into, when set, is the project folder on another drive that this
+	// folder's files are copied into, keeping their relative paths.
+	// Unset, the project works it out (see RouteFor).
+	Into *Source `json:"into,omitempty"`
+}
+
+// Same reports whether two sources name the same folder.
+func (s Source) Same(o Source) bool { return s.DriveID == o.DriveID && s.Folder == o.Folder }
+
+// Excludes reports whether a path on the drive falls under one of the
+// source's excluded sub-folders.
+func (s Source) Excludes(p string) bool {
+	for _, ex := range s.Exclude {
+		full := path.Join(s.Folder, ex)
+		if p == full || strings.HasPrefix(p, full+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // Base is the folder's own name, or "" for a whole drive.
@@ -36,6 +64,53 @@ type Project struct {
 	Created time.Time `json:"-"`
 	Sources []Source  `json:"sources"`
 	DestIDs []string  `json:"destIds"`
+}
+
+// BackupDrives lists the drives of the project's backup folders.
+func (p *Project) BackupDrives() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, s := range p.Sources {
+		if s.Role == "backup" && !seen[s.DriveID] {
+			seen[s.DriveID] = true
+			out = append(out, s.DriveID)
+		}
+	}
+	return out
+}
+
+// RouteFor says which of the project's folders on the destination drive
+// a source folder's files are copied into, keeping their paths relative
+// to the source folder: the one the source names (Into), else the only
+// project folder on that drive, else the one whose own name matches,
+// else the first. Nil when the project has no folder on that drive, so
+// the copy goes into a folder named after the project.
+func (p *Project) RouteFor(src Source, destID string) *Source {
+	if src.Into != nil && src.Into.DriveID == destID {
+		for i := range p.Sources {
+			if p.Sources[i].Same(*src.Into) {
+				return &p.Sources[i]
+			}
+		}
+	}
+	var there []*Source
+	for i := range p.Sources {
+		if p.Sources[i].DriveID == destID && !p.Sources[i].Same(src) {
+			there = append(there, &p.Sources[i])
+		}
+	}
+	switch len(there) {
+	case 0:
+		return nil
+	case 1:
+		return there[0]
+	}
+	for _, t := range there {
+		if t.Base() != "" && strings.EqualFold(t.Base(), src.Base()) {
+			return t
+		}
+	}
+	return there[0]
 }
 
 // DriveIDs lists the drives the project's sources are on, without repeats.
@@ -84,7 +159,7 @@ func (db *DB) Projects() ([]*Project, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	srcs, err := db.sql.Query(`SELECT ps.project_id, ps.drive_id, ps.folder FROM project_sources ps
+	srcs, err := db.sql.Query(`SELECT ps.project_id, ps.drive_id, ps.folder, ps.role, ps.exclude, ps.route FROM project_sources ps
 		JOIN drives d ON d.id = ps.drive_id ORDER BY d.name COLLATE NOCASE, ps.folder`)
 	if err != nil {
 		return nil, err
@@ -93,8 +168,18 @@ func (db *DB) Projects() ([]*Project, error) {
 	for srcs.Next() {
 		var pid int64
 		var s Source
-		if err := srcs.Scan(&pid, &s.DriveID, &s.Folder); err != nil {
+		var exclude, into string
+		if err := srcs.Scan(&pid, &s.DriveID, &s.Folder, &s.Role, &exclude, &into); err != nil {
 			return nil, err
+		}
+		if exclude != "" {
+			json.Unmarshal([]byte(exclude), &s.Exclude)
+		}
+		if into != "" {
+			var t Source
+			if json.Unmarshal([]byte(into), &t) == nil && t.DriveID != "" {
+				s.Into = &t
+			}
 		}
 		if p := byID[pid]; p != nil {
 			p.Sources = append(p.Sources, s)
@@ -183,6 +268,46 @@ func (db *DB) AddSource(projectID int64, driveID, folder string) error {
 	}
 	_, err = db.sql.Exec(`INSERT OR IGNORE INTO project_sources (project_id, drive_id, folder) VALUES (?, ?, ?)`, projectID, driveID, f)
 	return err
+}
+
+// SetSource changes a folder's role, exclusions and routing.
+func (db *DB) SetSource(projectID int64, s Source) error {
+	f, err := cleanFolder(s.Folder)
+	if err != nil {
+		return err
+	}
+	if s.Role != "" && s.Role != "backup" {
+		return fmt.Errorf("unknown role %q", s.Role)
+	}
+	var ex []string
+	for _, e := range s.Exclude {
+		if c, err := cleanFolder(e); err == nil && c != "" {
+			ex = append(ex, c)
+		}
+	}
+	exclude := ""
+	if len(ex) > 0 {
+		b, _ := json.Marshal(ex)
+		exclude = string(b)
+	}
+	into := ""
+	if s.Into != nil && s.Into.DriveID != "" {
+		t := Source{DriveID: s.Into.DriveID}
+		if t.Folder, err = cleanFolder(s.Into.Folder); err != nil {
+			return err
+		}
+		b, _ := json.Marshal(t)
+		into = string(b)
+	}
+	res, err := db.sql.Exec(`UPDATE project_sources SET role = ?, exclude = ?, route = ? WHERE project_id = ? AND drive_id = ? AND folder = ?`,
+		s.Role, exclude, into, projectID, s.DriveID, f)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("that folder is not in the project")
+	}
+	return nil
 }
 
 // RemoveSource takes a folder out of a project.

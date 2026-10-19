@@ -76,6 +76,12 @@ type SourceHealth struct {
 	// be reclaimed if needed.
 	Extra      int   `json:"extra"`
 	ExtraBytes int64 `json:"extraBytes"`
+	// Orphans are files found only in backup folders: nothing in the
+	// project's own folders matches them, so they are not copied anywhere.
+	Orphans       int   `json:"orphans"`
+	OrphanBytes   int64 `json:"orphanBytes"`
+	Excluded      int   `json:"excluded"`
+	ExcludedBytes int64 `json:"excludedBytes"`
 }
 
 // FolderHealth is one top-level folder of a drive, by bytes.
@@ -202,6 +208,11 @@ func (db *DB) ProjectHealth(sources []Source, target int) (*Health, error) {
 		}
 		seenHere := map[string]bool{}
 		for _, f := range rows {
+			if src.Excludes(f.p) {
+				perSource[i].Excluded++
+				perSource[i].ExcludedBytes += f.size
+				continue
+			}
 			if f.bad {
 				h.Damaged++
 				perSource[i].Damaged++
@@ -238,8 +249,29 @@ func (db *DB) ProjectHealth(sources []Source, target int) (*Health, error) {
 		}
 	}
 
+	// With backup folders in the project, a file found only in them is an
+	// orphan: it needs no copies of its own.
+	hasBackups := false
+	for _, s := range sources {
+		if s.Role == "backup" {
+			hasBackups = true
+		}
+	}
+	orphan := func(c *Content) bool {
+		if !hasBackups {
+			return false
+		}
+		for _, o := range c.Origins {
+			if sources[o.Source].Role != "backup" {
+				return false
+			}
+		}
+		return len(c.Origins) > 0
+	}
 	class := func(c *Content) string {
 		switch {
+		case orphan(c):
+			return "orphan"
 		case c.Unhashed && c.Copies() >= target:
 			return "likely"
 		case c.Unhashed:
@@ -255,6 +287,9 @@ func (db *DB) ProjectHealth(sources []Source, target int) (*Health, error) {
 		}
 	}
 	for _, c := range order {
+		if class(c) == "orphan" {
+			continue
+		}
 		h.Contents++
 		h.Bytes += c.Size
 		switch class(c) {
@@ -288,6 +323,11 @@ func (db *DB) ProjectHealth(sources []Source, target int) (*Health, error) {
 			sh.Files++
 			sh.Bytes += c.Size
 			switch class(c) {
+			case "orphan":
+				sh.Orphans++
+				sh.OrphanBytes += c.Size
+				sh.Files--
+				sh.Bytes -= c.Size
 			case "likely":
 				sh.Likely++
 				sh.LikelyBytes += c.Size

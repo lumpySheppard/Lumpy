@@ -16,10 +16,14 @@ type PlanFile struct {
 // Transfer is one step of a plan: copy these files from one drive to
 // another. Both drives must be plugged in to run it.
 type Transfer struct {
-	SourceID string     `json:"sourceId"`
-	DestID   string     `json:"destId"`
-	Files    []PlanFile `json:"files"`
-	Bytes    int64      `json:"bytes"`
+	SourceID string `json:"sourceId"`
+	DestID   string `json:"destId"`
+	// Folder is the project's own folder on the destination drive the
+	// files go into, keeping their paths relative to the source folder;
+	// "" when they go into a folder named at run time.
+	Folder string     `json:"folder"`
+	Files  []PlanFile `json:"files"`
+	Bytes  int64      `json:"bytes"`
 	// Folders summarises Files by top-level destination folder: name -> bytes.
 	Folders map[string]int64 `json:"folders"`
 }
@@ -49,6 +53,15 @@ type DriveSpace struct {
 // these two and run"), then the emptiest drive is filled first. layout
 // gives the destination path for an origin; see ProjectLayout.
 func MakePlan(h *Health, candidates []DriveSpace, layout func(Origin) string) *Plan {
+	return MakePlanRouted(h, candidates, layout, nil)
+}
+
+// MakePlanRouted is MakePlan with routing: route says, for an origin and
+// a destination drive, which project folder on that drive the file is
+// copied into with its relative path kept (ok false: none, so layout
+// decides the path under a run-time folder). Files bound for different
+// folders on the same drive become separate steps.
+func MakePlanRouted(h *Health, candidates []DriveSpace, layout func(Origin) string, route func(Origin, string) (string, bool)) *Plan {
 	const reserve = 2 << 30 // keep 2 GB free on every destination
 	plan := &Plan{Reserve: reserve}
 	space := map[string]*DriveSpace{}
@@ -59,12 +72,14 @@ func MakePlan(h *Health, candidates []DriveSpace, layout func(Origin) string) *P
 		remaining[d.ID] = d.Free - reserve
 	}
 	pairs := map[[2]string]*Transfer{}
-	pair := func(src, dst string) *Transfer {
-		k := [2]string{src, dst}
-		t := pairs[k]
+	steps := map[[3]string]*Transfer{}
+	pair := func(src, dst, folder string) *Transfer {
+		k := [3]string{src, dst, folder}
+		t := steps[k]
 		if t == nil {
-			t = &Transfer{SourceID: src, DestID: dst, Folders: map[string]int64{}}
-			pairs[k] = t
+			t = &Transfer{SourceID: src, DestID: dst, Folder: folder, Folders: map[string]int64{}}
+			steps[k] = t
+			pairs[[2]string{src, dst}] = t
 			plan.Transfers = append(plan.Transfers, t)
 		}
 		return t
@@ -126,8 +141,13 @@ func MakePlan(h *Health, candidates []DriveSpace, layout func(Origin) string) *P
 					src = o
 				}
 			}
-			t := pair(src.DriveID, best.ID)
-			dest := layout(src)
+			folder, dest := "", layout(src)
+			if route != nil {
+				if f, ok := route(src, best.ID); ok {
+					folder, dest = f, src.Rel
+				}
+			}
+			t := pair(src.DriveID, best.ID, folder)
 			t.Files = append(t.Files, PlanFile{Path: src.Path, Dest: dest, Size: c.Size, XXH64: c.XXH64})
 			t.Bytes += c.Size
 			t.Folders[TopFolder(dest)] += c.Size

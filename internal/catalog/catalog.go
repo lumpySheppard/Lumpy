@@ -187,6 +187,9 @@ func Open(path string) (*DB, error) {
 		`drives ADD COLUMN hashed INTEGER NOT NULL DEFAULT 0`,
 		`drives ADD COLUMN damaged INTEGER NOT NULL DEFAULT 0`,
 		`drives ADD COLUMN health TEXT NOT NULL DEFAULT ''`,
+		`project_sources ADD COLUMN role TEXT NOT NULL DEFAULT ''`,
+		`project_sources ADD COLUMN exclude TEXT NOT NULL DEFAULT ''`,
+		`project_sources ADD COLUMN route TEXT NOT NULL DEFAULT ''`,
 	} {
 		s.Exec(`ALTER TABLE ` + col)
 	}

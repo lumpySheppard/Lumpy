@@ -196,7 +196,7 @@ func TestProjectsCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := db.Project(p.ID)
-	if got.Name != "Feature Film" || got.Target != 3 || len(got.Sources) != 1 || got.Sources[0] != (Source{"A", "Jobs/Nike"}) || len(got.DestIDs) != 1 {
+	if got.Name != "Feature Film" || got.Target != 3 || len(got.Sources) != 1 || !got.Sources[0].Same(Source{DriveID: "A", Folder: "Jobs/Nike"}) || len(got.DestIDs) != 1 {
 		t.Fatalf("got %+v", got)
 	}
 	m, _ := db.DriveProjects()

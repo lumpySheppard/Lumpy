@@ -123,6 +123,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) (any, err
 		Target  *int             `json:"target"`
 		Add     []catalog.Source `json:"add"`
 		Remove  []catalog.Source `json:"remove"`
+		Set     *catalog.Source  `json:"set"` // a folder's role, exclusions and routing
 		DestIDs *[]string        `json:"destIds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -158,6 +159,11 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) (any, err
 			return nil, err
 		}
 	}
+	if body.Set != nil {
+		if err := s.db.SetSource(p.ID, *body.Set); err != nil {
+			return nil, badRequest("%v", err)
+		}
+	}
 	return s.db.Project(p.ID)
 }
 
@@ -189,9 +195,16 @@ func (s *Server) candidates(p *catalog.Project) ([]catalog.DriveSpace, []Candida
 	for _, d := range all {
 		drives[d.ID] = d
 	}
+	// Backup folders decide where copies go; failing that, the chosen
+	// destinations; failing that, any drive with room.
 	allowed := map[string]bool{}
-	for _, id := range p.DestIDs {
+	for _, id := range p.BackupDrives() {
 		allowed[id] = true
+	}
+	if len(allowed) == 0 {
+		for _, id := range p.DestIDs {
+			allowed[id] = true
+		}
 	}
 	var spaces []catalog.DriveSpace
 	var views []Candidate
@@ -222,6 +235,45 @@ func (s *Server) layout(p *catalog.Project, drives map[string]*catalog.Drive) fu
 		}
 		return safeFolder(id)
 	})
+}
+
+// route says which project folder on a destination drive an origin's
+// file is copied into, with its relative path kept.
+func (s *Server) route(p *catalog.Project) func(catalog.Origin, string) (string, bool) {
+	return func(o catalog.Origin, destID string) (string, bool) {
+		if o.Source < 0 || o.Source >= len(p.Sources) {
+			return "", false
+		}
+		if r := p.RouteFor(p.Sources[o.Source], destID); r != nil {
+			return r.Folder, true
+		}
+		return "", false
+	}
+}
+
+// Route is where one of a project's folders is copied on one drive.
+type Route struct {
+	DestID   string `json:"destId"`
+	Folder   string `json:"folder"`
+	Explicit bool   `json:"explicit"`
+}
+
+// routes lists, for each source folder, the project folders its copies
+// go into on each candidate drive.
+func (s *Server) routes(p *catalog.Project, spaces []catalog.DriveSpace) [][]Route {
+	out := make([][]Route, len(p.Sources))
+	for i, src := range p.Sources {
+		out[i] = []Route{}
+		for _, sp := range spaces {
+			if sp.ID == src.DriveID {
+				continue
+			}
+			if r := p.RouteFor(src, sp.ID); r != nil {
+				out[i] = append(out[i], Route{DestID: sp.ID, Folder: r.Folder, Explicit: src.Into != nil && src.Into.DriveID == sp.ID})
+			}
+		}
+	}
+	return out
 }
 
 // TransferView is a plan step with what the app needs to show and run it.
@@ -284,7 +336,7 @@ func (s *Server) projectDetail(w http.ResponseWriter, r *http.Request) (any, err
 	if err != nil {
 		return nil, err
 	}
-	plan := catalog.MakePlan(h, spaces, s.layout(p, drives))
+	plan := catalog.MakePlanRouted(h, spaces, s.layout(p, drives), s.route(p))
 	transfers := make([]TransferView, 0, len(plan.Transfers))
 	for _, t := range plan.Transfers {
 		tv := TransferView{Transfer: t, Files: len(t.Files),
@@ -304,6 +356,8 @@ func (s *Server) projectDetail(w http.ResponseWriter, r *http.Request) (any, err
 	return map[string]any{
 		"project":       p,
 		"health":        h,
+		"routes":        s.routes(p, spaces),
+		"backupDrives":  p.BackupDrives(),
 		"transfers":     transfers,
 		"candidates":    cands,
 		"unplaced":      groupBySource(plan.Unplaced),
@@ -325,6 +379,7 @@ func (s *Server) runTransfer(w http.ResponseWriter, r *http.Request) (any, error
 		SourceID    string `json:"sourceId"`
 		DestID      string `json:"destId"`
 		Folder      string `json:"folder"`
+		Into        string `json:"into"` // the routed step's project folder on the destination, "" for the unrouted step
 		SourceCheck *bool  `json:"sourceCheck"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -342,10 +397,10 @@ func (s *Server) runTransfer(w http.ResponseWriter, r *http.Request) (any, error
 	if err != nil {
 		return nil, err
 	}
-	plan := catalog.MakePlan(h, spaces, s.layout(p, drives))
+	plan := catalog.MakePlanRouted(h, spaces, s.layout(p, drives), s.route(p))
 	var step *catalog.Transfer
 	for _, t := range plan.Transfers {
-		if t.SourceID == src.ID && t.DestID == dst.ID {
+		if t.SourceID == src.ID && t.DestID == dst.ID && t.Folder == body.Into {
 			step = t
 		}
 	}
@@ -360,7 +415,9 @@ func (s *Server) runTransfer(w http.ResponseWriter, r *http.Request) (any, error
 		dstTitle = d.Title()
 	}
 	folder := strings.TrimSpace(body.Folder)
-	if folder == "" {
+	if step.Folder != "" {
+		folder = step.Folder // the project's own folder on that drive
+	} else if folder == "" {
 		folder = safeFolder(p.Name)
 	}
 	skip := body.SourceCheck != nil && !*body.SourceCheck

@@ -1034,7 +1034,7 @@ function renderProjectPage() {
 
       <section class="panel">
         <h2>Plan to reach ${p.target} copies</h2>
-        <p class="hint">Each step copies only the files that need another copy, from one drive to another. Plug both in and run it. Copies go into a folder named after the project on the destination${p.sources.length > 1 ? ", with a folder per source inside it" : ""}, keeping their paths. ${bytes(data.reserve)} is kept free on every drive.</p>
+        <p class="hint">Each step copies only the files that need another copy, from one drive to another. Plug both in and run it. Where the project already has a folder on the destination drive, copies go into it at the same relative paths; otherwise into a folder named after the project. ${bytes(data.reserve || 0)} is kept free on every drive.</p>
         ${data.transfers.length === 0 && !data.unplacedBytes ? `<div class="alert ok">${h.bytes ? `<b>Nothing to do.</b> Every checksummed file is on ${p.target} drives.` : "<b>Nothing to plan yet.</b>"}</div>` : ""}
         ${data.transfers.map((t) => {
           const ready = t.ready && !t.running && !t.busy;
@@ -1043,9 +1043,10 @@ function renderProjectPage() {
             <div class="step-head"><span class="dot ${connected(t.sourceId) ? "live" : ""}" style="background:${connected(t.sourceId) ? "var(--ok)" : "var(--muted)"}"></span><b>${esc(driveTitle(t.sourceId))}</b><span class="arrow">${ICON.arrow}</span>
               <span class="dot ${connected(t.destId) ? "live" : ""}" style="background:${connected(t.destId) ? "var(--ok)" : "var(--muted)"}"></span><b>${esc(driveTitle(t.destId))}</b>
               <span class="hint">${bytes(t.bytes)} · ${t.fileCount.toLocaleString()} file${t.fileCount === 1 ? "" : "s"}</span>
-              <div class="right">${t.running ? `<span class="badge info">${ICON.clock}Running</span>` : t.busy ? `<span class="badge">${ICON.clock}Drive busy</span>` : ready ? `<button class="btn go small" data-run="${esc(t.sourceId)}|${esc(t.destId)}">${ICON.play}Run this step</button>` : `<span class="badge">${ICON.plug}Plug in ${esc(need.join(" and "))}</span>`}</div></div>
+              <div class="right">${t.running ? `<span class="badge info">${ICON.clock}Running</span>` : t.busy ? `<span class="badge">${ICON.clock}Drive busy</span>` : ready ? `<button class="btn go small" data-run="${esc(t.sourceId)}|${esc(t.destId)}" data-into="${esc(t.folder || "")}">${ICON.play}Run this step</button>` : `<span class="badge">${ICON.plug}Plug in ${esc(need.join(" and "))}</span>`}</div></div>
             <div class="chips">${t.folderList.slice(0, 8).map((f) => `<span class="chip">${esc(f.name === "." ? "(top level)" : f.name)}<small>${bytes(f.bytes)}</small></span>`).join("")}${t.folderList.length > 8 ? `<span class="chip">+${t.folderList.length - 8} more</span>` : ""}</div>
-            ${ready ? `<div class="step-run"><span class="hint">Copy into folder</span><input class="path-input" data-folder="${esc(t.sourceId)}|${esc(t.destId)}" value="${esc(p.name)}" spellcheck="false"><span class="hint">on ${esc(driveTitle(t.destId))}</span></div>` : ""}
+            ${t.folder ? `<div class="step-run"><span class="hint">Into</span><b>${esc(driveTitle(t.destId))} › ${esc(t.folder)}</b><span class="hint">· same paths as on the source</span></div>`
+              : ready ? `<div class="step-run"><span class="hint">Copy into folder</span><input class="path-input" data-folder="${esc(t.sourceId)}|${esc(t.destId)}" value="${esc(p.name)}" spellcheck="false"><span class="hint">on ${esc(driveTitle(t.destId))}</span></div>` : ""}
           </div>`;
         }).join("")}
         ${data.unplacedBytes ? `<div class="alert bad" style="margin-top:10px"><b>${bytes(data.unplacedBytes)} has nowhere to go.</b> No ${anyDest ? "drive in the library" : "chosen destination"} has room for these files (each needs a drive that doesn't already hold it). ${anyDest ? "Log a drive" : "Allow a drive"} with at least ${bytes(data.unplacedBytes + data.reserve)} free, or free up space.
@@ -1069,11 +1070,26 @@ function renderProjectPage() {
         <p class="hint">${p.sources.length ? `${p.sources.length} folder${p.sources.length === 1 ? "" : "s"}. Each bar shows how much of the folder is backed up elsewhere, a sole copy, or unproven.` : "Add the folders that hold this project. A whole drive counts as one folder."}</p>
         ${h.sources.map((sh, i) => {
           const d = driveOf(sh.driveId);
-          return `<div class="step-card" style="margin-bottom:10px">
-            <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : (d && COLORS[d.labels.color]) || "var(--muted)"}"></span><b style="min-width:0;overflow:hidden;text-overflow:ellipsis">${sourceLabel(sh)}</b>
+          const src = p.sources[i] || sh;
+          const backup = src.role === "backup";
+          const routes = (data.routes || [])[i] || [];
+          const others = p.sources.filter((o) => o.driveId !== src.driveId);
+          const srcName = (o) => `${driveTitle(o.driveId)}${o.folder ? " › " + o.folder : ""}`;
+          const intoKey = src.into ? `${src.into.driveId}|${src.into.folder || ""}` : "";
+          const inferred = routes.filter((r) => !r.explicit).map((r) => `${driveTitle(r.destId)} › ${r.folder || "(top level)"}`);
+          return `<div class="step-card ${backup ? "backup" : ""}" style="margin-bottom:10px">
+            <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : (d && COLORS[d.labels.color]) || "var(--muted)"}"></span><b style="min-width:0;overflow:hidden;text-overflow:ellipsis">${sourceLabel(sh)}</b>${backup ? `<span class="badge info">${ICON.shield}Backup</span>` : ""}
               <div class="right"><button class="btn small" data-drive-open="${esc(sh.driveId)}">Drive</button><button class="icon-btn" data-remove-src="${i}" title="Remove from project">${ICON.x}</button></div></div>
             ${backupBar(sh.backedBytes, sh.bytes, sh.unknownBytes, sh.likelyBytes || 0, { compact: true })}
-            <div class="cap">${bytes(sh.bytes)} · ${sh.files.toLocaleString()} files${sh.soleBytes + sh.shortBytes ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(sh.soleBytes + sh.shortBytes)} still to copy</span>` : ""}${sh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.extraBytes)} on more drives than needed</span>` : ""}${d && !d.connected ? `<span class="sep">•</span><span class="hint">last seen ${new Date(d.lastSeen * 1000).toLocaleDateString()}</span>` : ""}</div></div>`;
+            <div class="cap">${bytes(sh.bytes)} · ${sh.files.toLocaleString()} files${sh.soleBytes + sh.shortBytes ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(sh.soleBytes + sh.shortBytes)} still to copy</span>` : ""}${sh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.extraBytes)} on more drives than needed</span>` : ""}${sh.orphanBytes ? `<span class="sep">•</span><span class="hint" title="Files only in this backup folder: nothing in the project's own folders matches them, so they are left alone">${bytes(sh.orphanBytes)} only here</span>` : ""}${sh.excludedBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.excludedBytes)} excluded</span>` : ""}${d && !d.connected ? `<span class="sep">•</span><span class="hint">last seen ${new Date(d.lastSeen * 1000).toLocaleDateString()}</span>` : ""}</div>
+            <div class="src-ctl">
+              <label class="switch" title="A folder that exists to hold copies: the plan copies only onto backup drives, and files found only here are left alone">Backup drive <input type="checkbox" data-role="${i}" ${backup ? "checked" : ""}></label>
+              ${!backup && others.length ? `<label class="select"><span class="hint">Copies go into</span><select class="plain" data-into="${i}">
+                <option value="" ${intoKey ? "" : "selected"}>${inferred.length ? "Worked out: " + esc(inferred.join(", ")) : "A folder named after the project"}</option>
+                ${others.map((o) => `<option value="${esc(o.driveId)}|${esc(o.folder || "")}" ${intoKey === `${o.driveId}|${o.folder || ""}` ? "selected" : ""}>${esc(srcName(o))} · same paths</option>`).join("")}
+                </select></label>` : ""}
+              <span class="chips">${(src.exclude || []).map((ex) => `<span class="chip">${esc(ex)}<button class="chip-x" data-unex="${i}|${esc(ex)}" title="Include it again">×</button></span>`).join("")}<button class="chip add" data-ex="${i}">${ICON.plus}Leave a folder out…</button></span>
+            </div></div>`;
         }).join("")}
         <button class="btn" id="proj-add-src">${ICON.plus}Add a folder or drive…</button>
       </section>
@@ -1107,6 +1123,20 @@ function wireProjectPage(p) {
   for (const el of document.querySelectorAll("[data-pcolor]")) el.onclick = () => patch({ color: el.dataset.pcolor });
   $("#proj-add-src").onclick = () => addSourceDialog((src) => patch({ add: [src] }));
   for (const el of document.querySelectorAll("[data-remove-src]")) el.onclick = () => patch({ remove: [p.sources[+el.dataset.removeSrc]] });
+  const setSrc = (i, changes) => { const s = p.sources[i]; patch({ set: { driveId: s.driveId, folder: s.folder, role: s.role || "", exclude: s.exclude || [], into: s.into || null, ...changes } }); };
+  for (const el of document.querySelectorAll("[data-role]")) el.onchange = () => setSrc(+el.dataset.role, { role: el.checked ? "backup" : "" });
+  for (const el of document.querySelectorAll("[data-into]")) el.onchange = () => { const [driveId, folder] = el.value.split("|"); setSrc(+el.dataset.into, { into: el.value ? { driveId, folder } : null }); };
+  for (const el of document.querySelectorAll("[data-unex]")) el.onclick = () => { const [i, ex] = [+el.dataset.unex.split("|")[0], el.dataset.unex.slice(el.dataset.unex.indexOf("|") + 1)]; setSrc(i, { exclude: (p.sources[i].exclude || []).filter((x) => x !== ex) }); };
+  for (const el of document.querySelectorAll("[data-ex]")) el.onclick = () => {
+    const i = +el.dataset.ex, s = p.sources[i];
+    addSourceDialog((pick) => {
+      const prefix = s.folder ? s.folder + "/" : "";
+      if (!pick.folder || (prefix && !pick.folder.startsWith(prefix))) return toast("Pick a folder inside " + (s.folder || driveTitle(s.driveId)), true);
+      const rel = pick.folder.slice(prefix.length);
+      if ((s.exclude || []).includes(rel)) return;
+      setSrc(i, { exclude: [...(s.exclude || []), rel] });
+    }, s.driveId, { lock: true, dir: s.folder || "", title: "Leave a folder out", ok: "Leave it out" });
+  };
   for (const el of document.querySelectorAll("[data-drive-open]")) el.onclick = () => openDetail(el.dataset.driveOpen);
   const destIds = () => [...document.querySelectorAll("[data-dest]:checked")].map((el) => el.dataset.dest);
   for (const el of document.querySelectorAll('[name="dest-mode"]')) el.onchange = () => {
@@ -1125,9 +1155,10 @@ function wireProjectPage(p) {
   for (const el of document.querySelectorAll("[data-run]")) el.onclick = async () => {
     const [sourceId, destId] = el.dataset.run.split("|");
     const folder = ($(`[data-folder="${CSS.escape(el.dataset.run)}"]`) || {}).value || "";
+    const into = el.dataset.into || "";
     el.disabled = true;
     try {
-      await api(`/api/projects/${p.id}/transfer`, { method: "POST", body: { sourceId, destId, folder } });
+      await api(`/api/projects/${p.id}/transfer`, { method: "POST", body: { sourceId, destId, folder, into } });
       toast(`Copying ${driveTitle(sourceId)} → ${driveTitle(destId)}. Watch it in Activity.`);
       await loadJobs();
       loadProject(p.id);
@@ -1362,23 +1393,23 @@ async function templateDialog() {
 
 // addSourceDialog lets the user pick a drive and, inside it, a folder
 // from the library's index (or the whole drive), then calls done(source).
-function addSourceDialog(done, startDrive) {
+function addSourceDialog(done, startDrive, opts = {}) {
   const drives = S.state.drives || [];
   if (!drives.length) return toast("No drives logged yet", true);
-  let driveId = startDrive || drives[0].id, dir = "";
+  let driveId = startDrive || drives[0].id, dir = opts.dir || "";
   const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
   const show = async () => {
     let entries = [];
     try { entries = await api(`/api/drives/${encodeURIComponent(driveId)}/list?dir=${encodeURIComponent(dir)}`); } catch (e) { toast(e.message, true); }
     const folders = entries.filter((e) => e.folder);
     const crumbs = dir ? dir.split("/") : [];
-    openSheet(`<div class="sheet-head"><h2>Add to project</h2><div class="actions"><button class="icon-btn" id="as-close">${ICON.x}</button></div></div>
+    openSheet(`<div class="sheet-head"><h2>${esc(opts.title || "Add to project")}</h2><div class="actions"><button class="icon-btn" id="as-close">${ICON.x}</button></div></div>
       <div class="sheet-body" style="padding-top:14px">
-        <div class="field"><label>Drive</label><select class="plain" id="as-drive">${drives.map((d) => `<option value="${esc(d.id)}" ${d.id === driveId ? "selected" : ""}>${esc(d.title)}${d.connected ? " (plugged in)" : ""}</option>`).join("")}</select></div>
+        <div class="field" ${opts.lock ? "hidden" : ""}><label>Drive</label><select class="plain" id="as-drive">${drives.map((d) => `<option value="${esc(d.id)}" ${d.id === driveId ? "selected" : ""}>${esc(d.title)}${d.connected ? " (plugged in)" : ""}</option>`).join("")}</select></div>
         <div class="picker-path" style="padding-top:12px"><button class="chip" data-crumb="">${esc(driveTitle(driveId))}</button>${crumbs.map((c, i) => ` <span class="hint">›</span> <button class="chip" data-crumb="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
         <div class="picker-list">${folders.length ? folders.map((f) => `<button data-go="${esc(f.path)}">${ICON.folder}${esc(f.name)}<span class="hint">${bytes(f.bytes)} · ${f.files.toLocaleString()} files</span></button>`).join("") : `<div class="tree-note">${dir ? "No folders inside this one." : "Nothing indexed on this drive yet."}</div>`}</div>
       </div>
-      <div class="sheet-foot"><button class="btn" id="as-cancel">Cancel</button><button class="btn primary" id="as-ok">${dir ? `Add “${esc(crumbs[crumbs.length - 1])}”` : "Add the whole drive"}</button></div>`, true);
+      <div class="sheet-foot"><button class="btn" id="as-cancel">Cancel</button><button class="btn primary" id="as-ok">${opts.ok ? `${esc(opts.ok)}${dir ? ` “${esc(crumbs[crumbs.length - 1])}”` : ""}` : dir ? `Add “${esc(crumbs[crumbs.length - 1])}”` : "Add the whole drive"}</button></div>`, true);
     $("#as-close").onclick = $("#as-cancel").onclick = close;
     $("#as-drive").onchange = (e) => { driveId = e.target.value; dir = ""; show(); };
     for (const b of document.querySelectorAll("[data-go]")) b.onclick = () => { dir = b.dataset.go; show(); };
