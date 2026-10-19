@@ -1,0 +1,419 @@
+package ui
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/lumpysheppard/lumpy/internal/catalog"
+	"github.com/lumpysheppard/lumpy/internal/job"
+	"github.com/lumpysheppard/lumpy/internal/update"
+	"github.com/lumpysheppard/lumpy/internal/volume"
+)
+
+func setup(t *testing.T) (*Server, *httptest.Server, string) {
+	t.Helper()
+	vols := t.TempDir()
+	t.Setenv("LUMPY_VOLUMES", vols)
+	home := t.TempDir()
+	db, err := catalog.Open(filepath.Join(home, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	s := New(db, filepath.Join(home, "agent.lock"), job.Meta{Version: "test", Hostname: "test"})
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+	return s, ts, vols
+}
+
+func call(t *testing.T, s *Server, ts *httptest.Server, method, path, body string, out any) int {
+	t.Helper()
+	req, _ := http.NewRequest(method, ts.URL+path, strings.NewReader(body))
+	req.Header.Set("X-Lumpy-Token", s.token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	data, _ := io.ReadAll(res.Body)
+	if out != nil && res.StatusCode < 300 {
+		if err := json.Unmarshal(data, out); err != nil {
+			t.Fatalf("%s %s: %v\n%s", method, path, err, data)
+		}
+	}
+	return res.StatusCode
+}
+
+func TestAPIRequiresToken(t *testing.T) {
+	_, ts, _ := setup(t)
+	res, err := http.Get(ts.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("got %d without a token", res.StatusCode)
+	}
+	page, _ := http.Get(ts.URL + "/")
+	b, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if !strings.Contains(string(b), "<title>Lumpy</title>") {
+		t.Fatal("page not served")
+	}
+}
+
+func TestOffloadAndLibraryThroughAPI(t *testing.T) {
+	s, ts, vols := setup(t)
+	clip := filepath.Join(vols, "A001", "CLIPS", "C001.mov")
+	os.MkdirAll(filepath.Dir(clip), 0o755)
+	os.WriteFile(clip, []byte("footage"), 0o644)
+	os.Mkdir(filepath.Join(vols, "SHUTTLE"), 0o755)
+
+	var started struct{ Job int }
+	body := `{"source":"` + filepath.Join(vols, "A001") + `","dests":["` + filepath.Join(vols, "SHUTTLE", "Day01") + `"]}`
+	if code := call(t, s, ts, "POST", "/api/offload", body, &started); code != 200 || started.Job == 0 {
+		t.Fatalf("offload start: %d", code)
+	}
+	var jobs []JobView
+	for i := 0; i < 100; i++ {
+		call(t, s, ts, "GET", "/api/jobs", "", &jobs)
+		if len(jobs) == 1 && jobs[0].State != "running" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if jobs[0].State != "ok" {
+		t.Fatalf("offload ended %s: %v", jobs[0].State, jobs[0].Lines)
+	}
+
+	var st struct {
+		Drives []DriveView
+	}
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	var card DriveView
+	for _, d := range st.Drives {
+		if d.Name == "A001" {
+			card = d
+		}
+	}
+	if card.ID == "" || card.Backups == nil || card.Backups.MinCopies != 1 {
+		t.Fatalf("card not backed up once: %+v", card)
+	}
+
+	labels := `{"nickname":"Card A","client":"CTD","color":"blue"}`
+	if code := call(t, s, ts, "PATCH", "/api/drives/"+card.ID, labels, nil); code != 200 {
+		t.Fatalf("labels: %d", code)
+	}
+	var detail struct {
+		Drive   DriveView
+		Folders []catalog.FolderHealth
+	}
+	call(t, s, ts, "GET", "/api/drives/"+card.ID, "", &detail)
+	if detail.Drive.Title != "Card A" || detail.Drive.Labels.Client != "CTD" || len(detail.Folders) != 1 || detail.Folders[0].Name != "CLIPS" || detail.Folders[0].BackedBytes != 7 {
+		t.Fatalf("detail: %+v", detail)
+	}
+	var entries []catalog.Entry
+	call(t, s, ts, "GET", "/api/drives/"+card.ID+"/list?dir=CLIPS", "", &entries)
+	if len(entries) != 1 || entries[0].Name != "C001.mov" || entries[0].XXH64 == "" || entries[0].Copies != 1 || entries[0].Backed != 1 {
+		t.Fatalf("list: %+v", entries)
+	}
+	// The folder above rolls its contents up: 1 of 1 files backed up.
+	call(t, s, ts, "GET", "/api/drives/"+card.ID+"/list", "", &entries)
+	if len(entries) != 1 || !entries[0].Folder || entries[0].Files != 1 || entries[0].Backed != 1 || entries[0].BackedBytes != 7 {
+		t.Fatalf("top list: %+v", entries)
+	}
+
+	// A drive that is not plugged in gets its check queued.
+	shelf := filepath.Join(t.TempDir(), "A001")
+	os.Rename(filepath.Join(vols, "A001"), shelf)
+	s.volsAt = time.Time{}
+	var q struct{ Queued bool }
+	call(t, s, ts, "POST", "/api/drives/"+card.ID+"/verify", "", &q)
+	if !q.Queued {
+		t.Fatal("check of an unplugged drive was not queued")
+	}
+
+	// Plugging it back in while the app is open runs the queued check as
+	// a job that Activity shows.
+	os.Rename(filepath.Join(filepath.Dir(shelf), "A001"), filepath.Join(vols, "A001"))
+	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, s.startQueuedCheck)
+	var check JobView
+	for i := 0; i < 100; i++ {
+		call(t, s, ts, "GET", "/api/jobs", "", &jobs)
+		if jobs[0].Kind == "verify" && jobs[0].State != "running" {
+			check = jobs[0]
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if check.Title != "Queued check of Card A" || check.State != "ok" {
+		t.Fatalf("queued check job: %+v", check)
+	}
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/export.csv?t="+s.token, nil)
+	res, _ := http.DefaultClient.Do(req)
+	csv, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if !strings.Contains(string(csv), "Card A,A001,") {
+		t.Fatalf("csv:\n%s", csv)
+	}
+}
+
+func TestProjectsThroughAPI(t *testing.T) {
+	s, ts, vols := setup(t)
+	os.MkdirAll(filepath.Join(vols, "A001", "CLIPS"), 0o755)
+	os.WriteFile(filepath.Join(vols, "A001", "CLIPS", "C001.mov"), []byte("footage one"), 0o644)
+	os.Mkdir(filepath.Join(vols, "RAID"), 0o755)
+	os.Mkdir(filepath.Join(vols, "SPARE"), 0o755)
+	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
+	var st struct{ Drives []DriveView }
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	ids := map[string]string{}
+	for _, d := range st.Drives {
+		ids[d.Name] = d.ID
+	}
+	// Offload the card to RAID only, then make a project of RAID + SPARE.
+	var started struct{ Job int }
+	call(t, s, ts, "POST", "/api/offload", `{"source":"`+filepath.Join(vols, "A001")+`","dests":["`+filepath.Join(vols, "RAID", "Day01")+`"]}`, &started)
+	waitJobs(t, s, ts)
+
+	// The card is wiped and forgotten, so the RAID holds the only copy.
+	if code := call(t, s, ts, "DELETE", "/api/drives/"+ids["A001"], "", nil); code != 200 {
+		t.Fatalf("forget: %d", code)
+	}
+	// The job is one folder on the RAID; backups may go to the spare only.
+	var p catalog.Project
+	if code := call(t, s, ts, "POST", "/api/projects", `{"name":"Feature","target":2,"sources":[{"driveId":"`+ids["RAID"]+`","folder":"Day01"}],"destIds":["`+ids["SPARE"]+`"]}`, &p); code != 200 {
+		t.Fatalf("create: %d", code)
+	}
+	var detail struct {
+		Health     catalog.Health
+		Transfers  []TransferView
+		Sole       []group
+		Candidates []Candidate
+	}
+	path := "/api/projects/" + strconv.FormatInt(p.ID, 10)
+	call(t, s, ts, "GET", path, "", &detail)
+	if detail.Health.Sole != 1 || len(detail.Transfers) != 1 || !detail.Transfers[0].Ready || len(detail.Sole) != 1 || detail.Sole[0].Folder != "A001" {
+		t.Fatalf("detail: %+v %+v %+v", detail.Health, detail.Transfers, detail.Sole)
+	}
+	if len(detail.Candidates) != 1 || detail.Candidates[0].ID != ids["SPARE"] {
+		t.Fatalf("candidates: %+v", detail.Candidates)
+	}
+	tr := detail.Transfers[0]
+	var run struct{ Job int }
+	if code := call(t, s, ts, "POST", path+"/transfer", `{"sourceId":"`+tr.SourceID+`","destId":"`+tr.DestID+`"}`, &run); code != 200 {
+		t.Fatalf("transfer: %d", code)
+	}
+	jobs := waitJobs(t, s, ts)
+	if jobs[0].Kind != "transfer" || jobs[0].State != "ok" {
+		t.Fatalf("transfer job: %+v", jobs[0])
+	}
+	call(t, s, ts, "GET", path, "", &detail)
+	if detail.Health.Sole != 0 || detail.Health.Backed != 1 || len(detail.Transfers) != 0 {
+		t.Fatalf("after transfer: %+v", detail.Health)
+	}
+	// The copy landed under a folder named after the project, keeping the
+	// path relative to the source folder.
+	if _, err := os.Stat(filepath.Join(vols, "SPARE", "Feature", "A001", "CLIPS", "C001.mov")); err != nil {
+		t.Fatal("copy not where expected:", err)
+	}
+	if code := call(t, s, ts, "PATCH", path, `{"name":"Feature Film","target":3,"remove":[{"driveId":"`+ids["RAID"]+`","folder":"Day01"}],"destIds":[]}`, &p); code != 200 || p.Name != "Feature Film" || len(p.Sources) != 0 || len(p.DestIDs) != 0 {
+		t.Fatalf("update: %d %+v", code, p)
+	}
+	if code := call(t, s, ts, "DELETE", path, "", nil); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+}
+
+func waitJobs(t *testing.T, s *Server, ts *httptest.Server) []JobView {
+	t.Helper()
+	var jobs []JobView
+	for i := 0; i < 200; i++ {
+		call(t, s, ts, "GET", "/api/jobs", "", &jobs)
+		running := false
+		for _, j := range jobs {
+			running = running || j.State == "running"
+		}
+		if !running {
+			return jobs
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("jobs still running")
+	return nil
+}
+
+func TestPlanStepsShowRunningAndBusy(t *testing.T) {
+	s, ts, vols := setup(t)
+	for _, n := range []string{"A", "B", "C"} {
+		os.MkdirAll(filepath.Join(vols, n), 0o755)
+	}
+	os.WriteFile(filepath.Join(vols, "A", "clip.mov"), []byte("only here"), 0o644)
+	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
+	var st struct{ Drives []DriveView }
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	ids := map[string]string{}
+	for _, d := range st.Drives {
+		ids[d.Name] = d.ID
+	}
+	va, _ := volume.Of(filepath.Join(vols, "A"))
+	s.db.SaveHashes(va.ID, []catalog.HashUpdate{{Path: "clip.mov", Size: 9, XXH64: "abcd"}})
+	var p catalog.Project
+	call(t, s, ts, "POST", "/api/projects", `{"name":"P","target":3,"sources":[{"driveId":"`+ids["A"]+`"}],"destIds":["`+ids["B"]+`","`+ids["C"]+`"]}`, &p)
+
+	// Hold a transfer A -> B open and look at the plan.
+	release := make(chan struct{})
+	s.jobs.StartWhenFree("transfer", "t", "", []string{ids["A"], ids["B"]}, func(ctx context.Context, r *job.Report) error { <-release; return nil })
+	var detail struct{ Transfers []TransferView }
+	call(t, s, ts, "GET", "/api/projects/"+strconv.FormatInt(p.ID, 10), "", &detail)
+	close(release)
+	got := map[string][2]bool{}
+	for _, tr := range detail.Transfers {
+		got[tr.DestID] = [2]bool{tr.Running, tr.Busy}
+	}
+	if got[ids["B"]] != [2]bool{true, false} || got[ids["C"]] != [2]bool{false, true} {
+		t.Fatalf("running/busy flags: %v", got)
+	}
+}
+
+func TestSettingsAndPublishThroughAPI(t *testing.T) {
+	s, ts, vols := setup(t)
+	home := t.TempDir()
+	t.Setenv("LUMPY_HOME", home)
+	os.MkdirAll(filepath.Join(vols, "RAID", "Job"), 0o755)
+	os.WriteFile(filepath.Join(vols, "RAID", "Job", "a.txt"), []byte("x"), 0o644)
+	for _, v := range s.mounted() {
+		if _, err := job.CatalogDrive(context.Background(), s.db, v, job.NewReportTo(io.Discard)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var view struct {
+		Publish       map[string]any
+		DefaultFolder string
+		Last          *map[string]any
+	}
+	call(t, s, ts, "GET", "/api/settings", "", &view)
+	if view.Publish["enabled"] != false || view.DefaultFolder != filepath.Join(home, "status") || view.Last != nil {
+		t.Fatalf("fresh settings: %+v", view)
+	}
+	if code := call(t, s, ts, "PUT", "/api/settings", `{"enabled":true,"title":"Crew status","url":"ftp://x","interval":5}`, nil); code != 400 {
+		t.Fatalf("bad URL accepted: %d", code)
+	}
+	out := filepath.Join(home, "share")
+	body := `{"enabled":true,"title":"Crew status","folder":"` + out + `","interval":5,"files":true}`
+	if code := call(t, s, ts, "PUT", "/api/settings", body, &view); code != 200 || view.Publish["title"] != "Crew status" {
+		t.Fatalf("save settings: %d %+v", code, view)
+	}
+	var res struct {
+		Result struct {
+			OK      bool
+			Summary string
+			Path    string
+		}
+	}
+	if code := call(t, s, ts, "POST", "/api/publish", "", &res); code != 200 || !res.Result.OK || res.Result.Path != filepath.Join(out, "index.html") {
+		t.Fatalf("publish: %d %+v", code, res)
+	}
+	page, err := os.ReadFile(res.Result.Path)
+	if err != nil || !strings.Contains(string(page), "Crew status") || !strings.Contains(string(page), "Job/a.txt") {
+		t.Fatalf("page: %v\n%s", err, page)
+	}
+	call(t, s, ts, "GET", "/api/settings", "", &view)
+	if view.Last == nil || (*view.Last)["ok"] != true {
+		t.Fatalf("last result: %+v", view)
+	}
+}
+
+func TestUpdateThroughAPI(t *testing.T) {
+	s, ts, _ := setup(t)
+	s.meta.Version = "0.5.0"
+	// A fake GitHub with one newer release whose binary asset replaces a
+	// bare lumpy binary (this test process is not inside an app bundle).
+	var gh *httptest.Server
+	bin := zipBytes(map[string]string{"lumpy": "#!/bin/sh\necho lumpy 0.9.0\n"})
+	sums := sha256Hex(bin) + "  lumpy-macos-universal.zip\n"
+	gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(404)
+			return
+		}
+		switch r.URL.Path {
+		case "/repos/" + update.Repo + "/releases/latest":
+			fmt.Fprintf(w, `{"tag_name":"v0.9.0","body":"notes","html_url":"https://example/r","published_at":"2026-10-14T10:00:00Z","assets":[{"name":"lumpy-macos-universal.zip","url":"%s/a","size":%d},{"name":"SHA256SUMS","url":"%s/s","size":%d}]}`, gh.URL, len(bin), gh.URL, len(sums))
+		case "/a":
+			w.Write(bin)
+		case "/s":
+			w.Write([]byte(sums))
+		}
+	}))
+	defer gh.Close()
+	update.BaseURL = gh.URL
+	defer func() { update.BaseURL = "https://api.github.com" }()
+
+	var v UpdateView
+	call(t, s, ts, "GET", "/api/update", "", &v)
+	if v.Current != "0.5.0" || !v.Auto || v.HasToken || v.Latest != nil {
+		t.Fatalf("fresh: %+v", v)
+	}
+	// Without a token the private repository cannot be read, and the
+	// error says so instead of failing silently.
+	v = UpdateView{}
+	call(t, s, ts, "POST", "/api/update/check", "", &v)
+	if v.Error == "" || !strings.Contains(v.Error, "token") || v.Available {
+		t.Fatalf("no-token check: %+v", v)
+	}
+	if code := call(t, s, ts, "PUT", "/api/update/settings", `{"token":" tok ","auto":false}`, &v); code != 200 || !v.HasToken || v.Auto {
+		t.Fatalf("settings: %d %+v", code, v)
+	}
+	v = UpdateView{}
+	call(t, s, ts, "POST", "/api/update/check", "", &v)
+	if v.Error != "" || v.Latest == nil || v.Latest.Version != "0.9.0" || !v.Available {
+		t.Fatalf("check: %+v", v)
+	}
+	var st struct{ Update map[string]any }
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	if st.Update["available"] != "0.9.0" {
+		t.Fatalf("state: %+v", st.Update)
+	}
+
+	// Installing is not exercised here: it would replace this test binary.
+	// The job refuses when nothing newer is known.
+	s.meta.Version = "0.9.0"
+	if code := call(t, s, ts, "POST", "/api/update/install", "", nil); code != 400 {
+		t.Fatalf("install at latest: %d", code)
+	}
+}
+
+func zipBytes(files map[string]string) []byte {
+	var b bytes.Buffer
+	w := zip.NewWriter(&b)
+	for name, content := range files {
+		h := &zip.FileHeader{Name: name, Method: zip.Deflate}
+		h.SetMode(0o755)
+		f, _ := w.CreateHeader(h)
+		f.Write([]byte(content))
+	}
+	w.Close()
+	return b.Bytes()
+}
+
+func sha256Hex(b []byte) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
+}

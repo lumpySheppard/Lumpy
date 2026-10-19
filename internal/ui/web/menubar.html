@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lumpy</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="app.css">
+<style>
+  /* The menu bar panel: the popover's translucent material is the
+     background; the page draws only text and hairlines on it. */
+  html, body { background: transparent; overflow: hidden; height: auto; }
+  body { font-size: 12.5px; color: rgba(255,255,255,.92); }
+  .mb { padding: 10px 14px 10px; display: flex; flex-direction: column; }
+  .mb-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+  .mb-head .brand-glyph { width: 20px; height: 20px; filter: none; }
+  .mb-head b { font-size: 13.5px; }
+  .mb-head .hint { margin-left: auto; color: rgba(255,255,255,.45); }
+  .mb-sec { border-top: 1px solid rgba(255,255,255,.12); padding: 8px 0; }
+  .mb-job .t { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .mb-job .t .badge { margin-left: auto; background: rgba(255,255,255,.1); }
+  .mb-job .bar { height: 4px; margin: 7px 0 5px; background: rgba(255,255,255,.14); }
+  .mb-job .bar > i { background: var(--accent); transition: width .5s linear; }
+  .mb-job .s { display: flex; gap: 10px; align-items: center; color: rgba(255,255,255,.7); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .mb-job .s b { color: #fff; }
+  .mb-job .cur { color: rgba(255,255,255,.45); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }
+  .mb-job .btn { margin-left: auto; }
+  .mb-next { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); font-size: 11.5px; }
+  .mb-job + .mb-next { margin-top: 10px; }
+  .mb-next .n { flex: none; color: rgba(255,255,255,.45); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  .mb-next .j { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; font-weight: 600; }
+  .mb-next .j small { color: rgba(255,255,255,.5); font-weight: 400; font-size: 11px; margin-left: 6px; }
+  .mb-next .x { flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.1); color: rgba(255,255,255,.8); font-size: 13px; line-height: 18px; text-align: center; cursor: pointer; }
+  .mb-next .x:hover { background: rgba(255,92,92,.5); color: #fff; }
+  .mb-stats { display: flex; gap: 6px; color: rgba(255,255,255,.7); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .mb-stats b { color: #fff; font-weight: 600; }
+  .mb-stats i { font-style: normal; color: rgba(255,255,255,.3); }
+  .mb-drives { display: flex; flex-direction: column; gap: 2px; }
+  .mb-drive { display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; }
+  .mb-drive .n { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mb-drive .n small { color: rgba(255,255,255,.45); font-weight: 400; margin-left: 6px; }
+  .mb-drive .f { color: rgba(255,255,255,.7); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11.5px; }
+  .mb-drive .f.low { color: var(--bad); }
+  .mb-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 9px; }
+  .mb-foot .hint { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,.45); }
+  .btn { background: rgba(255,255,255,.1); border-color: transparent; }
+  .btn:hover { background: rgba(255,255,255,.18); }
+  .btn.primary { background: var(--accent); }
+  .mb-empty { color: rgba(255,255,255,.45); }
+  .sdot { width: 8px; height: 8px; }
+  .sdot.none { background: rgba(255,255,255,.25); }
+</style>
+</head>
+<body>
+<div class="mb" id="mb"><div class="mb-empty">Connecting…</div></div>
+<script src="menubar.js"></script>
+</body>
+</html>
