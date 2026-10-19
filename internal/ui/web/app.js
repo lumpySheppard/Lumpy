@@ -1096,7 +1096,7 @@ function renderProjectPage() {
 
       <section class="panel">
         <h2>Back up onto</h2>
-        <p class="hint">Where the plan may put copies. Lumpy never copies a file onto a drive that already holds it.</p>
+        <p class="hint">Where the plan may put copies. Lumpy never copies a file onto a drive that already holds it.${(data.backupDrives || []).length ? ` <b>This project has backup drives, so copies go only onto ${esc((data.backupDrives || []).map(driveTitle).join(", "))}.</b>` : ""}</p>
         <label class="check-row"><input type="radio" name="dest-mode" value="any" ${anyDest ? "checked" : ""}><span>Any drive in the library with room</span></label>
         <label class="check-row"><input type="radio" name="dest-mode" value="only" ${anyDest ? "" : "checked"}><span>Only these drives</span></label>
         <div class="checks" id="dest-list" style="margin-top:8px;${anyDest ? "opacity:.55" : ""}">${(S.state.drives || []).map((d) => `<label><input type="checkbox" data-dest="${esc(d.id)}" ${dest.has(d.id) ? "checked" : ""} ${anyDest ? "disabled" : ""}><span class="dot" style="background:${d.connected ? "var(--ok)" : COLORS[d.labels.color] || "var(--muted)"}"></span>${esc(d.title)}<span class="hint">${bytes(d.free)} free${d.connected ? " · plugged in" : ""}${d.labels.noBackups ? " · marked “no backups here”" : ""}</span></label>`).join("")}</div>

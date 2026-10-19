@@ -240,6 +240,7 @@ of drives, two by default. The project page shows:
   drive's index to pick a folder. On a drive's Details page, the **+** on
   any folder in the file browser does the same.
 - **Files with too few copies**, by folder.
+- Each folder can be marked a **backup drive** (the plan then copies only onto backup drives, and files found only in a backup folder are left alone), can **leave sub-folders out** (scratch, drafts, renders), and says where its **copies go**: where the project already has a folder on the destination drive, copies land there at the same relative paths (`01_1TB/09_OUTPUT/Final/x.mov` becomes `BS_8TB/Project Backup/Job/09_OUTPUT/Final/x.mov`). Lumpy works the pairing out from the project's folders and lets you override it per folder.
 - **Back up onto**: where the plan may put copies. By default any drive in
   the library with room; or only the drives you tick.
 - **Plan to reach 2 copies**: the copies that would fix it, grouped into
