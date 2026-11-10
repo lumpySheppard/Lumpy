@@ -5,6 +5,7 @@ name: DataMosh OFX
 # DataMosh.ofx.bundle as the "DataMosh-macOS" artifact.
 on:
   push:
+    branches: [main]
     paths:
       - "datamosh-ofx/**"
       - ".github/workflows/datamosh-ofx.yml"
@@ -17,9 +18,14 @@ on:
 permissions:
   contents: read
 
+# macOS runners queue for a while; a newer push supersedes older runs.
+concurrency:
+  group: datamosh-ofx-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   macos:
-    runs-on: macos-14
+    runs-on: macos-latest
     defaults:
       run:
         working-directory: datamosh-ofx
