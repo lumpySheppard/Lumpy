@@ -1,0 +1,56 @@
+name: DataMosh OFX
+
+# Builds the DataMosh plugin for DaVinci Resolve on macOS (universal: Apple
+# silicon + Intel), runs it through the test host, and uploads the zipped
+# DataMosh.ofx.bundle as the "DataMosh-macOS" artifact.
+on:
+  push:
+    paths:
+      - "datamosh-ofx/**"
+      - ".github/workflows/datamosh-ofx.yml"
+  pull_request:
+    paths:
+      - "datamosh-ofx/**"
+      - ".github/workflows/datamosh-ofx.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: datamosh-ofx
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (universal)
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 3
+          lipo -info build/DataMosh.ofx.bundle/Contents/MacOS/DataMosh.ofx
+          lipo build/DataMosh.ofx.bundle/Contents/MacOS/DataMosh.ofx -verify_arch arm64 x86_64
+      - name: Test in minihost
+        run: ctest --test-dir build --output-on-failure -V
+      - name: Sign (ad hoc) and package
+        run: |
+          codesign --force --sign - --timestamp=none build/DataMosh.ofx.bundle
+          codesign --verify --verbose build/DataMosh.ofx.bundle
+          mkdir -p dist
+          ditto -c -k --keepParent build/DataMosh.ofx.bundle dist/DataMosh.ofx.bundle.zip
+          cp scripts/install-macos.sh dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DataMosh-macOS
+          path: datamosh-ofx/dist/
+
+  linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: datamosh-ofx
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
+      - run: ctest --test-dir build --output-on-failure
