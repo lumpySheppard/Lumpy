@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(DataMosh VERSION 1.0.0 LANGUAGES CXX)
+project(DataMosh VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,4 +65,25 @@ if(NOT WIN32)
   add_test(NAME minihost_bloom
            COMMAND minihost $<TARGET_FILE:DataMosh> synthetic 192 108 ${CMAKE_BINARY_DIR}/bloom.rgb
                    --start-here 30 --set mode=1 --set smoothVectors=1 --set heal=0.05 --set mix=0.8)
+  # Everything on: mixed blocks, every time / block / colour glitch, re-mosh
+  # cycles. Shuffled rendering must still match sequential exactly.
+  add_test(NAME minihost_all_glitches
+           COMMAND minihost $<TARGET_FILE:DataMosh> synthetic 192 108 ${CMAKE_BINARY_DIR}/glitch.rgb
+                   --start-here 24 --set residual=0.6 --set blockVariety=0.8 --set blockSize=3
+                   --set cycle=12 --set moshLength=10 --set seed=7
+                   --set tRepeat=0.1 --set tFreeze=0.1 --set tJumpBack=0.1 --set tJumpForward=0.1
+                   --set tReverse=0.1 --set tEventLength=4 --set tJumpDistance=5
+                   --set gStuck=0.1 --set gScatter=0.1 --set gStreak=0.1 --set gFlatten=0.1
+                   --set gHold=3 --set cChromaDrift=0.5 --set cBleed=0.5 --set cSaturate=0.5
+                   --set cHueDrift=5 --set cErrors=1 --set cErrorStrength=1 --set heal=0.02)
+  # Apply Look: "Film Melt" sets its values and resets others to defaults.
+  add_test(NAME minihost_apply_look
+           COMMAND minihost $<TARGET_FILE:DataMosh> synthetic 192 108 ${CMAKE_BINARY_DIR}/look.rgb
+                   --start-here 24 --set gScatter=0.5 --set mix=0.7 --apply-look 1
+                   --expect blockVariety=0.6 --expect blockSize=0 --expect cErrors=0.4
+                   --expect gScatter=0 --expect mix=0.7 --expect moshStart=24)
+  add_test(NAME minihost_rhythm_smooth
+           COMMAND minihost $<TARGET_FILE:DataMosh> synthetic 192 108 ${CMAKE_BINARY_DIR}/rhythm.rgb
+                   --start-here 24 --set blockSize=4 --set smoothVectors=1 --set blockVariety=0.4
+                   --set tEvery=4 --set tRepeat=1 --set tEventLength=2)
 endif()

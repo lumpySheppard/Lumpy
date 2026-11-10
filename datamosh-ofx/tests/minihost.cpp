@@ -182,6 +182,8 @@ static OfxParameterSuiteV1 makeParamSuite() {
     s.paramSetValueAtTime = paramSetValueAtTime;
     s.paramGetDerivative = reinterpret_cast<decltype(s.paramGetDerivative)>(unsupported);
     s.paramGetIntegral = reinterpret_cast<decltype(s.paramGetIntegral)>(unsupported);
+    s.paramEditBegin = [](OfxParamSetHandle, const char*) -> OfxStatus { return kOfxStatOK; };
+    s.paramEditEnd = [](OfxParamSetHandle) -> OfxStatus { return kOfxStatOK; };
     return s;
 }
 static OfxParameterSuiteV1 gParamSuite = makeParamSuite();
@@ -430,7 +432,8 @@ int main(int argc, char** argv) {
     gVideo.w = std::atoi(argv[3]);
     gVideo.h = std::atoi(argv[4]);
     std::vector<std::pair<std::string, double>> sets;
-    int startHere = -1;
+    int startHere = -1, applyLook = -1;
+    std::vector<std::pair<std::string, double>> expects;
     for (int i = 6; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--set" && i + 1 < argc) {
@@ -439,6 +442,12 @@ int main(int argc, char** argv) {
             sets.emplace_back(kv.substr(0, eq), std::atof(kv.substr(eq + 1).c_str()));
         } else if (a == "--start-here" && i + 1 < argc) {
             startHere = std::atoi(argv[++i]);
+        } else if (a == "--apply-look" && i + 1 < argc) {
+            applyLook = std::atoi(argv[++i]);
+        } else if (a == "--expect" && i + 1 < argc) {
+            std::string kv = argv[++i];
+            auto eq = kv.find('=');
+            expects.emplace_back(kv.substr(0, eq), std::atof(kv.substr(eq + 1).c_str()));
         }
     }
 
@@ -511,6 +520,31 @@ int main(int argc, char** argv) {
         if (int(fx->params.params["moshStart"]->value) != startHere) die("Start Mosh Here did not set moshStart");
         std::printf("Start Mosh Here -> moshStart = %d\n", startHere);
         sets.emplace_back("moshStart", startHere);
+    }
+
+    auto press = [&](const char* button) {
+        PropSet ic;
+        auto h = reinterpret_cast<OfxPropertySetHandle>(&ic);
+        setS(h, kOfxPropType, 0, kOfxTypeParameter);
+        setS(h, kOfxPropName, 0, button);
+        setS(h, kOfxPropChangeReason, 0, kOfxChangeUserEdited);
+        setD(h, kOfxPropTime, 0, 0);
+        if (act(kOfxActionInstanceChanged, fx.get(), &ic) != kOfxStatOK) die("instanceChanged");
+    };
+    if (applyLook >= 0) {
+        fx->params.params["look"]->value = applyLook;
+        press("applyLook");
+        // The shuffled-order instance gets the same values.
+        for (auto& n : fx->params.order) sets.emplace_back(n, fx->params.params[n]->value);
+        std::printf("Apply Look %d\n", applyLook);
+    }
+    for (auto& [n, v] : expects) {
+        auto it = fx->params.params.find(n);
+        if (it == fx->params.params.end()) die(("expect: unknown param " + n).c_str());
+        if (std::fabs(it->second->value - v) > 1e-9) {
+            std::fprintf(stderr, "%s = %g, expected %g\n", n.c_str(), it->second->value, v);
+            die("parameter has the wrong value");
+        }
     }
 
     // Pass 1: play forward.
