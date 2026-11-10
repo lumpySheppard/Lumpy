@@ -1,8 +1,8 @@
-name: DataMosh OFX
+name: EriksTV OFX
 
-# Builds the DataMosh plugin for DaVinci Resolve on macOS (universal: Apple
+# Builds the EriksTV datamosh plugin for DaVinci Resolve on macOS (universal: Apple
 # silicon + Intel), runs it through the test host, and uploads the zipped
-# DataMosh.ofx.bundle as the "DataMosh-macOS" artifact.
+# EriksTV.ofx.bundle as the "EriksTV-macOS" artifact.
 on:
   push:
     branches: [main]
@@ -35,20 +35,20 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j 3
-          lipo -info build/DataMosh.ofx.bundle/Contents/MacOS/DataMosh.ofx
-          lipo build/DataMosh.ofx.bundle/Contents/MacOS/DataMosh.ofx -verify_arch arm64 x86_64
+          lipo -info build/EriksTV.ofx.bundle/Contents/MacOS/EriksTV.ofx
+          lipo build/EriksTV.ofx.bundle/Contents/MacOS/EriksTV.ofx -verify_arch arm64 x86_64
       - name: Test in minihost
         run: ctest --test-dir build --output-on-failure -V
       - name: Sign (ad hoc) and package
         run: |
-          codesign --force --sign - --timestamp=none build/DataMosh.ofx.bundle
-          codesign --verify --verbose build/DataMosh.ofx.bundle
+          codesign --force --sign - --timestamp=none build/EriksTV.ofx.bundle
+          codesign --verify --verbose build/EriksTV.ofx.bundle
           mkdir -p dist
-          ditto -c -k --keepParent build/DataMosh.ofx.bundle dist/DataMosh.ofx.bundle.zip
+          ditto -c -k --keepParent build/EriksTV.ofx.bundle dist/EriksTV.ofx.bundle.zip
           cp scripts/install-macos.sh dist/
       - uses: actions/upload-artifact@v4
         with:
-          name: DataMosh-macOS
+          name: EriksTV-macOS
           path: datamosh-ofx/dist/
 
   linux:

@@ -1,4 +1,4 @@
-// DataMosh: an OpenFX image effect for DaVinci Resolve (and other OFX hosts).
+// EriksTV: a datamosh OpenFX image effect for DaVinci Resolve (and other OFX hosts).
 //
 // Written against the plain OFX C API so the only dependency is the OFX
 // headers in third_party/openfx. All the moshing happens in MoshEngine; this
@@ -35,6 +35,8 @@
 
 namespace {
 
+// The identifier stays as it was when the plugin was called DataMosh, so
+// projects that already use it keep finding it.
 const char* const kPluginId = "com.lumpy.DataMosh";
 const char* const kGrouping = "Lumpy";
 const int kVersionMajor = 1, kVersionMinor = 1;
@@ -547,7 +549,7 @@ OfxStatus onLoad() {
 OfxStatus describe(OfxImageEffectHandle effect) {
     OfxPropertySetHandle p;
     gFx->getPropertySet(effect, &p);
-    gProp->propSetString(p, kOfxPropLabel, 0, "DataMosh");
+    gProp->propSetString(p, kOfxPropLabel, 0, "EriksTV");
     gProp->propSetString(p, kOfxImageEffectPluginPropGrouping, 0, kGrouping);
     gProp->propSetString(p, kOfxPropPluginDescription, 0,
                          "Simulated datamosh: drops the I-frame at Mosh Start so the next "

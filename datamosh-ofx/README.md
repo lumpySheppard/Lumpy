@@ -1,4 +1,4 @@
-# DataMosh (OpenFX plugin for DaVinci Resolve)
+# EriksTV (datamosh OpenFX plugin for DaVinci Resolve)
 
 A datamosh effect you can apply like any other Resolve effect. It simulates
 what happens when you delete an I-frame from compressed video: the next shot's
@@ -12,12 +12,12 @@ bleeding through, without leaving Resolve.
 
 ## Install (macOS)
 
-1. Get the `DataMosh-macOS` artifact from the latest **DataMosh OFX** run in
+1. Get the `EriksTV-macOS` artifact from the latest **EriksTV OFX** run in
    GitHub Actions and unzip it.
 2. Run `bash install-macos.sh` in that folder. It copies
-   `DataMosh.ofx.bundle` to `/Library/OFX/Plugins` and clears the macOS
+   `EriksTV.ofx.bundle` to `/Library/OFX/Plugins` and clears the macOS
    download quarantine.
-3. Restart Resolve. The effect is in **Effects → OpenFX → Lumpy → DataMosh**.
+3. Restart Resolve. The effect is in **Effects → OpenFX → Lumpy → EriksTV**.
 
 It's a universal binary (Apple silicon and Intel) for macOS 11 or later, and
 works in Resolve and Resolve Studio.
@@ -33,7 +33,7 @@ works in Resolve and Resolve Studio.
      frame instead.
    - A compound clip (or a pre-rendered clip) gives the classic look of
      shot A dragged by shot B.
-2. Drop **DataMosh** on it.
+2. Drop **EriksTV** on it.
 3. Park the playhead on the **first frame of the new shot** and press
    **Start Mosh Here**. That frame is the "deleted I-frame": it keeps
    showing the last frame of shot A.
@@ -145,7 +145,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-- On macOS this builds `build/DataMosh.ofx.bundle` (universal). To install
+- On macOS this builds `build/EriksTV.ofx.bundle` (universal). To install
   your own build, copy that bundle to `/Library/OFX/Plugins`.
 - CI (`.github/workflows/datamosh-ofx.yml`) builds and tests on macOS and
   Linux, ad-hoc signs the bundle and uploads it.

@@ -1,4 +1,4 @@
-// minihost: a tiny OFX host for testing the DataMosh plugin without Resolve.
+// minihost: a tiny OFX host for testing the EriksTV plugin without Resolve.
 //
 // It dlopens the plugin binary, runs the same actions a host runs (load,
 // describe, create instance, isIdentity, getFramesNeeded, render), feeds it

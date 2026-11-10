@@ -5,13 +5,13 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>English</string>
   <key>CFBundleExecutable</key>
-  <string>DataMosh.ofx</string>
+  <string>EriksTV.ofx</string>
   <key>CFBundleIdentifier</key>
-  <string>com.lumpy.DataMosh</string>
+  <string>com.lumpy.EriksTV</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>DataMosh</string>
+  <string>EriksTV</string>
   <key>CFBundlePackageType</key>
   <string>BNDL</string>
   <key>CFBundleShortVersionString</key>
