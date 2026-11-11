@@ -5,12 +5,15 @@ name: OFX plugins
 # artifact per plugin (the zipped bundle plus install-macos.sh):
 #   EriksTV-macOS    (datamosh-ofx/)
 #   FilmFlash-macOS  (filmflash-ofx/)
+#   GateFlare-macOS  (gateflare-ofx/)
 on:
   push:
     branches: [main]
     paths:
       - "datamosh-ofx/**"
       - "filmflash-ofx/**"
+      - "gateflare-ofx/**"
+      - "shared/**"
       - "ofx-testhost/**"
       - "third_party/openfx/**"
       - "scripts/install-macos.sh"
@@ -19,6 +22,8 @@ on:
     paths:
       - "datamosh-ofx/**"
       - "filmflash-ofx/**"
+      - "gateflare-ofx/**"
+      - "shared/**"
       - "ofx-testhost/**"
       - "third_party/openfx/**"
       - "scripts/install-macos.sh"
@@ -42,6 +47,7 @@ jobs:
         include:
           - { dir: datamosh-ofx, name: EriksTV }
           - { dir: filmflash-ofx, name: FilmFlash }
+          - { dir: gateflare-ofx, name: GateFlare }
     steps:
       - uses: actions/checkout@v4
       - name: Build (universal)
@@ -74,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [datamosh-ofx, filmflash-ofx]
+        dir: [datamosh-ofx, filmflash-ofx, gateflare-ofx]
     defaults:
       run:
         working-directory: ${{ matrix.dir }}

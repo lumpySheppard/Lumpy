@@ -18,7 +18,7 @@ find_package(Threads REQUIRED)
 set(OFX_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/openfx/include)
 
 add_library(flash_engine STATIC src/FlashEngine.cpp)
-target_include_directories(flash_engine PUBLIC src)
+target_include_directories(flash_engine PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../shared)
 set_target_properties(flash_engine PROPERTIES POSITION_INDEPENDENT_CODE ON
                                               CXX_VISIBILITY_PRESET hidden)
 target_link_libraries(flash_engine PUBLIC Threads::Threads)

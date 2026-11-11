@@ -1,0 +1,60 @@
+// GateEngine: host-independent film-gate edge flare.
+//
+// A lens throws an image circle bigger than the film gate. A bright source
+// just outside the frame line still lands on the gate: light hits the edge of
+// the aperture plate and scatters back onto the film, so a soft plume pours
+// into the frame from the edge, right where the source is. It shows up as a
+// light approaches the edge, peaks as it crosses, and lingers just after it
+// has left the shot.
+//
+// To recreate it, the picture is cropped in slightly: the cropped-off margin
+// stands for the part of the image circle beyond the gate. For each edge:
+//   1. bright sources (linear light, above a threshold) in a band straddling
+//      the edge, mostly just outside it, are summed along the edge;
+//   2. that profile is thrown into the frame as a plume that fades with
+//      distance from the edge and widens (fans) as it goes, plus a thin glow
+//      right on the edge;
+//   3. it's added in linear light (screened, on display encodings, so whites
+//      stay put), and the result is cropped to the gate.
+#pragma once
+
+#include <functional>
+#include <vector>
+
+namespace gate {
+
+struct Image {
+    int w = 0, h = 0;
+    std::vector<float> px;  // RGBA, rows packed
+    Image() = default;
+    Image(int w_, int h_) : w(w_), h(h_), px(size_t(w_) * h_ * 4, 0.f) {}
+    bool empty() const { return w <= 0 || h <= 0; }
+    float* row(int y) { return px.data() + size_t(y) * w * 4; }
+    const float* row(int y) const { return px.data() + size_t(y) * w * 4; }
+};
+
+struct Settings {
+    int encoding = 0;          // see shared/Encodings.h
+    float crop = 6.f;          // % of the picture beyond the gate (zoom-in amount)
+    bool cropOutput = true;    // scale the gate up to fill the frame
+    float threshold = 0.8f;    // encoded value a source must exceed to flare
+    float knee = 0.15f;        // soft knee width around the threshold
+    float intensity = 1.f;
+    float reach = 6.f;         // how far beyond the edge sources still count, % of frame height
+    float depth = 14.f;        // how far the plume reaches into the frame, % of frame height
+    float spread = 2.5f;       // plume width along the edge at the edge, % of frame height
+    float fan = 0.6f;          // how much wider it gets per unit of depth
+    float edgeGlow = 0.35f;    // thin glow right on the gate edge
+    float tint[3] = {1.f, 1.f, 1.f};
+    float sourceColour = 1.f;  // 1 = flare takes the sources' colour, 0 = white
+    bool edges[4] = {true, true, true, true};  // top, bottom, left, right (as seen)
+    bool showGate = false;     // debug: show the gate and the detected sources
+    int upSign = 1;            // +1 if rows go bottom-up (OFX), -1 if top-down
+};
+
+void parallelFor(int n, const std::function<void(int)>& fn);
+
+// Render `in` with gate flare into `out` (same size as `in`).
+void render(const Image& in, const Settings& s, Image& out);
+
+}  // namespace gate
