@@ -108,7 +108,10 @@ struct Param {
     PropSet props;
     double value = 0;       // the value, or the first component
     double value2 = 0, value3 = 0;  // RGB's other components
+    bool transitionCurve = false;   // the host animates it: value = t / (frames - 1)
 };
+static int gFrames = 1;   // frames rendered (the transition's length)
+static int gOffset = 0;   // clip time of the first rendered frame
 struct ParamSet {
     PropSet props;
     std::map<std::string, std::unique_ptr<Param>> params;
@@ -142,8 +145,12 @@ static OfxStatus paramGetPropertySet(OfxParamHandle h, OfxPropertySetHandle* pro
     return kOfxStatOK;
 }
 static bool isDouble(const Param* p) { return p->type == kOfxParamTypeDouble; }
-static OfxStatus getValueV(OfxParamHandle h, va_list ap) {
+static OfxStatus getValueV(OfxParamHandle h, va_list ap, const double* time = nullptr) {
     auto* p = reinterpret_cast<Param*>(h);
+    if (time && p->transitionCurve) {
+        *va_arg(ap, double*) = gFrames > 1 ? (*time - gOffset) / (gFrames - 1) : 0.0;
+        return kOfxStatOK;
+    }
     if (!p) return kOfxStatErrBadHandle;
     if (p->type == kOfxParamTypePushButton) return kOfxStatErrUnsupported;
     if (p->type == kOfxParamTypeGroup) return kOfxStatErrUnsupported;
@@ -162,7 +169,7 @@ static OfxStatus paramGetValue(OfxParamHandle h, ...) {
     va_list ap; va_start(ap, h); OfxStatus s = getValueV(h, ap); va_end(ap); return s;
 }
 static OfxStatus paramGetValueAtTime(OfxParamHandle h, OfxTime t, ...) {
-    va_list ap; va_start(ap, t); OfxStatus s = getValueV(h, ap); va_end(ap); return s;
+    va_list ap; va_start(ap, t); OfxStatus s = getValueV(h, ap, &t); va_end(ap); return s;
 }
 static OfxStatus setValueV(OfxParamHandle h, va_list ap) {
     auto* p = reinterpret_cast<Param*>(h);
@@ -411,7 +418,10 @@ static std::vector<float> renderFrame(Effect* fx, int t) {
     setIN(inH, kOfxImageEffectPropRenderWindow, 4, win);
     // In a transition the host animates the Transition param from 0 to 1.
     auto tp = fx->params.params.find(kOfxImageEffectTransitionParamName);
-    if (tp != fx->params.params.end()) tp->second->value = gVideo.n > 1 ? double(t) / (gVideo.n - 1) : 0.0;
+    if (tp != fx->params.params.end()) {
+        tp->second->transitionCurve = true;
+        tp->second->value = gFrames > 1 ? double(t - gOffset) / (gFrames - 1) : 0.0;
+    }
 
     OfxStatus st = act(kOfxImageEffectActionIsIdentity, fx, &in, &out);
     if (st == kOfxStatOK) {
@@ -433,10 +443,17 @@ static std::vector<float> renderFrame(Effect* fx, int t) {
     PropSet fout;
     OfxStatus fs = act(kOfxImageEffectActionGetFramesNeeded, fx, &in, &fout);
     if (fs != kOfxStatOK && fs != kOfxStatReplyDefault) die("getFramesNeeded");
-    double range[2];
-    if (fs == kOfxStatOK &&
-        getDN(reinterpret_cast<OfxPropertySetHandle>(&fout), "OfxImageClipPropFrameRange_Source", 2, range))
-        die("getFramesNeeded did not set a range");
+    if (fs == kOfxStatOK) {
+        // Every input clip must get a sane range that includes t.
+        for (auto& [name, clip] : fx->clips) {
+            if (name == kOfxImageEffectOutputClipName) continue;
+            double range[2];
+            if (getDN(reinterpret_cast<OfxPropertySetHandle>(&fout),
+                      ("OfxImageClipPropFrameRange_" + name).c_str(), 2, range))
+                die(("getFramesNeeded did not set a range for " + name).c_str());
+            if (!(range[0] <= range[1])) die("getFramesNeeded range is inverted");
+        }
+    }
 
     fx->output = std::make_unique<Image>();
     fx->output->data.assign(size_t(w) * h * 4, -1.f);
@@ -455,7 +472,8 @@ int main(int argc, char** argv) {
                      "usage: minihost PLUGIN IN.rgb|A.rgb+B.rgb|synthetic W H OUT.rgb [options]\n"
                      "  --context filter|transition   --set name=value   --start-here N\n"
                      "  --apply-look N   --expect name=value   --expect-identity-at N:Source|SourceFrom|SourceTo\n"
-                     "  --max-below V   --expect-mean-above N:V   --expect-mean-below N:V\n");
+                     "  --max-below V   --expect-mean-above N:V   --expect-mean-below N:V\n"
+                     "  --expect-fetches-above F (source frames fetched per rendered frame)\n");
         return 2;
     }
     gVideo.w = std::atoi(argv[3]);
@@ -465,7 +483,8 @@ int main(int argc, char** argv) {
     std::vector<std::pair<std::string, double>> expects;
     std::vector<std::pair<int, std::string>> identityAt;
     std::vector<std::pair<int, double>> meanAbove, meanBelow;
-    double maxBelow = -1;
+    double maxBelow = -1, fetchesAbove = -1;
+    int framesOpt = -1;
     auto frameColon = [](const std::string& kv, int& frame) {
         auto c = kv.find(':');
         frame = std::atoi(kv.substr(0, c).c_str());
@@ -489,6 +508,9 @@ int main(int argc, char** argv) {
             continue;
         }
         if (a == "--max-below" && i + 1 < argc) { maxBelow = std::atof(argv[++i]); continue; }
+        if (a == "--expect-fetches-above" && i + 1 < argc) { fetchesAbove = std::atof(argv[++i]); continue; }
+        if (a == "--frames" && i + 1 < argc) { framesOpt = std::atoi(argv[++i]); continue; }
+        if (a == "--offset" && i + 1 < argc) { gOffset = std::atoi(argv[++i]); continue; }
         if (a == "--set" && i + 1 < argc) {
             std::string kv = argv[++i];
             auto eq = kv.find('=');
@@ -520,7 +542,7 @@ int main(int argc, char** argv) {
                     unsigned char* p = &vid.rgb[((size_t(t) * vid.h + y) * vid.w + x) * 3];
                     const int shot = shotOverride >= 0 ? shotOverride : (t < 24 ? 0 : 1);
                     if (shot == 0) {
-                        double r = std::hypot(x - gVideo.w / 2.0, y - gVideo.h / 2.0);
+                        double r = std::hypot(x - vid.w / 2.0 - 2.0 * t, y - vid.h / 2.0);
                         p[0] = (unsigned char)(127 + 120 * std::sin(r * 0.3));
                         p[1] = (unsigned char)(127 + 120 * std::cos(r * 0.2));
                         p[2] = 200;
@@ -552,10 +574,17 @@ int main(int argc, char** argv) {
     } else if (auto plus = input.find('+'); plus != std::string::npos) {
         load(gVideo, input.substr(0, plus));
         load(gVideoB, input.substr(plus + 1));
-        gVideo.n = gVideoB.n = std::min(gVideo.n, gVideoB.n);
     } else {
         load(gVideo, input);
         if (transition) gVideoB = gVideo;
+    }
+
+    // Render N frames starting at clip time gOffset (the clips may be longer:
+    // that's a transition with handles).
+    {
+        int avail = transition ? std::min(gVideo.n, gVideoB.n) : gVideo.n;
+        gFrames = framesOpt > 0 ? framesOpt : avail - gOffset;
+        if (gOffset < 0 || gFrames <= 0 || gOffset + gFrames > avail) die("--frames/--offset outside the clips");
     }
 
     void* lib = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
@@ -631,20 +660,23 @@ int main(int argc, char** argv) {
     }
 
     // Pass 1: play forward.
-    std::vector<std::vector<float>> seq(gVideo.n);
+    const int N = gFrames;
+    std::vector<std::vector<float>> seq(N);
     gSourceFetches = 0;
-    for (int t = 0; t < gVideo.n; ++t) seq[t] = renderFrame(fx.get(), t);
-    std::printf("sequential: %d frames, %d source fetches (%.2f per frame)\n", gVideo.n,
-                gSourceFetches, double(gSourceFetches) / gVideo.n);
+    for (int i = 0; i < N; ++i) seq[i] = renderFrame(fx.get(), gOffset + i);
+    std::printf("sequential: %d frames, %d source fetches (%.2f per frame)\n", N,
+                gSourceFetches, double(gSourceFetches) / N);
+    if (fetchesAbove >= 0 && !(double(gSourceFetches) / N > fetchesAbove))
+        die("plugin fetched fewer source frames than expected (no temporal access?)");
 
     // Pass 2: fresh instance, shuffled order (like scrubbing); must match.
     auto fx2 = makeInstance(descCtx, sets);
-    std::vector<int> order(gVideo.n);
-    for (int i = 0; i < gVideo.n; ++i) order[i] = i;
+    std::vector<int> order(N);
+    for (int i = 0; i < N; ++i) order[i] = i;
     std::shuffle(order.begin(), order.end(), std::mt19937(1234));
     double worst = 0;
     for (int t : order) {
-        std::vector<float> r = renderFrame(fx2.get(), t);
+        std::vector<float> r = renderFrame(fx2.get(), gOffset + t);
         for (size_t i = 0; i < r.size(); ++i) worst = std::max(worst, double(std::fabs(r[i] - seq[t][i])));
     }
     std::printf("shuffled render max difference vs sequential: %g\n", worst);
@@ -670,8 +702,8 @@ int main(int argc, char** argv) {
         return acc / double(f.size() / 4);
     };
     for (auto& [t, clip] : identityAt) {
-        if (t < 0 || t >= gVideo.n) die("--expect-identity-at: frame out of range");
-        std::vector<float> src = sourceFrame(clip, t);
+        if (t < 0 || t >= N) die("--expect-identity-at: frame out of range");
+        std::vector<float> src = sourceFrame(clip, gOffset + t);
         double d = 0;
         for (size_t i = 0; i < src.size(); ++i) d = std::max(d, double(std::fabs(src[i] - seq[t][i])));
         std::printf("frame %d vs %s: max difference %g\n", t, clip.c_str(), d);
@@ -704,7 +736,7 @@ int main(int argc, char** argv) {
     FILE* o = std::fopen(argv[5], "wb");
     std::vector<unsigned char> buf(fb);
     const int w = gVideo.w, h = gVideo.h;
-    for (int t = 0; t < gVideo.n; ++t) {
+    for (int t = 0; t < N; ++t) {
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x)
                 for (int k = 0; k < 3; ++k) {

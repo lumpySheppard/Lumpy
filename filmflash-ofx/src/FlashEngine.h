@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <utility>
 #include <vector>
 
 namespace flash {
@@ -83,5 +84,29 @@ struct Envelope {
     uint32_t seed = 1;
 };
 float envelopeStops(const Envelope& e, float p, int frame);
+
+// Camera speed. At 1/k of normal speed the camera records 1/k as many frames
+// per real second, so played back normally the action runs k times fast, and
+// each exposure (shutter open for longer in real time) smears k times as
+// much motion. With the flash tied to speed, k = 2^stops.
+struct Speed {
+    float speedUp = 1.f;     // 0 = no speed change, 1 = matches the exposure
+    float maxSpeed = 6.f;    // cap on how fast the action runs
+    float blur = 1.f;        // 0 = no extra motion blur, 1 = matches the exposure
+    float shutter = 180.f;   // shutter angle, degrees
+    float maxBlur = 6.f;     // cap on the blur, in source frames
+};
+// How many source frames the action advances per output frame.
+float speedFactor(const Speed& s, float stops);
+// Extra exposure window in source frames, beyond the shot's own blur.
+float blurFrames(const Speed& s, float stops);
+
+// Source frames to average for a frame centred at source time `t` with an
+// exposure window `width` frames wide (box filter over whole frames).
+std::vector<std::pair<int, float>> blurTaps(double t, float width);
+
+// Weighted average of frames in linear light. Weights should sum to 1.
+void blendFrames(const std::vector<const Image*>& frames, const std::vector<float>& weights,
+                 int encoding, Image& out);
 
 }  // namespace flash

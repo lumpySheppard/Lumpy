@@ -21,6 +21,13 @@ That light lands on a negative, not a sensor, so nothing clips:
 - **Stray light.** It fogs the base, giving a milky, orange lift in the
   shadows (Base Fog). It also halates, a red glow around bright areas
   (Halation), and can leak in at one edge (Edge Leak).
+- **Speed.** At 1/k of normal speed the camera records 1/k as many frames
+  per real second, so played back the action runs k times fast. The
+  outgoing shot accelerates into the cut and the incoming shot starts fast
+  and settles (Speed Up).
+- **Motion blur.** The shutter stays open k times longer in real time, so
+  each frame smears k times as much motion. The plugin averages the real
+  source frames across that exposure window, in linear light (Motion Blur).
 - **Unsteady camera.** The shutter at the wrong speed lights one side more
   than the other (Uneven Exposure), and an unsteady motor flickers
   (Flicker).
@@ -66,6 +73,27 @@ speed.
 | Flash (stops) | Effect only: the flash amount to keyframe |
 | Flicker / Seed | Random frame-to-frame exposure wobble while flashing |
 
+**Camera Speed**
+
+| Control | What it does |
+| --- | --- |
+| Speed Up | Transition only. How much the action speeds up as the camera slows: 1 = tied to the exposure like a real camera, 0 = off |
+| Max Speed | Cap on how fast the action runs near the peak |
+| Motion Blur | Extra blur from the longer exposures: 1 = tied to the exposure, 0 = off |
+| Shutter Angle | The camera's shutter at normal speed (180° is standard); a wider shutter smears more |
+| Max Blur | Cap on the blur, in frames of action. Higher costs render time (one source frame per frame of blur) |
+
+Speed-up reads past the edit point, ahead into the outgoing clip's tail and
+back into the incoming clip's head. Give both clips enough handles: about
+as many frames as the transition is long is plenty with the defaults. The
+outgoing shot is pinned at the start of the transition and the incoming
+shot at its end, so nothing jumps where the transition starts or ends. If
+Resolve can't supply a frame, the plugin uses the current frame for it
+instead.
+
+Both only add to what the footage already has. With no flash, there's no
+extra speed and no extra blur.
+
 **Film**
 
 | Control | What it does |
@@ -101,6 +129,8 @@ transition and as an effect. They check:
 
 - both ends of the transition, and Flash 0, return the source untouched
 - the cut is near white
+- speed-up and motion blur actually read other frames, including real
+  handles, and turning them off reads only the current frame
 - nothing ever passes white, even at 18 stops with everything turned up
 - frames rendered out of order match frames rendered in order
 

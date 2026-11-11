@@ -247,4 +247,58 @@ float envelopeStops(const Envelope& e, float p, int frame) {
     return std::max(stops, 0.f);
 }
 
+float speedFactor(const Speed& s, float stops) {
+    if (s.speedUp <= 0.f || stops <= 0.f) return 1.f;
+    return std::min(std::max(s.maxSpeed, 1.f), std::exp2(s.speedUp * stops));
+}
+
+float blurFrames(const Speed& s, float stops) {
+    if (s.blur <= 0.f || stops <= 0.f || s.maxBlur <= 0.f) return 0.f;
+    float w = (s.shutter / 360.f) * (std::exp2(s.blur * stops) - 1.f);
+    return std::min(w, s.maxBlur);
+}
+
+std::vector<std::pair<int, float>> blurTaps(double t, float width) {
+    std::vector<std::pair<int, float>> taps;
+    if (width < 1e-3f) {
+        taps.emplace_back(int(std::floor(t + 0.5)), 1.f);
+        return taps;
+    }
+    const double a = t - width / 2.0, b = t + width / 2.0;
+    double total = 0;
+    for (int k = int(std::floor(a + 0.5)); k <= int(std::ceil(b - 0.5)); ++k) {
+        double ov = std::min(k + 0.5, b) - std::max(k - 0.5, a);
+        if (ov <= 0) continue;
+        taps.emplace_back(k, float(ov));
+        total += ov;
+    }
+    for (auto& tp : taps) tp.second = float(tp.second / total);
+    return taps;
+}
+
+void blendFrames(const std::vector<const Image*>& frames, const std::vector<float>& weights,
+                 int encoding, Image& out) {
+    if (frames.empty()) return;
+    const Image& f0 = *frames[0];
+    if (frames.size() == 1) {
+        if (&out != &f0) out = f0;
+        return;
+    }
+    Image res(f0.w, f0.h);
+    parallelFor(f0.h, [&](int y) {
+        float* d = res.row(y);
+        for (int x = 0; x < f0.w * 4; x += 4) {
+            float acc[4] = {0, 0, 0, 0};
+            for (size_t i = 0; i < frames.size(); ++i) {
+                const float* s = frames[i]->row(y) + x;
+                for (int c = 0; c < 3; ++c) acc[c] += weights[i] * decode(s[c], encoding);
+                acc[3] += weights[i] * s[3];
+            }
+            for (int c = 0; c < 3; ++c) d[x + c] = encode(acc[c], encoding);
+            d[x + 3] = acc[3];
+        }
+    });
+    out = std::move(res);
+}
+
 }  // namespace flash
