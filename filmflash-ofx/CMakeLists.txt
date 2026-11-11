@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(FilmFlash VERSION 1.6.0 LANGUAGES CXX)
+project(FilmFlash VERSION 1.7.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,6 +50,8 @@ endif()
 
 add_executable(flash_cli tools/flash_cli.cpp)
 target_link_libraries(flash_cli PRIVATE flash_engine)
+add_executable(encoding_check tools/encoding_check.cpp)
+target_link_libraries(encoding_check PRIVATE flash_engine)
 
 if(NOT WIN32)
   add_executable(minihost ${CMAKE_CURRENT_SOURCE_DIR}/../ofx-testhost/minihost.cpp)
@@ -57,6 +59,7 @@ if(NOT WIN32)
   target_link_libraries(minihost PRIVATE ${CMAKE_DL_LIBS})
   enable_testing()
   set(FF $<TARGET_FILE:FilmFlash>)
+  add_test(NAME log_curves COMMAND encoding_check)
   # Transition, defaults: untouched at both ends, near white at the cut, never clipped.
   add_test(NAME transition_defaults
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_default.rgb --context transition
@@ -83,6 +86,20 @@ if(NOT WIN32)
   add_test(NAME effect_motion_blur
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_blur.rgb --context filter
                    --set timing=0 --set flash=3 --set motionBlur=1 --expect-fetches-above 2 --max-below 1.0)
+  # Exposure modes, on a log encoding: untouched outside the flash, brighter
+  # inside, deterministic. Gain on log must be able to go past 1.0 (no clip).
+  add_test(NAME transition_gain_on_logc3
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_gain.rgb --context transition
+                   --set encoding=7 --set exposureMode=1 --set peak=4
+                   --expect-identity-at 0:SourceFrom --expect-identity-at 47:SourceTo --expect-mean-above 23:0.7)
+  add_test(NAME transition_gamma_rec709
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_gamma.rgb --context transition
+                   --set exposureMode=2 --expect-identity-at 0:SourceFrom --expect-identity-at 47:SourceTo
+                   --expect-mean-above 23:0.8 --max-below 1.0000001)
+  add_test(NAME transition_film_on_slog3
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_slog3.rgb --context transition
+                   --set encoding=9 --expect-identity-at 0:SourceFrom --expect-identity-at 47:SourceTo
+                   --expect-mean-above 23:0.6)
   # As an effect with keyframed Flash: 0 leaves the clip alone; a big flash brightens without clipping.
   add_test(NAME effect_zero_is_identity
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_zero.rgb --context filter

@@ -35,8 +35,56 @@ const float kCineonBlack = 0.0107977516f;  // 10^((95 - 685) / 300)
 const float kDiA = 0.0075f, kDiB = 7.0f, kDiC = 0.07329248f, kDiM = 10.44426855f;
 const float kDiLinCut = 0.00262409f, kDiLogCut = 0.02740668f;
 
+// Camera log curves, from the manufacturers' published formulas.
+namespace logc3 {
+const float cut = 0.010591f, a = 5.555556f, b = 0.052272f, c = 0.247190f, d = 0.385537f,
+            e = 5.367655f, f = 0.092809f;
+}
+namespace logc4 {
+const float a = (262144.f - 16.f) / 117.45f, b = (1023.f - 95.f) / 1023.f, c = 95.f / 1023.f;
+const float s = (7.f * 0.69314718f * std::exp2(7.f - 14.f * c / b)) / (a * b);
+const float t = (std::exp2(14.f * (-c / b) + 6.f) - 64.f) / a;
+}
+namespace vlog {
+const float cut1 = 0.01f, cut2 = 0.181f, b = 0.00873f, c = 0.241514f, d = 0.598206f;
+}
+namespace log3g10 {
+const float a = 0.224282f, b = 155.975327f, c = 0.01f, g = 15.1927f;
+}
+namespace applelog {
+const float R0 = -0.05641088f, Rt = 0.01f, c = 47.28711236f, beta = 0.00964052f,
+            gamma = 0.08550479f, delta = 0.69336945f;
+const float Pt = c * (Rt - R0) * (Rt - R0);
+}
+namespace bmd5 {
+const float A = 0.08692876065491224f, B = 0.005494072432257808f, C = 0.5300133392291939f,
+            D = 8.283605932402494f, E = 0.09246575342465753f, LIN_CUT = 0.005f;
+const float LOG_CUT = D * LIN_CUT + E;
+}
+
 inline float decode(float v, int enc) {
     switch (enc) {
+        case kLogC3:
+            return v > logc3::e * logc3::cut + logc3::f
+                       ? (std::pow(10.f, (v - logc3::d) / logc3::c) - logc3::b) / logc3::a
+                       : (v - logc3::f) / logc3::e;
+        case kLogC4:
+            return v >= 0.f ? (std::exp2(14.f * (v - logc4::c) / logc4::b + 6.f) - 64.f) / logc4::a
+                            : v * logc4::s + logc4::t;
+        case kSLog3:
+            return v >= 171.2102946929f / 1023.f
+                       ? std::pow(10.f, (v * 1023.f - 420.f) / 261.5f) * 0.19f - 0.01f
+                       : (v * 1023.f - 95.f) * 0.01125f / (171.2102946929f - 95.f);
+        case kVLog:
+            return v < vlog::cut2 ? (v - 0.125f) / 5.6f : std::pow(10.f, (v - vlog::d) / vlog::c) - vlog::b;
+        case kLog3G10:
+            return v < 0.f ? v / log3g10::g - log3g10::c
+                           : (std::pow(10.f, v / log3g10::a) - 1.f) / log3g10::b - log3g10::c;
+        case kAppleLog:
+            if (v >= applelog::Pt) return std::exp2((v - applelog::delta) / applelog::gamma) - applelog::beta;
+            return std::sqrt(std::max(v, 0.f) / applelog::c) + applelog::R0;
+        case kBMDFilmGen5:
+            return v < bmd5::LOG_CUT ? (v - bmd5::E) / bmd5::D : std::exp((v - bmd5::C) / bmd5::A) - bmd5::B;
         case kRec709: return std::pow(std::max(v, 0.f), 2.4f);
         case kSRGB:
             v = std::max(v, 0.f);
@@ -52,6 +100,27 @@ inline float decode(float v, int enc) {
 
 inline float encode(float l, int enc) {
     switch (enc) {
+        case kLogC3:
+            return l > logc3::cut ? logc3::c * std::log10(logc3::a * l + logc3::b) + logc3::d
+                                  : logc3::e * l + logc3::f;
+        case kLogC4:
+            return l >= logc4::t ? (std::log2(logc4::a * l + 64.f) - 6.f) / 14.f * logc4::b + logc4::c
+                                 : (l - logc4::t) / logc4::s;
+        case kSLog3:
+            return l >= 0.01125f ? (420.f + std::log10((l + 0.01f) / 0.19f) * 261.5f) / 1023.f
+                                 : (l * (171.2102946929f - 95.f) / 0.01125f + 95.f) / 1023.f;
+        case kVLog:
+            return l < vlog::cut1 ? 5.6f * l + 0.125f : vlog::c * std::log10(l + vlog::b) + vlog::d;
+        case kLog3G10: {
+            float x = l + log3g10::c;
+            return x < 0.f ? x * log3g10::g : log3g10::a * std::log10(x * log3g10::b + 1.f);
+        }
+        case kAppleLog:
+            if (l >= applelog::Rt) return applelog::gamma * std::log2(l + applelog::beta) + applelog::delta;
+            if (l >= applelog::R0) return applelog::c * (l - applelog::R0) * (l - applelog::R0);
+            return 0.f;
+        case kBMDFilmGen5:
+            return l < bmd5::LIN_CUT ? bmd5::D * l + bmd5::E : bmd5::A * std::log(l + bmd5::B) + bmd5::C;
         case kRec709: return std::pow(std::max(l, 0.f), 1.f / 2.4f);
         case kSRGB:
             l = std::max(l, 0.f);
@@ -127,6 +196,7 @@ void render(const Image& in, float stops, const Look& lk, Image& out) {
     const float ang = lk.angle * 3.14159265f / 180.f;
     const float dirx = -std::cos(ang), diry = std::sin(ang);  // toward the bright side
 
+    const bool screenAdd = lk.exposureMode == kGamma && !scene;
     // Pass 1: exposure + fog + leak in odds space.
     std::vector<float> O(size_t(w) * h * 3), O0(scene ? size_t(w) * h * 3 : 0);
     parallelFor(h, [&](int y) {
@@ -138,17 +208,29 @@ void render(const Image& in, float stops, const Look& lk, Image& out) {
             const float e = stops + lk.unevenness * d * kE;
             const float leakW = leakAmt > 0.f ? smoothstep(0.25f, 1.05f, d) : 0.f;
             for (int c = 0; c < 3; ++c) {
-                const float l = decode(s[x * 4 + c], lk.encoding);
+                const float ec = lk.response * e * (1.f + bias[c]);
                 float o;
-                if (scene) {
-                    o = std::max(l, 0.f) / W;
-                    O0[(size_t(y) * w + x) * 3 + c] = o;
+                if (lk.exposureMode == kFilmNegative) {
+                    const float l = decode(s[x * 4 + c], lk.encoding);
+                    if (scene) {
+                        o = std::max(l, 0.f) / W;
+                        O0[(size_t(y) * w + x) * 3 + c] = o;
+                    } else {
+                        float t = std::min(std::max(l, 0.f), 0.99995f);
+                        o = t / (1.f - t);
+                    }
+                    o *= std::exp2(ec);
+                } else if (lk.exposureMode == kGain) {
+                    // Straight stops in linear light (unit = scene white W, or display 1).
+                    o = decode(s[x * 4 + c], lk.encoding) / (scene ? W : 1.f) * std::exp2(ec);
                 } else {
-                    float t = std::min(std::max(l, 0.f), 0.99995f);
-                    o = t / (1.f - t);
+                    // Gamma on the encoded value: 1 stop ~ a gamma of 2^-0.35.
+                    float v = std::max(s[x * 4 + c], 0.f);
+                    o = decode(std::pow(v, std::exp2(-0.35f * ec)), lk.encoding) / (scene ? W : 1.f);
                 }
-                o *= std::exp2(lk.response * e * (1.f + bias[c]));
-                o += fogAmt * lk.fogColour[c] + leakAmt * leakW * lk.leakColour[c];
+                const float add = fogAmt * lk.fogColour[c] + leakAmt * leakW * lk.leakColour[c];
+                // Gamma on a display encoding keeps whites put: screen the light in.
+                o = screenAdd ? 1.f - (1.f - std::min(o, 1.f)) * (1.f - std::min(add, 1.f)) : o + add;
                 O[(size_t(y) * w + x) * 3 + c] = o;
             }
         }
@@ -158,6 +240,8 @@ void render(const Image& in, float stops, const Look& lk, Image& out) {
     // through the base and come back mostly in the red layer.
     std::vector<float> halo;
     int hs = 4, hw = 0, hh = 0;
+    // Film: past the middle of the curve (odds 1). Linear modes: half of white.
+    const float halThreshold = lk.exposureMode == kFilmNegative ? 1.f : 0.5f;
     if (lk.halation > 0.f && kE > 0.f && lk.halationRadius > 0.f) {
         hw = (w + hs - 1) / hs;
         hh = (h + hs - 1) / hs;
@@ -170,7 +254,7 @@ void render(const Image& in, float stops, const Look& lk, Image& out) {
                     for (int x = bx * hs; x < std::min(w, bx * hs + hs); ++x, ++n) {
                         const float* o = &O[(size_t(y) * w + x) * 3];
                         float lum = 0.2126f * o[0] + 0.7152f * o[1] + 0.0722f * o[2];
-                        acc += std::min(std::max(lum - 1.f, 0.f), 40.f);
+                        acc += std::min(std::max(lum - halThreshold, 0.f), 40.f);
                     }
                 halo[size_t(by) * hw + bx] = n ? acc / n : 0.f;
             }
@@ -203,7 +287,14 @@ void render(const Image& in, float stops, const Look& lk, Image& out) {
             }
             const float alpha = s[x * 4 + 3];
             for (int c = 0; c < 3; ++c) {
-                float o = O[(size_t(y) * w + x) * 3 + c] + halAmt * hv * halCol[c];
+                const float hadd = halAmt * hv * halCol[c];
+                float o = screenAdd ? 1.f - (1.f - O[(size_t(y) * w + x) * 3 + c]) * (1.f - std::min(hadd, 1.f))
+                                    : O[(size_t(y) * w + x) * 3 + c] + hadd;
+                if (lk.exposureMode != kFilmNegative) {
+                    // No shoulder: linear light out, as far as the stops go.
+                    dst[x * 4 + c] = encode(o * (scene ? W : 1.f), lk.encoding);
+                    continue;
+                }
                 o = std::max(o, 0.f);
                 float t = o / (1.f + o);  // the shoulder: never reaches 1
                 // Near the top the flash burns toward the stock's highlight colour.
@@ -246,6 +337,9 @@ float envelopeStops(const Envelope& e, float p, int frame) {
     }
     return std::max(stops, 0.f);
 }
+
+float toLinear(float v, int encoding) { return decode(v, encoding); }
+float fromLinear(float l, int encoding) { return encode(l, encoding); }
 
 float speedFactor(const Speed& s, float stops) {
     if (s.speedUp <= 0.f || stops <= 0.f) return 1.f;

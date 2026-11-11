@@ -39,7 +39,7 @@ enum P {
     P_FLASH,  // effect only
     P_PEAK, P_CUT, P_HOLD, P_RUNOUT, P_RUNUP, P_SOFT,  // transition only
     P_FLICKER, P_SEED,
-    P_ENCODING, P_RESPONSE, P_SHIFT, P_HICOL, P_FOG, P_FOGCOL, P_HAL, P_HALSIZE,
+    P_ENCODING, P_EXPMODE, P_RESPONSE, P_SHIFT, P_HICOL, P_FOG, P_FOGCOL, P_HAL, P_HALSIZE,
     P_UNEVEN, P_ANGLE, P_LEAK, P_LEAKCOL, P_CEILING,
     P_SPEEDUP, P_MAXSPEED, P_BLUR, P_SHUTTER, P_MAXBLUR,
     P_DIAG, P_HANDLES, P_SPEEDCURVE, P_RAMP,
@@ -158,11 +158,21 @@ const std::vector<PDef>& defs() {
          {0}, 0, 1, 0, 1, {}},
 
         {P_ENCODING, "encoding", kChoice, kBoth, "grpFilm", "Input Encoding",
-         "How the incoming images are encoded, so stops are real stops. Rec.709 (gamma 2.4) "
-         "for a standard timeline; DaVinci Intermediate for a DaVinci Wide Gamut timeline.",
-         {0}, 0, 6, 0, 6,
+         "How the images arriving here are encoded, so stops are real stops. Rec.709 / Gamma "
+         "2.4 for a standard timeline; DaVinci Intermediate for a DaVinci Wide Gamut timeline; "
+         "the camera's log if the effect sees log footage (before any LUT or CST).",
+         {0}, 0, 13, 0, 13,
          {"Rec.709 / Gamma 2.4", "sRGB", "Gamma 2.2", "Linear (display)", "Linear (scene)",
-          "DaVinci Intermediate", "Cineon Log"}},
+          "DaVinci Intermediate", "Cineon Log", "ARRI LogC3", "ARRI LogC4", "Sony S-Log3",
+          "Panasonic V-Log", "RED Log3G10", "Apple Log", "Blackmagic Film Gen 5"}},
+        {P_EXPMODE, "exposureMode", kChoice, kBoth, "grpFilm", "Exposure",
+         "Film Negative: a soft shoulder, rolls into white and never clips. Gain: true stops "
+         "in linear light (on log footage that's a log offset, like printer lights); "
+         "highlights keep going past white for your LUT or output transform to roll off. "
+         "Gamma: lifts the mids while whites stay where they are.",
+         {0}, 0, 2, 0, 2,
+         {"Film Negative (soft shoulder)", "Gain (true stops / log offset)",
+          "Gamma (lift mids, whites stay)"}},
         {P_RESPONSE, "response", kDbl, kBoth, "grpFilm", "Film Response",
          "Contrast of the stock's response: how quickly each stop of flash eats into the "
          "picture.",
@@ -183,7 +193,9 @@ const std::vector<PDef>& defs() {
         {P_HALSIZE, "halationSize", kDbl, kBoth, "grpFilm", "Halation Size",
          "Glow radius, as a percentage of the frame width.", {1}, 0, 10, 0, 4, {}},
         {P_CEILING, "sceneCeiling", kDbl, kBoth, "grpFilm", "Scene Ceiling",
-         "Scene-referred encodings only: stops above mid grey where the flash tops out.", {6},
+         "Film Negative with a scene-referred encoding (linear scene, log): stops above mid "
+         "grey where the shoulder tops out.",
+         {6},
          2, 12, 3, 10, {}},
 
         {P_UNEVEN, "unevenness", kDbl, kBoth, "grpCamera", "Uneven Exposure",
@@ -248,7 +260,8 @@ Values readValues(Instance* in, double t) {
 
 flash::Look lookFrom(const Values& v) {
     flash::Look lk;
-    lk.encoding = std::min(std::max(int(v.v[P_ENCODING][0]), 0), 6);
+    lk.encoding = std::min(std::max(int(v.v[P_ENCODING][0]), 0), int(flash::kEncodingCount) - 1);
+    lk.exposureMode = std::min(std::max(int(v.v[P_EXPMODE][0]), 0), 2);
     lk.response = v.f(P_RESPONSE);
     lk.colourShift = v.f(P_SHIFT);
     for (int i = 0; i < 3; ++i) {
@@ -1027,7 +1040,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 6, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 7, setHost, mainEntry};
 
 }  // namespace
 

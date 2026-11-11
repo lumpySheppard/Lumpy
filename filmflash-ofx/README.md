@@ -168,13 +168,33 @@ extra speed and no extra blur.
 
 | Control | What it does |
 | --- | --- |
-| Input Encoding | How the images are encoded, so stops are real stops. Rec.709 / Gamma 2.4 for a standard timeline; DaVinci Intermediate for a DaVinci Wide Gamut timeline |
+| Input Encoding | How the images are encoded *where FilmFlash sits*, so stops are real stops. Rec.709 / sRGB / gamma 2.2, linear, DaVinci Intermediate, Cineon, ARRI LogC3 / LogC4, Sony S-Log3, Panasonic V-Log, RED Log3G10, Apple Log, Blackmagic Film Gen 5 |
+| Exposure | **Film Negative**: a soft shoulder into white that never clips (works on anything). **Gain**: true stops in linear light. On log footage that's a log offset, like printer lights, and highlights keep going past white for your LUT or output transform to roll off. On Rec.709 footage it clips. **Gamma**: lifts the mids while whites stay put; a hazy, milky flash that never reaches white |
 | Film Response | How quickly each stop eats into the picture |
 | Colour Shift | Warm drift as the flash builds |
 | Highlight Colour | The white the flash burns toward |
 | Base Fog / Fog Colour | Milky, coloured lift of the shadows |
 | Halation / Halation Size | Red glow around bright areas (size as % of frame width) |
 | Scene Ceiling | Scene-referred encodings only: where the flash tops out, in stops above mid grey |
+
+### Log footage
+
+Highlights in Rec.709 footage are already clipped, so any flash on it is
+working with a picture that's run out of room. On log, or on a
+colour-managed timeline, the highlights still exist above white. Put the
+flash there and let your LUT or output transform roll it off:
+
+- **Colour-managed timeline (DaVinci Wide Gamut / Intermediate).** Use
+  Input Encoding **DaVinci Intermediate** and Exposure **Gain**, or Film
+  Negative for an extra shoulder.
+- **Log clips with a LUT or CST on the Color page.** Add FilmFlash as an
+  OpenFX on a node *before* the LUT/CST node. Set Input Encoding to the
+  camera's log and Exposure to **Gain**.
+
+Set Input Encoding to whatever the picture is at the point where FilmFlash
+sits. If the flash looks wrong (oddly flat, or far too strong), the
+encoding probably doesn't match. In Film Negative mode, **Scene Ceiling**
+sets where the shoulder tops out on scene-referred encodings.
 
 **Camera & Light**
 

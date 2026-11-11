@@ -23,7 +23,9 @@ static void usage() {
                  "usage: flash_cli W H [--cut N --length N | --stops F]\n"
                  "  envelope: --peak F --cut-point F --hold F --run-out F --run-up F --flicker F --seed N\n"
                  "  film:     --response F --colour-shift F --fog F --halation F --halation-radius PX\n"
-                 "            --unevenness F --angle DEG --leak F\n");
+                 "            --unevenness F --angle DEG --leak F\n"
+                 "            --encoding N (0 Rec.709 ... 7 LogC3 ... see FlashEngine.h)\n"
+                 "            --exposure 0|1|2 (film negative, gain, gamma)\n");
     std::exit(2);
 }
 
@@ -43,7 +45,8 @@ int main(int argc, char** argv) {
         {"--fog", &look.fog}, {"--halation", &look.halation},
         {"--halation-radius", &look.halationRadius}, {"--unevenness", &look.unevenness},
         {"--angle", &look.angle}, {"--leak", &look.leak}, {"--stops", &constStops}};
-    std::map<std::string, int*> n = {{"--cut", &cut}, {"--length", &length}, {"--seed", &seed}};
+    std::map<std::string, int*> n = {{"--cut", &cut}, {"--length", &length}, {"--seed", &seed},
+                                     {"--encoding", &look.encoding}, {"--exposure", &look.exposureMode}};
     for (int i = 3; i < argc; ++i) {
         std::string a = argv[i];
         if (i + 1 >= argc) usage();

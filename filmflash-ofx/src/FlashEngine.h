@@ -43,14 +43,36 @@ enum Encoding {
     kLinearScene = 4, // scene-referred linear
     kDaVinciIntermediate = 5,
     kCineon = 6,      // Cineon / film-scan log
+    // Camera logs (scene-referred):
+    kLogC3 = 7,       // ARRI LogC3 (EI 800)
+    kLogC4 = 8,       // ARRI LogC4
+    kSLog3 = 9,       // Sony S-Log3
+    kVLog = 10,       // Panasonic V-Log
+    kLog3G10 = 11,    // RED Log3G10
+    kAppleLog = 12,   // Apple Log
+    kBMDFilmGen5 = 13,  // Blackmagic Film Gen 5
+    kEncodingCount = 14,
 };
 
 inline bool isSceneReferred(int enc) {
-    return enc == kLinearScene || enc == kDaVinciIntermediate || enc == kCineon;
+    return enc >= kLinearScene;
 }
+
+// How extra exposure is applied.
+enum ExposureMode {
+    kFilmNegative = 0,  // odds-space shoulder: rolls into white, never clips
+    kGain = 1,          // true stops in linear light (a log offset on log footage);
+                        // highlights go wherever the stops take them
+    kGamma = 2,         // a gamma lift of the encoded picture: mids rise, whites stay
+};
+
+// Encoded value <-> linear light for an encoding.
+float toLinear(float v, int encoding);
+float fromLinear(float l, int encoding);
 
 struct Look {
     int encoding = kRec709;
+    int exposureMode = kFilmNegative;
     float response = 1.f;      // film contrast: how fast the flash builds per stop
     float colourShift = 0.5f;  // layers' differing sensitivity (warm drift)
     float highlightColour[3] = {1.f, 0.95f, 0.84f};  // what the flash burns toward
