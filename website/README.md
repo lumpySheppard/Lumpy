@@ -1,6 +1,6 @@
 # dpwillsheppard.com
 
-Plain static site: HTML + one stylesheet, no JavaScript, no framework.
+Plain static site: HTML + one stylesheet, no framework (a few lines of JavaScript for the black / white toggle only).
 Upload this whole folder to any static host (Netlify, GitHub Pages, etc.).
 
 Pages: Work (`/`, a 3-column grid of thumbnails, one page per project), Photography, About, Contact.
