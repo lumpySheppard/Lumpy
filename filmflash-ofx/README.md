@@ -50,6 +50,10 @@ There are two ways to use it.
 
 ### For speed-up and motion blur: the effect, on each side of a plain cut
 
+Find it in the Effects library under **OpenFX → Filters → FilmFlash**.
+Don't use **OpenFX → Transitions**. Drag it onto each clip itself, not onto
+the cut.
+
 DaVinci Resolve doesn't let OFX **transitions** read other frames of their
 clips. It always hands back the current frame, which Show Diagnostics
 reports as **HOST GAVE THE CURRENT FRAME**. Speed-up and the extra motion
@@ -87,9 +91,8 @@ reaches about 3× at the cut. With 80 handles it reaches about 4×.
 The outgoing shot builds to the flash, the cut happens at the peak (where
 it's hidden), and the incoming shot clears.
 
-The transition has the same speed and blur controls, and they work in
-hosts that give transitions other frames. In Resolve they currently have no
-effect.
+The transition is flash only. It has no speed or blur controls, because
+Resolve only gives transitions the current frame.
 
 **Keyframe** timing (the effect's third option) lets you animate
 **Flash (stops)** by hand instead.
@@ -111,12 +114,12 @@ effect.
 
 | Control | What it does |
 | --- | --- |
-| Speed Up | How much the action speeds up as the camera slows: 0 = off |
+| Speed Up | Effect only. How much the action speeds up as the camera slows: 0 = off |
 | Speed Curve | **Even Ramp** (default): the action speeds up steadily into the cut and settles steadily after it, where you can see it. **Follows Exposure**: exactly like a real camera (speed = 2^stops), where most of the speed-up happens near the peak, inside the flash |
 | Max Speed | How fast the action runs at the cut, before Spare Handle Frames scales it down (default 6×) |
 | Speed Ramp (frames) | Effect only, Even Ramp: how many frames before the cut (run-out) or after it (run-up) the speed change spans. Default 48 (2 s at 24 fps). Longer than the flash's Length, so you can see the camera slow before the picture burns out |
 | Spare Handle Frames | Effect: handle frames past the clip's edit point. Transition: handles beyond what the transition itself uses. The speed-up (and blur) is scaled so it never reads further than this. More handles = a stronger speed-up |
-| Motion Blur | Extra blur from the longer exposures: 1 = tied to the exposure, 0 = off |
+| Motion Blur | Effect only. Extra blur from the longer exposures: 1 = tied to the exposure, 0 = off |
 | Shutter Angle | The camera's shutter at normal speed (180° is standard); a wider shutter smears more |
 | Max Blur | Cap on the blur, in frames of action. Higher costs render time (one source frame per frame of blur) |
 | Show Diagnostics | Prints the timing on the picture (see below) |

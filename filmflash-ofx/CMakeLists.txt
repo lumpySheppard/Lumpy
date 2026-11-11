@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(FilmFlash VERSION 1.4.0 LANGUAGES CXX)
+project(FilmFlash VERSION 1.5.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -74,35 +74,12 @@ if(NOT WIN32)
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_di.rgb --context transition
                    --set encoding=5 --expect-identity-at 0:SourceFrom --expect-identity-at 47:SourceTo
                    --expect-mean-above 23:0.6)
-  # Speed-up and motion blur read other frames (more than one fetch per frame),
-  # still leave both ends untouched, and stay deterministic.
-  add_test(NAME transition_speed_and_blur
-           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_speed.rgb --context transition
-                   --set speedUp=1 --set maxSpeed=8 --set motionBlur=1 --set maxBlur=8 --set spareHandles=12
-                   --expect-identity-at 0:SourceFrom --expect-identity-at 47:SourceTo
-                   --expect-fetches-above 1.5 --max-below 1.0)
-  # A 24-frame transition in the middle of 48-frame clips, so speed-up can
-  # read into real handles on both sides.
-  add_test(NAME transition_with_handles
-           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_handles.rgb --context transition
-                   --offset 12 --frames 24 --set maxSpeed=12 --set spareHandles=12
-                   --expect-identity-at 0:SourceFrom --expect-identity-at 23:SourceTo
-                   --expect-fetches-above 1.5 --expect-no-failed-fetches --max-below 1.0)
-  add_test(NAME transition_physical_curve_with_handles
-           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_phys.rgb --context transition
-                   --offset 12 --frames 24 --set speedCurve=1 --set spareHandles=12
-                   --expect-identity-at 0:SourceFrom --expect-identity-at 23:SourceTo
-                   --expect-no-failed-fetches)
-  # Hosts that don't animate the Transition param: speed-up uses the frame range.
-  add_test(NAME transition_static_param
-           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_static.rgb --context transition
-                   --offset 12 --frames 24 --static-transition --set diagnostics=1 --set spareHandles=12
-                   --expect-fetches-above 1.5 --expect-no-failed-fetches)
-  # Both off: exactly one fetch per frame and no reads from other times.
-  add_test(NAME transition_speed_off
-           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_nospeed.rgb --context transition
-                   --set speedUp=0 --set motionBlur=0 --expect-identity-at 0:SourceFrom
-                   --expect-identity-at 47:SourceTo)
+  # The transition is flash-only (Resolve gives transitions only the current
+  # frame): it never reads other times, even with clips that have handles.
+  add_test(NAME transition_reads_current_frame_only
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_cur.rgb --context transition
+                   --offset 12 --frames 24
+                   --expect-identity-at 0:SourceFrom --expect-identity-at 23:SourceTo --max-below 1.0)
   add_test(NAME effect_motion_blur
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_blur.rgb --context filter
                    --set timing=0 --set flash=3 --set motionBlur=1 --expect-fetches-above 2 --max-below 1.0)

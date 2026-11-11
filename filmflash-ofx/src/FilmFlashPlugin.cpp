@@ -112,17 +112,17 @@ const std::vector<PDef>& defs() {
         {P_SEED, "seed", kInt, kBoth, nullptr, "Seed", "Changes the flicker pattern.", {1}, 0,
          1000000, 0, 100, {}},
 
-        {P_SPEEDUP, "speedUp", kDbl, kBoth, "grpSpeed", "Speed Up",
+        {P_SPEEDUP, "speedUp", kDbl, kFilterOnly, "grpSpeed", "Speed Up",
          "The action speeds up as the camera slows (a camera at 1/4 speed plays back 4x "
          "fast). 1 = tied to the exposure like a real camera, 0 = off. Reads further into "
          "the clips' handles.",
          {1}, 0, 2, 0, 1, {}},
-        {P_SPEEDCURVE, "speedCurve", kChoice, kBoth, "grpSpeed", "Speed Curve",
+        {P_SPEEDCURVE, "speedCurve", kChoice, kFilterOnly, "grpSpeed", "Speed Curve",
          "Even Ramp: the action speeds up steadily all the way into the cut (and slows "
          "steadily after it), so you can see it. Follows Exposure: exactly as a real camera, "
          "where most of the speed-up happens near the peak, inside the flash.",
          {0}, 0, 1, 0, 1, {"Even Ramp (easier to see)", "Follows Exposure (physical)"}},
-        {P_MAXSPEED, "maxSpeed", kDbl, kBoth, "grpSpeed", "Max Speed",
+        {P_MAXSPEED, "maxSpeed", kDbl, kFilterOnly, "grpSpeed", "Max Speed",
          "How fast the action runs at the cut (before Spare Handle Frames scales it down).",
          {6}, 1, 32, 1, 12, {}},
         {P_RAMP, "speedRamp", kInt, kFilterOnly, "grpSpeed", "Speed Ramp (frames)",
@@ -130,23 +130,23 @@ const std::vector<PDef>& defs() {
          "speed change spans. Longer than the flash Length lets you see the camera slow "
          "before the picture burns out.",
          {48}, 2, 1000, 4, 120, {}},
-        {P_HANDLES, "spareHandles", kInt, kBoth, "grpSpeed", "Spare Handle Frames",
+        {P_HANDLES, "spareHandles", kInt, kFilterOnly, "grpSpeed", "Spare Handle Frames",
          "Extra handle frames each clip has beyond what the transition itself uses, for "
          "the speed-up to read. It's scaled down so it never needs more. Raise it if your "
          "clips have long handles: more frames = a stronger speed-up.",
          {48}, 0, 1000, 0, 120, {}},
-        {P_BLUR, "motionBlur", kDbl, kBoth, "grpSpeed", "Motion Blur",
+        {P_BLUR, "motionBlur", kDbl, kFilterOnly, "grpSpeed", "Motion Blur",
          "Longer exposures smear more motion: frames are averaged across the longer shutter "
          "time. 1 = tied to the exposure, 0 = off.",
          {1}, 0, 2, 0, 1, {}},
-        {P_SHUTTER, "shutterAngle", kDbl, kBoth, "grpSpeed", "Shutter Angle",
+        {P_SHUTTER, "shutterAngle", kDbl, kFilterOnly, "grpSpeed", "Shutter Angle",
          "The camera's shutter angle at normal speed (180 is standard).", {180}, 5, 360, 45,
          360, {}},
-        {P_MAXBLUR, "maxBlur", kDbl, kBoth, "grpSpeed", "Max Blur",
+        {P_MAXBLUR, "maxBlur", kDbl, kFilterOnly, "grpSpeed", "Max Blur",
          "Cap on the blur, in frames of action. More costs render time.", {6}, 0, 32, 0, 12,
          {}},
 
-        {P_DIAG, "diagnostics", kBool, kBoth, "grpSpeed", "Show Diagnostics",
+        {P_DIAG, "diagnostics", kBool, kBoth, nullptr, "Show Diagnostics",
          "Prints the speed-up timing on the picture: where the transition is, how far ahead / "
          "behind each shot is reading, and whether Resolve supplied those frames. For "
          "troubleshooting; turn off for the real render.",
@@ -304,7 +304,14 @@ Plan planFor(Instance* in, const Values& v, double t) {
     Plan pl;
     pl.sFrom = pl.sTo = t;
     const int frame = int(std::lround(t));
-    const flash::Speed sp = speedFrom(v);
+    flash::Speed sp = speedFrom(v);
+    if (in->transition) {
+        // DaVinci Resolve answers a transition's request for any other frame
+        // with the current one, so speed-up and extra blur can't work there.
+        // They live on the effect (Run-out / Run-up) instead.
+        sp.speedUp = 0.f;
+        sp.blur = 0.f;
+    }
     if (in->transition) {
         double p = 0, pn = 0, pp = 0;
         if (in->transitionParam) {
@@ -530,7 +537,9 @@ OfxStatus describe(OfxImageEffectHandle effect) {
     gProp->propSetString(p, kOfxPropPluginDescription, 0,
                          "The exposure flash of a film camera running down and back up to "
                          "speed, with the soft shoulder, fog and halation of an overexposed "
-                         "negative. Use as a transition on a cut, or as an effect.");
+                         "negative. As a transition: the flash only. For the camera's "
+                         "speed-up and motion blur too, use it as an effect on each clip "
+                         "(Timing: Run-out on the outgoing clip, Run-up on the incoming).");
     gProp->propSetString(p, kOfxImageEffectPropSupportedContexts, 0, kOfxImageEffectContextTransition);
     gProp->propSetString(p, kOfxImageEffectPropSupportedContexts, 1, kOfxImageEffectContextFilter);
     gProp->propSetString(p, kOfxImageEffectPropSupportedContexts, 2, kOfxImageEffectContextGeneral);
@@ -972,7 +981,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 4, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 5, setHost, mainEntry};
 
 }  // namespace
 
