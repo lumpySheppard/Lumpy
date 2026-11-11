@@ -40,10 +40,13 @@ ul { list-style: none; margin: 0; padding: 0; }
 /* layout: content on the left, the menu pinned on the right */
 .layout {
   display: grid;
-  grid-template-columns: 1fr 220px;
+  /* an empty column on the left as wide as the menu keeps the work centred on the screen */
+  grid-template-columns: 220px minmax(0, 1fr) 220px;
   min-height: 100vh;
 }
-.content { padding: 50px 30px 80px 50px; min-width: 0; }
+.content { grid-column: 2; grid-row: 1; }
+.side { grid-column: 3; grid-row: 1; }
+.content { padding: 50px 30px 80px; min-width: 0; }
 
 .side {
   position: sticky;
@@ -87,9 +90,26 @@ ul { list-style: none; margin: 0; padding: 0; }
   aspect-ratio: 16 / 9;
   object-fit: cover;
   background: var(--tile);
-  transition: opacity .15s;
 }
-.grid a:hover img { opacity: .75; }
+/* title fades in over the thumbnail on hover */
+.grid a { position: relative; display: block; }
+.grid .label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  text-align: center;
+  font-size: 17px;
+  letter-spacing: .03em;
+  color: #fff;
+  background: rgba(0, 0, 0, .55);
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.grid a:hover .label, .grid a:focus-visible .label { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .grid .label { transition: none; } }
 
 /* project page: big title, video, credit, notes */
 .project { max-width: 1100px; margin: 0 auto; }
@@ -134,6 +154,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 .text .more { margin-top: 2em; }
 
 @media (max-width: 1000px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 200px; }
+  .content { grid-column: 1; }
+  .side { grid-column: 2; }
   .grid, .stills { grid-template-columns: repeat(2, 1fr); }
   .grid { gap: 24px; margin-top: 60px; }
 }

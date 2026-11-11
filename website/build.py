@@ -135,8 +135,9 @@ def page(title, body, depth=0, current=""):
 
 def build_index():
     tiles = "\n".join(
-        f'<li><a href="{w["slug"]}/" title="{e(w["title"])}">'
-        f'<img src="img/{w["img"]}" alt="{e(w["title"])}" loading="lazy"></a></li>'
+        f'<li><a href="{w["slug"]}/">'
+        f'<img src="img/{w["img"]}" alt="" loading="lazy">'
+        f'<span class="label">{e(w["title"])}</span></a></li>'
         for w in WORK)
     body = f"""<main>
 <ul class="grid">
