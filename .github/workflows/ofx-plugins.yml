@@ -1,0 +1,84 @@
+name: OFX plugins
+
+# Builds the DaVinci Resolve OFX plugins on macOS (universal: Apple silicon +
+# Intel), runs each through the test host, ad-hoc signs them, and uploads one
+# artifact per plugin (the zipped bundle plus install-macos.sh):
+#   EriksTV-macOS    (datamosh-ofx/)
+#   FilmFlash-macOS  (filmflash-ofx/)
+on:
+  push:
+    branches: [main]
+    paths:
+      - "datamosh-ofx/**"
+      - "filmflash-ofx/**"
+      - "ofx-testhost/**"
+      - "third_party/openfx/**"
+      - "scripts/install-macos.sh"
+      - ".github/workflows/ofx-plugins.yml"
+  pull_request:
+    paths:
+      - "datamosh-ofx/**"
+      - "filmflash-ofx/**"
+      - "ofx-testhost/**"
+      - "third_party/openfx/**"
+      - "scripts/install-macos.sh"
+      - ".github/workflows/ofx-plugins.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# macOS runners queue for a while; a newer push supersedes older runs.
+concurrency:
+  group: ofx-plugins-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { dir: datamosh-ofx, name: EriksTV }
+          - { dir: filmflash-ofx, name: FilmFlash }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (universal)
+        working-directory: ${{ matrix.dir }}
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 3
+          BIN=build/${{ matrix.name }}.ofx.bundle/Contents/MacOS/${{ matrix.name }}.ofx
+          lipo -info "$BIN"
+          lipo "$BIN" -verify_arch arm64 x86_64
+      - name: Test in minihost
+        working-directory: ${{ matrix.dir }}
+        run: ctest --test-dir build --output-on-failure -V
+      - name: Sign (ad hoc) and package
+        working-directory: ${{ matrix.dir }}
+        run: |
+          B=build/${{ matrix.name }}.ofx.bundle
+          codesign --force --sign - --timestamp=none "$B"
+          codesign --verify --verbose "$B"
+          mkdir -p dist
+          ditto -c -k --keepParent "$B" dist/${{ matrix.name }}.ofx.bundle.zip
+          cp ../scripts/install-macos.sh dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-macOS
+          path: ${{ matrix.dir }}/dist/
+
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [datamosh-ofx, filmflash-ofx]
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
+      - run: ctest --test-dir build --output-on-failure

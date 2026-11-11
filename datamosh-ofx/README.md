@@ -12,7 +12,7 @@ bleeding through, without leaving Resolve.
 
 ## Install (macOS)
 
-1. Get the `EriksTV-macOS` artifact from the latest **EriksTV OFX** run in
+1. Get the `EriksTV-macOS` artifact from the latest **OFX plugins** run in
    GitHub Actions and unzip it.
 2. Run `bash install-macos.sh` in that folder. It copies
    `EriksTV.ofx.bundle` to `/Library/OFX/Plugins` and clears the macOS
@@ -147,7 +147,7 @@ ctest --test-dir build --output-on-failure
 
 - On macOS this builds `build/EriksTV.ofx.bundle` (universal). To install
   your own build, copy that bundle to `/Library/OFX/Plugins`.
-- CI (`.github/workflows/datamosh-ofx.yml`) builds and tests on macOS and
+- CI (`.github/workflows/ofx-plugins.yml`) builds and tests on macOS and
   Linux, ad-hoc signs the bundle and uploads it.
 
 ### What's here
@@ -156,8 +156,8 @@ ctest --test-dir build --output-on-failure
   motion-compensated prediction, drag/bloom steps). Doesn't depend on OFX.
 - `src/DataMoshPlugin.cpp`: the OFX glue (parameters, frame fetching,
   caching), using the plain OFX C API.
-- `tests/minihost.cpp`: a tiny OFX host. CTest uses it to load the built
-  plugin, render synthetic two-shot footage in both modes, with every glitch on and
+- `../ofx-testhost/minihost.cpp` (shared with the other plugins): a tiny OFX
+  host. CTest uses it to load the built plugin, render synthetic two-shot footage in both modes, with every glitch on and
   with a Look applied, and check that out-of-order rendering (scrubbing)
   matches playing straight through.
 - `tools/mosh_cli`: runs the engine on raw video piped through ffmpeg, for
@@ -169,5 +169,5 @@ ctest --test-dir build --output-on-failure
     ffmpeg -f rawvideo -pix_fmt rgb24 -s 1920x1080 -r 24 -i - -pix_fmt yuv420p out.mp4
   ```
 
-- `third_party/openfx/include`: OpenFX 1.5.1 headers (BSD-3-Clause, see
-  `third_party/openfx/LICENSE.md`).
+- `../third_party/openfx/include` (shared): OpenFX 1.5.1 headers (BSD-3-Clause,
+  see `third_party/openfx/LICENSE.md`).

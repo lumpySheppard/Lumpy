@@ -106,7 +106,8 @@ static OfxPropertySuiteV1 gPropSuite = {setP, setS, setD, setI, setPN, setSN, se
 struct Param {
     std::string type;
     PropSet props;
-    double value = 0;
+    double value = 0;       // the value, or the first component
+    double value2 = 0, value3 = 0;  // RGB's other components
 };
 struct ParamSet {
     PropSet props;
@@ -145,8 +146,16 @@ static OfxStatus getValueV(OfxParamHandle h, va_list ap) {
     auto* p = reinterpret_cast<Param*>(h);
     if (!p) return kOfxStatErrBadHandle;
     if (p->type == kOfxParamTypePushButton) return kOfxStatErrUnsupported;
-    if (isDouble(p)) *va_arg(ap, double*) = p->value;
-    else *va_arg(ap, int*) = int(p->value);
+    if (p->type == kOfxParamTypeGroup) return kOfxStatErrUnsupported;
+    if (p->type == kOfxParamTypeRGB) {
+        *va_arg(ap, double*) = p->value;
+        *va_arg(ap, double*) = p->value2;
+        *va_arg(ap, double*) = p->value3;
+    } else if (isDouble(p)) {
+        *va_arg(ap, double*) = p->value;
+    } else {
+        *va_arg(ap, int*) = int(p->value);
+    }
     return kOfxStatOK;
 }
 static OfxStatus paramGetValue(OfxParamHandle h, ...) {
@@ -157,8 +166,15 @@ static OfxStatus paramGetValueAtTime(OfxParamHandle h, OfxTime t, ...) {
 }
 static OfxStatus setValueV(OfxParamHandle h, va_list ap) {
     auto* p = reinterpret_cast<Param*>(h);
-    if (isDouble(p)) p->value = va_arg(ap, double);
-    else p->value = va_arg(ap, int);
+    if (p->type == kOfxParamTypeRGB) {
+        p->value = va_arg(ap, double);
+        p->value2 = va_arg(ap, double);
+        p->value3 = va_arg(ap, double);
+    } else if (isDouble(p)) {
+        p->value = va_arg(ap, double);
+    } else {
+        p->value = va_arg(ap, int);
+    }
     return kOfxStatOK;
 }
 static OfxStatus paramSetValue(OfxParamHandle h, ...) {
@@ -194,7 +210,9 @@ struct Video {
     int w = 0, h = 0, n = 0;
     std::vector<unsigned char> rgb;
 };
-static Video gVideo;
+static Video gVideo;   // "Source", or "SourceFrom" in a transition
+static Video gVideoB;  // "SourceTo" in a transition
+static std::string gContext = kOfxImageEffectContextFilter;
 
 struct Clip {
     std::string name;
@@ -261,13 +279,14 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime t, const OfxRectD*,
         *out = reinterpret_cast<OfxPropertySetHandle>(&gCurrentEffect->output->props);
         return kOfxStatOK;
     }
+    const Video& vid = c->name == kOfxImageEffectTransitionSourceToClipName ? gVideoB : gVideo;
     int f = int(std::lround(t));
-    if (f < 0 || f >= gVideo.n) return kOfxStatFailed;
+    if (f < 0 || f >= vid.n) return kOfxStatFailed;
     auto* img = new Image;
     img->data.resize(size_t(w) * h * 4);
     // OFX images are bottom-up; store rows flipped like a real host would.
     for (int y = 0; y < h; ++y) {
-        const unsigned char* s = &gVideo.rgb[(size_t(f) * h + (h - 1 - y)) * w * 3];
+        const unsigned char* s = &vid.rgb[(size_t(f) * h + (h - 1 - y)) * w * 3];
         float* d = &img->data[size_t(y) * w * 4];
         for (int x = 0; x < w; ++x) {
             d[x * 4 + 0] = s[x * 3 + 0] / 255.f;
@@ -359,6 +378,7 @@ static std::unique_ptr<Effect> makeInstance(Effect& desc, const std::vector<std:
         p->props = d.props;
         auto& def = d.props.m[kOfxParamPropDefault];
         p->value = !def.d.empty() ? def.d[0] : (!def.i.empty() ? def.i[0] : 0);
+        if (def.d.size() >= 3) { p->value2 = def.d[1]; p->value3 = def.d[2]; }
         fx->params.order.push_back(name);
         fx->params.params[name] = std::move(p);
     }
@@ -373,7 +393,7 @@ static std::unique_ptr<Effect> makeInstance(Effect& desc, const std::vector<std:
         cc->props = c->props;
         fx->clips[n] = std::move(cc);
     }
-    setS(reinterpret_cast<OfxPropertySetHandle>(&fx->props), kOfxImageEffectPropContext, 0, kOfxImageEffectContextFilter);
+    setS(reinterpret_cast<OfxPropertySetHandle>(&fx->props), kOfxImageEffectPropContext, 0, gContext.c_str());
     if (act(kOfxActionCreateInstance, fx.get()) != kOfxStatOK) die("createInstance");
     return fx;
 }
@@ -389,6 +409,9 @@ static std::vector<float> renderFrame(Effect* fx, int t) {
     setS(inH, kOfxImageEffectPropFieldToRender, 0, kOfxImageFieldNone);
     int win[4] = {0, 0, w, h};
     setIN(inH, kOfxImageEffectPropRenderWindow, 4, win);
+    // In a transition the host animates the Transition param from 0 to 1.
+    auto tp = fx->params.params.find(kOfxImageEffectTransitionParamName);
+    if (tp != fx->params.params.end()) tp->second->value = gVideo.n > 1 ? double(t) / (gVideo.n - 1) : 0.0;
 
     OfxStatus st = act(kOfxImageEffectActionIsIdentity, fx, &in, &out);
     if (st == kOfxStatOK) {
@@ -408,9 +431,11 @@ static std::vector<float> renderFrame(Effect* fx, int t) {
     if (st != kOfxStatReplyDefault) die("isIdentity returned an error");
 
     PropSet fout;
-    if (act(kOfxImageEffectActionGetFramesNeeded, fx, &in, &fout) != kOfxStatOK) die("getFramesNeeded");
+    OfxStatus fs = act(kOfxImageEffectActionGetFramesNeeded, fx, &in, &fout);
+    if (fs != kOfxStatOK && fs != kOfxStatReplyDefault) die("getFramesNeeded");
     double range[2];
-    if (getDN(reinterpret_cast<OfxPropertySetHandle>(&fout), "OfxImageClipPropFrameRange_Source", 2, range))
+    if (fs == kOfxStatOK &&
+        getDN(reinterpret_cast<OfxPropertySetHandle>(&fout), "OfxImageClipPropFrameRange_Source", 2, range))
         die("getFramesNeeded did not set a range");
 
     fx->output = std::make_unique<Image>();
@@ -426,7 +451,11 @@ static std::vector<float> renderFrame(Effect* fx, int t) {
 
 int main(int argc, char** argv) {
     if (argc < 6) {
-        std::fprintf(stderr, "usage: minihost PLUGIN IN.rgb W H OUT.rgb [--set name=value] [--start-here N]\n");
+        std::fprintf(stderr,
+                     "usage: minihost PLUGIN IN.rgb|A.rgb+B.rgb|synthetic W H OUT.rgb [options]\n"
+                     "  --context filter|transition   --set name=value   --start-here N\n"
+                     "  --apply-look N   --expect name=value   --expect-identity-at N:Source|SourceFrom|SourceTo\n"
+                     "  --max-below V   --expect-mean-above N:V   --expect-mean-below N:V\n");
         return 2;
     }
     gVideo.w = std::atoi(argv[3]);
@@ -434,8 +463,32 @@ int main(int argc, char** argv) {
     std::vector<std::pair<std::string, double>> sets;
     int startHere = -1, applyLook = -1;
     std::vector<std::pair<std::string, double>> expects;
+    std::vector<std::pair<int, std::string>> identityAt;
+    std::vector<std::pair<int, double>> meanAbove, meanBelow;
+    double maxBelow = -1;
+    auto frameColon = [](const std::string& kv, int& frame) {
+        auto c = kv.find(':');
+        frame = std::atoi(kv.substr(0, c).c_str());
+        return kv.substr(c + 1);
+    };
     for (int i = 6; i < argc; ++i) {
         std::string a = argv[i];
+        if (a == "--context" && i + 1 < argc) {
+            std::string c = argv[++i];
+            gContext = c == "transition" ? kOfxImageEffectContextTransition : kOfxImageEffectContextFilter;
+            continue;
+        }
+        if (a == "--expect-identity-at" && i + 1 < argc) {
+            int fr; std::string clip = frameColon(argv[++i], fr);
+            identityAt.emplace_back(fr, clip);
+            continue;
+        }
+        if ((a == "--expect-mean-above" || a == "--expect-mean-below") && i + 1 < argc) {
+            int fr; double v = std::atof(frameColon(argv[++i], fr).c_str());
+            (a == "--expect-mean-above" ? meanAbove : meanBelow).emplace_back(fr, v);
+            continue;
+        }
+        if (a == "--max-below" && i + 1 < argc) { maxBelow = std::atof(argv[++i]); continue; }
         if (a == "--set" && i + 1 < argc) {
             std::string kv = argv[++i];
             auto eq = kv.find('=');
@@ -452,38 +505,57 @@ int main(int argc, char** argv) {
     }
 
     const size_t fb = size_t(gVideo.w) * gVideo.h * 3;
-    if (std::string(argv[2]) == "synthetic") {
-        // Shot A (0-23): still rings. Shot B (24-47): stripes and a square
-        // panning diagonally, so there is real motion to mosh with.
-        gVideo.n = 48;
-        gVideo.rgb.resize(fb * gVideo.n);
-        for (int t = 0; t < gVideo.n; ++t)
-            for (int y = 0; y < gVideo.h; ++y)
-                for (int x = 0; x < gVideo.w; ++x) {
-                    unsigned char* p = &gVideo.rgb[((size_t(t) * gVideo.h + y) * gVideo.w + x) * 3];
-                    if (t < 24) {
+    const bool transition = gContext == kOfxImageEffectContextTransition;
+    gVideoB.w = gVideo.w;
+    gVideoB.h = gVideo.h;
+    // Shot A: still rings. Shot B: stripes and a square panning diagonally,
+    // so there is real motion. A filter gets A (frames 0-23) then B (24-47)
+    // in one clip; a transition gets all-A as SourceFrom, all-B as SourceTo.
+    auto synth = [&](Video& vid, int shotOverride) {
+        vid.n = 48;
+        vid.rgb.resize(fb * vid.n);
+        for (int t = 0; t < vid.n; ++t)
+            for (int y = 0; y < vid.h; ++y)
+                for (int x = 0; x < vid.w; ++x) {
+                    unsigned char* p = &vid.rgb[((size_t(t) * vid.h + y) * vid.w + x) * 3];
+                    const int shot = shotOverride >= 0 ? shotOverride : (t < 24 ? 0 : 1);
+                    if (shot == 0) {
                         double r = std::hypot(x - gVideo.w / 2.0, y - gVideo.h / 2.0);
                         p[0] = (unsigned char)(127 + 120 * std::sin(r * 0.3));
                         p[1] = (unsigned char)(127 + 120 * std::cos(r * 0.2));
                         p[2] = 200;
                     } else {
-                        int u = x + 3 * (t - 24), v = y + 2 * (t - 24);
+                        const int tt = shotOverride >= 0 ? t : t - 24;
+                        int u = x + 3 * tt, v = y + 2 * tt;
                         bool sq = (u / 24 + v / 24) % 2 == 0;
                         p[0] = (unsigned char)(sq ? 230 : 30);
                         p[1] = (unsigned char)((u * 4) & 255);
                         p[2] = (unsigned char)((v * 5) & 255);
                     }
                 }
+    };
+    auto load = [&](Video& vid, const std::string& path) {
+        FILE* f = std::fopen(path.c_str(), "rb");
+        if (!f) die(("open input " + path).c_str());
+        std::fseek(f, 0, SEEK_END);
+        long sz = std::ftell(f);
+        std::fseek(f, 0, SEEK_SET);
+        vid.n = int(sz / long(fb));
+        vid.rgb.resize(fb * vid.n);
+        if (std::fread(vid.rgb.data(), 1, vid.rgb.size(), f) != vid.rgb.size()) die("read input");
+        std::fclose(f);
+    };
+    const std::string input = argv[2];
+    if (input == "synthetic") {
+        synth(gVideo, transition ? 0 : -1);
+        if (transition) synth(gVideoB, 1);
+    } else if (auto plus = input.find('+'); plus != std::string::npos) {
+        load(gVideo, input.substr(0, plus));
+        load(gVideoB, input.substr(plus + 1));
+        gVideo.n = gVideoB.n = std::min(gVideo.n, gVideoB.n);
     } else {
-    FILE* f = std::fopen(argv[2], "rb");
-    if (!f) die("open input");
-    std::fseek(f, 0, SEEK_END);
-    long sz = std::ftell(f);
-    std::fseek(f, 0, SEEK_SET);
-    gVideo.n = int(sz / long(fb));
-    gVideo.rgb.resize(fb * gVideo.n);
-    if (std::fread(gVideo.rgb.data(), 1, gVideo.rgb.size(), f) != gVideo.rgb.size()) die("read input");
-    std::fclose(f);
+        load(gVideo, input);
+        if (transition) gVideoB = gVideo;
     }
 
     void* lib = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
@@ -499,8 +571,19 @@ int main(int argc, char** argv) {
 
     Effect desc;
     if (act(kOfxActionDescribe, &desc) != kOfxStatOK) die("describe");
+    {
+        int nctx = 0;
+        dim(reinterpret_cast<OfxPropertySetHandle>(&desc.props), kOfxImageEffectPropSupportedContexts, &nctx);
+        bool ok = false;
+        for (int i = 0; i < nctx; ++i) {
+            char* c = nullptr;
+            getS(reinterpret_cast<OfxPropertySetHandle>(&desc.props), kOfxImageEffectPropSupportedContexts, i, &c);
+            ok = ok || (c && gContext == c);
+        }
+        if (!ok) die(("plugin does not support context " + gContext).c_str());
+    }
     PropSet ctx;
-    setS(reinterpret_cast<OfxPropertySetHandle>(&ctx), kOfxImageEffectPropContext, 0, kOfxImageEffectContextFilter);
+    setS(reinterpret_cast<OfxPropertySetHandle>(&ctx), kOfxImageEffectPropContext, 0, gContext.c_str());
     Effect descCtx;
     descCtx.props = desc.props;
     if (act(kOfxImageEffectActionDescribeInContext, &descCtx, &ctx) != kOfxStatOK) die("describeInContext");
@@ -566,6 +649,52 @@ int main(int argc, char** argv) {
     }
     std::printf("shuffled render max difference vs sequential: %g\n", worst);
     if (worst > 1e-5) die("shuffled render differs from sequential render");
+
+    // Optional checks on the rendered frames.
+    auto sourceFrame = [&](const std::string& clip, int t) {
+        Clip c;
+        c.name = clip;
+        OfxPropertySetHandle img;
+        Effect* saved = gCurrentEffect;
+        gCurrentEffect = nullptr;
+        if (clipGetImage(reinterpret_cast<OfxImageClipHandle>(&c), t, nullptr, &img)) die("source fetch");
+        std::vector<float> r = reinterpret_cast<Image*>(reinterpret_cast<PropSet*>(img))->data;
+        clipReleaseImage(img);
+        gCurrentEffect = saved;
+        return r;
+    };
+    auto meanLuma = [&](int t) {
+        double acc = 0;
+        const auto& f = seq[t];
+        for (size_t i = 0; i < f.size(); i += 4) acc += 0.2126 * f[i] + 0.7152 * f[i + 1] + 0.0722 * f[i + 2];
+        return acc / double(f.size() / 4);
+    };
+    for (auto& [t, clip] : identityAt) {
+        if (t < 0 || t >= gVideo.n) die("--expect-identity-at: frame out of range");
+        std::vector<float> src = sourceFrame(clip, t);
+        double d = 0;
+        for (size_t i = 0; i < src.size(); ++i) d = std::max(d, double(std::fabs(src[i] - seq[t][i])));
+        std::printf("frame %d vs %s: max difference %g\n", t, clip.c_str(), d);
+        if (d > 1e-6) die("frame should be the untouched source");
+    }
+    for (auto& [t, v] : meanAbove) {
+        double m = meanLuma(t);
+        std::printf("frame %d mean luma %.4f (want > %g)\n", t, m, v);
+        if (!(m > v)) die("frame is not bright enough");
+    }
+    for (auto& [t, v] : meanBelow) {
+        double m = meanLuma(t);
+        std::printf("frame %d mean luma %.4f (want < %g)\n", t, m, v);
+        if (!(m < v)) die("frame is too bright");
+    }
+    if (maxBelow >= 0) {
+        double mx = 0;
+        for (auto& f : seq)
+            for (size_t i = 0; i < f.size(); i += 4)
+                mx = std::max({mx, double(f[i]), double(f[i + 1]), double(f[i + 2])});
+        std::printf("brightest output value %.6f (want < %g)\n", mx, maxBelow);
+        if (!(mx < maxBelow)) die("output reaches the ceiling (clipping)");
+    }
 
     act(kOfxActionDestroyInstance, fx.get());
     act(kOfxActionDestroyInstance, fx2.get());

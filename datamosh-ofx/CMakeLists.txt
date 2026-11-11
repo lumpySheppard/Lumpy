@@ -15,7 +15,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(Threads REQUIRED)
-set(OFX_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/openfx/include)
+set(OFX_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/openfx/include)
 
 add_library(mosh_engine STATIC src/MoshEngine.cpp)
 target_include_directories(mosh_engine PUBLIC src)
@@ -54,7 +54,7 @@ add_executable(mosh_cli tools/mosh_cli.cpp)
 target_link_libraries(mosh_cli PRIVATE mosh_engine)
 
 if(NOT WIN32)
-  add_executable(minihost tests/minihost.cpp)
+  add_executable(minihost ${CMAKE_CURRENT_SOURCE_DIR}/../ofx-testhost/minihost.cpp)
   target_include_directories(minihost PRIVATE ${OFX_INCLUDE})
   target_link_libraries(minihost PRIVATE ${CMAKE_DL_LIBS})
   enable_testing()
