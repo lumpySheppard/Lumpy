@@ -43,10 +43,12 @@ ul { list-style: none; margin: 0; padding: 0; }
 .side a.here { color: #ff9900; }
 .side .name { display: block; font-weight: bold; font-size: 18px; color: #fff; }
 .side .role { display: block; margin-bottom: 34px; }
-.side li { margin: 0 0 6px; }
-.side .work span { color: #777; }
-.side .ext { color: #ff9900; font-size: .85em; }
-.side .copy { margin: 18px 0 0; font-size: 12px; color: #888; }
+.side .sections > li { margin: 0 0 10px; }
+.side .work { margin: 8px 0 14px; font-size: 14px; }
+.side .work li { margin: 0 0 5px; }
+.side .work a:not(.here):not(:hover) { color: #8a8aff; }
+.side .work span { color: #666; }
+.side .copy { margin: 0; font-size: 12px; color: #888; }
 
 /* work grid */
 .grid {
@@ -77,23 +79,16 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .next { margin: 26px 0 0; text-align: right; }
 
-/* blog: a nod to the tumblr (Plain Times) — white page, blue Times */
-body.plain, html:has(body.plain) { background: #fff; color: #0000ff; }
-body.plain a { color: #0000ff; }
-body.plain a:visited { color: #551a8b; }
-body.plain a:hover { color: #ff9900; }
-body.plain .side .name { color: #0000ff; }
-body.plain header, body.plain main { max-width: 540px; margin: 0 auto; text-align: center; }
-body.plain header { padding-bottom: 30px; }
-body.plain header h1 { margin: 0; font-size: 28px; }
-body.plain header h1 a { text-decoration: none; }
-body.plain header p { margin: 6px 0 0; font-size: 15px; }
+/* photography: one centered column, like the old Plain Times theme */
+.photos .feed { max-width: 640px; margin: 0 auto; }
 .feed li { margin-bottom: 50px; }
 .feed img { width: 100%; }
-.feed p { margin: 8px 0 0; font-size: 14px; }
-.feed .meta { font-size: 13px; }
-.more { padding: 10px 0 20px; }
-.stamp { font-size: 12px; color: #888; }
+.feed p { margin: 8px 0 0; font-size: 14px; text-align: center; color: #aaa; }
+
+/* about / contact */
+.text { max-width: 560px; font-size: 18px; }
+.text p { margin: 0 0 1em; }
+.contact li { margin: 0 0 8px; }
 
 /* phones: menu first, then the work */
 @media (max-width: 700px) {

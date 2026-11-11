@@ -2,12 +2,14 @@
 """Builds dpwillsheppard.com as plain static HTML.
 
 Edit the WORK list below, then run:  python3 build.py
-Add --no-blog to skip refreshing the blog page from Tumblr (works offline).
+That also pulls any new photos from the tumblr into img/photo/ and
+photos.json. Add --offline to rebuild from what is already saved.
 
 Every page is written as <slug>/index.html so the old URLs
 (dpwillsheppard.com/aura, /tower, ...) keep working.
 """
 import html
+import json
 import re
 import sys
 import urllib.request
@@ -25,7 +27,12 @@ BLURB = ("Canadian cinematographer. Based out of Toronto and Vancouver "
 INSTAGRAM = "https://www.instagram.com/will_sheppard/"
 EMAIL = "willsheppard99@gmail.com"
 PHONE = "6046535556"
-TUMBLR = "https://hitmykushandchoke.tumblr.com/"
+TUMBLR = "https://hitmykushandchoke.tumblr.com/"  # source for /photography only
+ABOUT = [
+    BLURB,
+    'Co-founder of Blue Sheep, an independent production studio in Toronto: '
+    '<a href="https://bluesheepfilms.com">bluesheepfilms.com</a> [&rarr;]',
+]
 
 # Order here is the order on the work page (left-to-right, top-to-bottom)
 # and the order the NEXT links walk through.
@@ -59,33 +66,34 @@ e = html.escape
 
 
 def sidebar(up, current):
-    """Right-hand column on every page: name, the work list, then links."""
+    """Right-hand column on every page: name, the four sections, the work list."""
+    def link(href, label, key):
+        here = ' class="here"' if key == current else ""
+        return f'<a href="{href}"{here}>{label}</a>'
+
     work = []
     for w in WORK:
         if w["slug"]:
-            here = ' class="here"' if w["slug"] == current else ""
-            work.append(f'<li><a href="{up}{w["slug"]}/"{here}>{e(w["title"])}</a></li>')
+            href = f'{up}{w["slug"]}/'
+            work.append(f'<li>{link(href, e(w["title"]), w["slug"])}</li>')
         else:
             work.append(f'<li><span title="coming soon">{e(w["title"])}</span></li>')
-    blog_here = ' class="here"' if current == "blog" else ""
-    out = '<span class="ext">[&rarr;]</span>'
     return f"""<aside class="side">
 <div>
 <a class="name" href="{up or './'}">{e(NAME.upper())}</a>
 <span class="role">{e(ROLE)}</span>
+<ul class="sections">
+<li>{link(up or "./", "Cinematography", "cinematography")}
 <ul class="work">
 {chr(10).join(work)}
 </ul>
-</div>
-<div>
-<ul class="links">
-<li><a href="{up}blog/"{blog_here}>Blog</a></li>
-<li><a href="{INSTAGRAM}">Instagram {out}</a></li>
-<li><a href="mailto:{EMAIL}">Email {out}</a></li>
-<li><a href="tel:{PHONE}">Phone {out}</a></li>
+</li>
+<li>{link(f"{up}photography/", "Photography", "photography")}</li>
+<li>{link(f"{up}about/", "About", "about")}</li>
+<li>{link(f"{up}contact/", "Contact", "contact")}</li>
 </ul>
-<p class="copy">&copy; {datetime.now().year} {e(NAME)}</p>
 </div>
+<p class="copy">&copy; {datetime.now().year} {e(NAME)}</p>
 </aside>"""
 
 
@@ -132,7 +140,7 @@ def build_index():
 {chr(10).join(tiles)}
 </ul>
 </main>"""
-    (ROOT / "index.html").write_text(page("", body))
+    (ROOT / "index.html").write_text(page("", body, current="cinematography"))
 
 
 def embed(video):
@@ -167,60 +175,89 @@ def build_projects():
         (out / "index.html").write_text(page(title, body, depth=1, current=w["slug"]))
 
 
-def fetch_tumblr(limit=20):
+PHOTOS = ROOT / "photos.json"
+PHOTO_DIR = ROOT / "img" / "photo"
+
+
+def fetch_photos(limit=40):
+    """Pull new photo posts from the tumblr RSS and save the images locally."""
+    saved = json.loads(PHOTOS.read_text()) if PHOTOS.exists() else []
+    have = {p["id"] for p in saved}
     req = urllib.request.Request(TUMBLR + "rss", headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=30) as r:
         root = ET.fromstring(r.read())
-    posts = []
+    PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    new = []
     for item in root.iter("item"):
+        pid = (item.findtext("link") or "").rstrip("/").split("/")[-1]
         desc = item.findtext("description") or ""
-        imgs = re.findall(r'<img src="([^"]+)"', desc)
-        if not imgs:
+        # the 1280px rendition from the srcset, else the plain src
+        m = (re.search(r'(https://\S+/s1280x1920/\S+?\.(?:jpg|jpeg|png|gif))', desc)
+             or re.search(r'<img src="([^"]+)"', desc))
+        if not pid or not m or pid in have:
             continue
+        url = m.group(1)
+        name = f"{pid}{Path(url).suffix}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            (PHOTO_DIR / name).write_bytes(r.read())
         text = re.sub(r"<[^>]+>", " ", re.sub(r"<figure.*?</figure>", "", desc, flags=re.S))
-        text = " ".join(html.unescape(text).split())
         date = item.findtext("pubDate")
-        posts.append(dict(
-            img=imgs[0],
-            link=item.findtext("link"), text=text,
-            date=parsedate_to_datetime(date).strftime("%b %-d, %Y") if date else "",
-            tags=[c.text for c in item.findall("category") if c.text],
-        ))
-        if len(posts) >= limit:
-            break
-    return posts
+        new.append(dict(
+            id=pid, file=name, caption=" ".join(html.unescape(text).split()),
+            date=parsedate_to_datetime(date).strftime("%Y-%m-%d") if date else ""))
+    photos = sorted(saved + new, key=lambda p: p["date"], reverse=True)[:limit]
+    keep = {p["file"] for p in photos}
+    for f in PHOTO_DIR.iterdir():
+        if f.name not in keep:
+            f.unlink()
+    PHOTOS.write_text(json.dumps(photos, indent=1) + "\n")
+    print(f"photography: {len(new)} new, {len(photos)} total")
 
 
-def build_blog():
-    posts = fetch_tumblr()
+def build_photography():
+    photos = json.loads(PHOTOS.read_text()) if PHOTOS.exists() else []
     items = []
-    for p in posts:
-        meta = [f'<a href="{e(p["link"])}">{e(p["date"])}</a>']
-        meta += [f"#{e(t)}" for t in p["tags"]]
+    for p in photos:
+        src = f"../img/photo/{p['file']}"
         items.append(
-            f'<li><a href="{e(p["link"])}"><img src="{e(p["img"])}" alt="" loading="lazy"></a>'
-            + (f'<p>{e(p["text"])}</p>' if p["text"] else "")
-            + f'<p class="meta">{" &middot; ".join(meta)}</p></li>')
-    body = f"""<header>
-<h1><a href="{TUMBLR}">hit my kush &amp; choke</a></h1>
-<p><i>Original Artwork by {e(NAME)}</i></p>
-</header>
-<main>
+            f'<li><a href="{src}"><img src="{src}" alt="" loading="lazy"></a>'
+            + (f'<p>{e(p["caption"])}</p>' if p["caption"] else "") + "</li>")
+    body = f"""<main class="photos">
 <ul class="feed">
 {chr(10).join(items)}
 </ul>
-<p class="more"><a href="{TUMBLR}">more on tumblr &gt;</a></p>
-<p class="stamp">updated {datetime.now():%b %-d, %Y}</p>
 </main>"""
-    (ROOT / "blog").mkdir(exist_ok=True)
-    (ROOT / "blog" / "index.html").write_text(
-        page("blog", body, depth=1, current="blog", cls="plain"))
-    print(f"blog: {len(items)} posts")
+    (ROOT / "photography").mkdir(exist_ok=True)
+    (ROOT / "photography" / "index.html").write_text(
+        page("Photography", body, depth=1, current="photography"))
+
+
+def build_about():
+    body = '<main class="text">\n' + "\n".join(f"<p>{t}</p>" for t in ABOUT) + "\n</main>"
+    (ROOT / "about").mkdir(exist_ok=True)
+    (ROOT / "about" / "index.html").write_text(page("About", body, depth=1, current="about"))
+
+
+def build_contact():
+    tel = f"{PHONE[:3]}-{PHONE[3:6]}-{PHONE[6:]}"
+    body = f"""<main class="text">
+<ul class="contact">
+<li>Email: <a href="mailto:{EMAIL}">{EMAIL}</a></li>
+<li>Phone: <a href="tel:{PHONE}">{tel}</a></li>
+<li>Instagram: <a href="{INSTAGRAM}">@will_sheppard</a> [&rarr;]</li>
+</ul>
+</main>"""
+    (ROOT / "contact").mkdir(exist_ok=True)
+    (ROOT / "contact" / "index.html").write_text(page("Contact", body, depth=1, current="contact"))
 
 
 if __name__ == "__main__":
+    if "--offline" not in sys.argv:
+        fetch_photos()
     build_index()
     build_projects()
-    if "--no-blog" not in sys.argv:
-        build_blog()
+    build_photography()
+    build_about()
+    build_contact()
     print("built", ROOT)
