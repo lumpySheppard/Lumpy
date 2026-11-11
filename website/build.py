@@ -36,7 +36,9 @@ ABOUT = [
 
 # Order here is the order on the work page (left-to-right, top-to-bottom)
 # and the order the NEXT links walk through.
-# video: ("vimeo", id) or ("youtube", id) or None. slug None = no page yet.
+# video: ("vimeo", id) or ("youtube", id) or None (then the still is shown).
+# notes: optional list of paragraphs shown under the video, e.g.
+#   notes=["Really proud of this one.", "We ran a lean crew ..."]
 WORK = [
     dict(slug="bownownow", img="bownownow.jpg", title="Bow Now Now",
          credit="The Thick", video=("youtube", "FGugLiK9gQA")),
@@ -54,7 +56,7 @@ WORK = [
          video=("youtube", "fQmIkUqNnqc")),
     dict(slug="lostpuppets", img="lostpuppets.jpg", title="Lost Puppets",
          credit="Jae Skeese", video=("youtube", "DlEm4bLixew")),
-    dict(slug=None, img="parttime.jpg", title="Part Time",
+    dict(slug="parttime", img="parttime.jpg", title="Part Time",
          credit="Dir. Dylan Postage & Paul Villenave", video=None),
     dict(slug="greenpools", img="greenpools.jpg", title="Green Pools",
          credit="Dir. Farhiya Ahmed", video=("vimeo", "846627006")),
@@ -65,39 +67,47 @@ WORK = [
 e = html.escape
 
 
+THEME_HEAD = ("<script>try{var t=localStorage.getItem('theme');"
+              "if(t)document.documentElement.dataset.theme=t}catch(e){}</script>")
+THEME_TOGGLE = """<p class="theme">
+<button type="button" data-set="black">black</button> /
+<button type="button" data-set="white">white</button>
+</p>
+<script>
+document.querySelectorAll('.theme button').forEach(function (b) {
+  b.onclick = function () {
+    document.documentElement.dataset.theme = b.dataset.set;
+    try { localStorage.setItem('theme', b.dataset.set); } catch (e) {}
+  };
+});
+</script>"""
+
+
 def sidebar(up, current):
-    """Right-hand column on every page: name, the four sections, the work list."""
+    """Right-hand column on every page: name, the four sections, theme toggle."""
     def link(href, label, key):
         here = ' class="here"' if key == current else ""
-        return f'<a href="{href}"{here}>{label}</a>'
+        return f'<li><a href="{href}"{here}>{label}</a></li>'
 
-    work = []
-    for w in WORK:
-        if w["slug"]:
-            href = f'{up}{w["slug"]}/'
-            work.append(f'<li>{link(href, e(w["title"]), w["slug"])}</li>')
-        else:
-            work.append(f'<li><span title="coming soon">{e(w["title"])}</span></li>')
     return f"""<aside class="side">
 <div>
 <a class="name" href="{up or './'}">{e(NAME.upper())}</a>
 <span class="role">{e(ROLE)}</span>
 <ul class="sections">
-<li>{link(up or "./", "Cinematography", "cinematography")}
-<ul class="work">
-{chr(10).join(work)}
-</ul>
-</li>
-<li>{link(f"{up}photography/", "Photography", "photography")}</li>
-<li>{link(f"{up}about/", "About", "about")}</li>
-<li>{link(f"{up}contact/", "Contact", "contact")}</li>
+{link(up or "./", "Work", "work")}
+{link(f"{up}photography/", "Photography", "photography")}
+{link(f"{up}about/", "About", "about")}
+{link(f"{up}contact/", "Contact", "contact")}
 </ul>
 </div>
+<div>
+{THEME_TOGGLE}
 <p class="copy">&copy; {datetime.now().year} {e(NAME)}</p>
+</div>
 </aside>"""
 
 
-def page(title, body, depth=0, current="", cls=""):
+def page(title, body, depth=0, current=""):
     up = "../" * depth
     full_title = f"{title} | {NAME}" if title else f"{NAME} | {ROLE}"
     return f"""<!DOCTYPE html>
@@ -109,9 +119,10 @@ def page(title, body, depth=0, current="", cls=""):
 <meta name="description" content="{e(BLURB)}">
 <meta property="og:title" content="{e(full_title)}">
 <meta property="og:description" content="{e(BLURB)}">
+{THEME_HEAD}
 <link rel="stylesheet" href="{up}style.css">
 </head>
-<body{f' class="{cls}"' if cls else ''}>
+<body>
 <div class="layout">
 <div class="content">
 {body}
@@ -123,24 +134,17 @@ def page(title, body, depth=0, current="", cls=""):
 """
 
 
-def caption(w):
-    return f"<i>{e(w['title'])}</i> | {e(w['credit'])}"
-
-
 def build_index():
-    tiles = []
-    for w in WORK:
-        img = f'<img src="img/{w["img"]}" alt="{e(w["title"])}" loading="lazy">'
-        if w["slug"]:
-            tiles.append(f'<li><a href="{w["slug"]}/">{img}<span>{caption(w)}</span></a></li>')
-        else:
-            tiles.append(f"<li>{img}<span>{caption(w)}</span></li>")
+    tiles = "\n".join(
+        f'<li><a href="{w["slug"]}/" title="{e(w["title"])}">'
+        f'<img src="img/{w["img"]}" alt="{e(w["title"])}" loading="lazy"></a></li>'
+        for w in WORK)
     body = f"""<main>
 <ul class="grid">
-{chr(10).join(tiles)}
+{tiles}
 </ul>
 </main>"""
-    (ROOT / "index.html").write_text(page("", body, current="cinematography"))
+    (ROOT / "index.html").write_text(page("", body, current="work"))
 
 
 def embed(video):
@@ -150,29 +154,32 @@ def embed(video):
     else:
         src = f"https://www.youtube-nocookie.com/embed/{vid}"
     return (f'<div class="video"><iframe src="{src}" allow="fullscreen; '
-            f'picture-in-picture" allowfullscreen loading="lazy" '
+            f'picture-in-picture" allowfullscreen '
             f'title="video"></iframe></div>')
 
 
 def build_projects():
-    linked = [w for w in WORK if w["slug"]]
-    for i, w in enumerate(linked):
-        nxt = linked[(i + 1) % len(linked)]
+    for i, w in enumerate(WORK):
+        nxt = WORK[(i + 1) % len(WORK)]
         title = w.get("page_title", w["title"])
         credit = w.get("page_credit", w["credit"])
-        parts = [f"<h2><i>{e(title)}</i> | {e(credit)}</h2>"]
+        parts = [f"<h1>{e(title)}</h1>"]
         if w["video"]:
             parts.append(embed(w["video"]))
-        stills = w.get("stills") or ([] if w["video"] else [w["img"]])
-        if stills:
+        else:
+            parts.append(f'<img class="hero" src="../img/{w["img"]}" alt="{e(title)}">')
+        parts.append(f'<p class="credit">{e(credit)}</p>')
+        parts += [f"<p>{e(n)}</p>" for n in w.get("notes", [])]
+        if w.get("stills"):
             parts.append('<ul class="stills">' + "".join(
                 f'<li><a href="../img/{s}"><img src="../img/{s}" alt="" loading="lazy"></a></li>'
-                for s in stills) + "</ul>")
-        parts.append(f'<p class="next"><a href="../{nxt["slug"]}/">NEXT &gt;</a></p>')
-        body = "<main class=\"project\">\n" + "\n".join(parts) + "\n</main>"
+                for s in w["stills"]) + "</ul>")
+        parts.append(f'<p class="next"><a href="../">&lt; all work</a>'
+                     f'<a href="../{nxt["slug"]}/">next &gt;</a></p>')
+        body = '<main class="project">\n' + "\n".join(parts) + "\n</main>"
         out = ROOT / w["slug"]
         out.mkdir(exist_ok=True)
-        (out / "index.html").write_text(page(title, body, depth=1, current=w["slug"]))
+        (out / "index.html").write_text(page(title, body, depth=1, current="work"))
 
 
 PHOTOS = ROOT / "photos.json"

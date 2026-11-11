@@ -1,27 +1,46 @@
-/* dpwillsheppard.com: plain on purpose. Times, blue links, black page. */
+/* dpwillsheppard.com: plain on purpose. Times, blue links.
+   Black by default; the toggle in the menu switches to white. */
+
+:root {
+  --bg: #000;
+  --fg: #fff;
+  --muted: #999;
+  --link: #4d4dff;
+  --visited: #9a5cff;
+  --accent: #ff9900;
+  --tile: #111;
+}
+:root[data-theme="white"] {
+  --bg: #fff;
+  --fg: #111;
+  --muted: #666;
+  --link: #0000ff;
+  --visited: #551a8b;
+  --accent: #e07800;
+  --tile: #eee;
+}
 
 * { box-sizing: border-box; }
 
-html { background: #000; }
+html, body { background: var(--bg); }
 
 body {
   margin: 0;
-  background: #000;
-  color: #fff;
-  font: 16px/1.35 "Times New Roman", Times, serif;
+  color: var(--fg);
+  font: 16px/1.4 "Times New Roman", Times, serif;
 }
 
-a { color: #4d4dff; }
-a:visited { color: #9a5cff; }
-a:hover { color: #ff9900; }
+a { color: var(--link); }
+a:visited { color: var(--visited); }
+a:hover { color: var(--accent); }
 
 img { display: block; max-width: 100%; height: auto; }
 ul { list-style: none; margin: 0; padding: 0; }
 
-/* layout: work on the left, the menu pinned on the right */
+/* layout: content on the left, the menu pinned on the right */
 .layout {
   display: grid;
-  grid-template-columns: 1fr 240px;
+  grid-template-columns: 1fr 220px;
   min-height: 100vh;
 }
 .content { padding: 50px 30px 80px 50px; min-width: 0; }
@@ -30,77 +49,106 @@ ul { list-style: none; margin: 0; padding: 0; }
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
   padding: 50px 50px 40px 0;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   text-align: right;
-  gap: 40px;
+  gap: 30px;
 }
 .side a { text-decoration: none; }
 .side a:hover, .side a.here { text-decoration: underline; }
-.side a.here { color: #ff9900; }
-.side .name { display: block; font-weight: bold; font-size: 18px; color: #fff; }
+.side a.here, .side a.here:visited { color: var(--accent); }
+.side .name, .side .name:visited { display: block; font-weight: bold; font-size: 18px; color: var(--fg); }
 .side .role { display: block; margin-bottom: 34px; }
-.side .sections > li { margin: 0 0 10px; }
-.side .work { margin: 8px 0 14px; font-size: 14px; }
-.side .work li { margin: 0 0 5px; }
-.side .work a:not(.here):not(:hover) { color: #8a8aff; }
-.side .work span { color: #666; }
-.side .copy { margin: 0; font-size: 12px; color: #888; }
+.side .sections li { margin: 0 0 8px; font-size: 17px; }
+.side .sections a:visited:not(.here) { color: var(--link); }
 
-/* work grid */
+.theme { margin: 0 0 10px; color: var(--muted); font-size: 14px; }
+.theme button {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: inherit; color: var(--link);
+}
+.theme button:hover { color: var(--accent); }
+:root:not([data-theme="white"]) .theme [data-set="black"],
+:root[data-theme="white"] .theme [data-set="white"] { color: var(--fg); text-decoration: underline; }
+.side .copy { margin: 0; font-size: 12px; color: var(--muted); }
+
+/* work: 3 columns of 16:9 thumbnails, no titles */
 .grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px 12px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
 }
 .grid img {
   width: 100%;
-  aspect-ratio: 503 / 360;
+  aspect-ratio: 16 / 9;
   object-fit: cover;
-  background: #111;
+  background: var(--tile);
+  transition: opacity .15s;
 }
-.grid span { display: block; margin-top: 5px; font-size: 13px; }
-.grid li > span { color: #4d4dff; }
-.grid a { text-decoration: none; }
-.grid a:hover span { text-decoration: underline; }
+.grid a:hover img { opacity: .75; }
 
-/* project pages */
-.project h2 { font-size: 18px; font-weight: normal; margin: 0 0 18px; }
-.video { position: relative; aspect-ratio: 16 / 9; background: #111; }
+/* project page: big title, video, credit, notes */
+.project { max-width: 1100px; margin: 0 auto; }
+.project h1 {
+  margin: 10px 0 34px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: 28px;
+}
+.video { position: relative; aspect-ratio: 16 / 9; background: var(--tile); }
 .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.hero { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.project .credit { font-weight: bold; margin: 28px 0 14px; }
+.project p { font-size: 18px; max-width: 900px; }
 .stills {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 12px;
-  margin-top: 12px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 24px;
 }
-.next { margin: 26px 0 0; text-align: right; }
+.stills img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.project .next {
+  display: flex;
+  justify-content: space-between;
+  max-width: none;
+  margin: 40px 0 0;
+  font-size: 16px;
+}
 
-/* photography: one centered column, like the old Plain Times theme */
+/* photography: one centered column */
 .photos .feed { max-width: 640px; margin: 0 auto; }
 .feed li { margin-bottom: 50px; }
 .feed img { width: 100%; }
-.feed p { margin: 8px 0 0; font-size: 14px; text-align: center; color: #aaa; }
+.feed p { margin: 8px 0 0; font-size: 14px; text-align: center; color: var(--muted); }
 
 /* about / contact */
 .text { max-width: 560px; font-size: 18px; }
 .text p { margin: 0 0 1em; }
 .contact li { margin: 0 0 8px; }
 
-/* phones: menu first, then the work */
+@media (max-width: 1000px) {
+  .grid, .stills { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* phones: menu on top, then the content */
 @media (max-width: 700px) {
   .layout { display: flex; flex-direction: column-reverse; }
   .side {
     position: static;
     height: auto;
-    padding: 24px 20px 10px;
-    gap: 24px;
+    padding: 24px 20px 0;
+    flex-direction: row;
+    align-items: flex-start;
+    text-align: left;
   }
-  .side .role { margin-bottom: 20px; }
+  .side > div:last-child { text-align: right; }
+  .side .role { margin-bottom: 16px; }
   .side .copy { display: none; }
-  .content { padding: 20px 20px 60px; }
+  .content { padding: 24px 20px 60px; }
   .grid { grid-template-columns: 1fr; }
+  .project h1 { font-size: 22px; margin-bottom: 20px; }
+  .project p { font-size: 16px; }
 }

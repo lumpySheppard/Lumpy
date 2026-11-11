@@ -7,15 +7,17 @@
 <meta name="description" content="Canadian cinematographer. Based out of Toronto and Vancouver specializing in narrative and documentary work.">
 <meta property="og:title" content="Man May Tell | Will Sheppard">
 <meta property="og:description" content="Canadian cinematographer. Based out of Toronto and Vancouver specializing in narrative and documentary work.">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="stylesheet" href="../style.css">
 </head>
 <body>
 <div class="layout">
 <div class="content">
 <main class="project">
-<h2><i>Man May Tell</i> | Dir. Josiah Dyck</h2>
-<div class="video"><iframe src="https://player.vimeo.com/video/513956830?dnt=1" allow="fullscreen; picture-in-picture" allowfullscreen loading="lazy" title="video"></iframe></div>
-<p class="next"><a href="../bownownow/">NEXT &gt;</a></p>
+<h1>Man May Tell</h1>
+<div class="video"><iframe src="https://player.vimeo.com/video/513956830?dnt=1" allow="fullscreen; picture-in-picture" allowfullscreen title="video"></iframe></div>
+<p class="credit">Dir. Josiah Dyck</p>
+<p class="next"><a href="../">&lt; all work</a><a href="../bownownow/">next &gt;</a></p>
 </main>
 </div>
 <aside class="side">
@@ -23,25 +25,27 @@
 <a class="name" href="../">WILL SHEPPARD</a>
 <span class="role">Director of Photography</span>
 <ul class="sections">
-<li><a href="../">Cinematography</a>
-<ul class="work">
-<li><a href="../bownownow/">Bow Now Now</a></li>
-<li><a href="../aura/">SPLIT</a></li>
-<li><a href="../tower/">Tower Motorsport</a></li>
-<li><a href="../craneslikewhitegiraffes/">Cranes Like White Giraffes</a></li>
-<li><a href="../simplertimes/">Simpler Times Feat. Gritfall</a></li>
-<li><a href="../lostpuppets/">Lost Puppets</a></li>
-<li><span title="coming soon">Part Time</span></li>
-<li><a href="../greenpools/">Green Pools</a></li>
-<li><a href="../manmaytell/" class="here">Man May Tell</a></li>
-</ul>
-</li>
+<li><a href="../" class="here">Work</a></li>
 <li><a href="../photography/">Photography</a></li>
 <li><a href="../about/">About</a></li>
 <li><a href="../contact/">Contact</a></li>
 </ul>
 </div>
+<div>
+<p class="theme">
+<button type="button" data-set="black">black</button> /
+<button type="button" data-set="white">white</button>
+</p>
+<script>
+document.querySelectorAll('.theme button').forEach(function (b) {
+  b.onclick = function () {
+    document.documentElement.dataset.theme = b.dataset.set;
+    try { localStorage.setItem('theme', b.dataset.set); } catch (e) {}
+  };
+});
+</script>
 <p class="copy">&copy; 2026 Will Sheppard</p>
+</div>
 </aside>
 </div>
 </body>
