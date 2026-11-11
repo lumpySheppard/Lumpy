@@ -34,6 +34,7 @@ const char* const kPluginId = "com.lumpy.FilmFlash";
 const char* const kGrouping = "Lumpy";
 
 enum P {
+    P_TIMING, P_FLEN,  // effect only
     P_FLASH,  // effect only
     P_PEAK, P_CUT, P_HOLD, P_RUNOUT, P_RUNUP, P_SOFT,  // transition only
     P_FLICKER, P_SEED,
@@ -70,23 +71,34 @@ const GDef kGroups[] = {{"grpSpeed", "Camera Speed", true},
 
 const std::vector<PDef>& defs() {
     static const std::vector<PDef> d = {
+        {P_TIMING, "timing", kChoice, kFilterOnly, nullptr, "Timing",
+         "Run-out: the end of this clip builds to the flash as the camera stops (put it on "
+         "the outgoing clip). Run-up: the start of this clip comes out of the flash as the "
+         "camera gets up to speed (put it on the incoming clip). Keyframe: set Flash (stops) "
+         "yourself.",
+         {1}, 0, 2, 0, 2,
+         {"Keyframe Flash (stops)", "Run-out at end of clip", "Run-up at start of clip"}},
+        {P_FLEN, "flashLength", kInt, kFilterOnly, nullptr, "Length (frames)",
+         "How many frames at the end (run-out) or start (run-up) of the clip the flash takes.",
+         {18}, 2, 1000, 4, 72, {}},
         {P_FLASH, "flash", kDbl, kFilterOnly, nullptr, "Flash (stops)",
-         "Extra exposure in stops. Keyframe it to build and release the flash.", {0}, -4, 14, 0,
-         10, {}},
-        {P_PEAK, "peak", kDbl, kTransitionOnly, nullptr, "Peak (stops)",
+         "Timing = Keyframe only: extra exposure in stops. Keyframe it to build and release "
+         "the flash.",
+         {0}, -4, 14, 0, 10, {}},
+        {P_PEAK, "peak", kDbl, kBoth, nullptr, "Peak (stops)",
          "How far over the flash goes at the cut. 6-8 stops burns nearly to white.", {8}, 0, 14,
          0, 12, {}},
         {P_CUT, "cutPoint", kDbl, kTransitionOnly, nullptr, "Cut Point",
          "Where in the transition the outgoing shot hands over to the incoming one (and the "
          "flash peaks).",
          {0.5}, 0, 1, 0, 1, {}},
-        {P_HOLD, "hold", kDbl, kTransitionOnly, nullptr, "Peak Hold",
+        {P_HOLD, "hold", kDbl, kBoth, nullptr, "Peak Hold",
          "Share of the transition held at the peak, around the cut.", {0.08}, 0, 0.8, 0, 0.5, {}},
-        {P_RUNOUT, "runOut", kDbl, kTransitionOnly, nullptr, "Run-out Shape",
+        {P_RUNOUT, "runOut", kDbl, kBoth, nullptr, "Run-out Shape",
          "How the outgoing shot builds. 1 = a motor slowing evenly (creeps up, then shoots "
          "off). Higher = holds off longer, then rushes.",
          {1}, 0.1, 8, 0.25, 4, {}},
-        {P_RUNUP, "runUp", kDbl, kTransitionOnly, nullptr, "Run-up Shape",
+        {P_RUNUP, "runUp", kDbl, kBoth, nullptr, "Run-up Shape",
          "How fast the incoming shot clears. Higher = the camera gets back up to speed faster.",
          {2}, 0.1, 8, 0.25, 6, {}},
         {P_SOFT, "cutSoftness", kDbl, kTransitionOnly, nullptr, "Cut Softness",
@@ -99,19 +111,19 @@ const std::vector<PDef>& defs() {
         {P_SEED, "seed", kInt, kBoth, nullptr, "Seed", "Changes the flicker pattern.", {1}, 0,
          1000000, 0, 100, {}},
 
-        {P_SPEEDUP, "speedUp", kDbl, kTransitionOnly, "grpSpeed", "Speed Up",
+        {P_SPEEDUP, "speedUp", kDbl, kBoth, "grpSpeed", "Speed Up",
          "The action speeds up as the camera slows (a camera at 1/4 speed plays back 4x "
          "fast). 1 = tied to the exposure like a real camera, 0 = off. Reads further into "
          "the clips' handles.",
          {1}, 0, 2, 0, 1, {}},
-        {P_SPEEDCURVE, "speedCurve", kChoice, kTransitionOnly, "grpSpeed", "Speed Curve",
+        {P_SPEEDCURVE, "speedCurve", kChoice, kBoth, "grpSpeed", "Speed Curve",
          "Even Ramp: the action speeds up steadily all the way into the cut (and slows "
          "steadily after it), so you can see it. Follows Exposure: exactly as a real camera, "
          "where most of the speed-up happens near the peak, inside the flash.",
          {0}, 0, 1, 0, 1, {"Even Ramp (easier to see)", "Follows Exposure (physical)"}},
-        {P_MAXSPEED, "maxSpeed", kDbl, kTransitionOnly, "grpSpeed", "Max Speed",
+        {P_MAXSPEED, "maxSpeed", kDbl, kBoth, "grpSpeed", "Max Speed",
          "How fast the action runs at the cut.", {4}, 1, 32, 1, 12, {}},
-        {P_HANDLES, "spareHandles", kInt, kTransitionOnly, "grpSpeed", "Spare Handle Frames",
+        {P_HANDLES, "spareHandles", kInt, kBoth, "grpSpeed", "Spare Handle Frames",
          "Extra handle frames each clip has beyond what the transition itself uses, for "
          "the speed-up to read. It's scaled down so it never needs more. Raise it if your "
          "clips have long handles: more frames = a stronger speed-up.",
@@ -261,6 +273,10 @@ struct Plan {
     int dpSource = 0;           // 0 none, 1 Transition param, 2 effect frame range
     float speedNow = 1.f;
     double wantFrom = 0, wantTo = 0, scaleFrom = 1, scaleTo = 1;
+    int timing = 0;             // effect: 0 keyframe, 1 run-out, 2 run-up
+    bool haveRange = false;
+    double regionLo = 0, regionHi = 0;
+    double readMin = -1e18, readMax = 1e18;  // never read source frames outside this
     bool identity(double t) const {
         return stops == 0.f && blur == 0.f && std::fabs(sFrom - t) < 1e-9 && std::fabs(sTo - t) < 1e-9 &&
                (toWeight == 0.f || toWeight == 1.f);
@@ -368,15 +384,89 @@ Plan planFor(Instance* in, const Values& v, double t) {
             pl.toWeight = x * x * (3.f - 2.f * x);
         }
     } else {
-        float stops = v.f(P_FLASH);
-        const float fl = v.f(P_FLICKER);
-        if (fl > 0.f && stops > 0.f) {
-            uint64_t hsh = mix64(mix64(uint64_t(v.v[P_SEED][0])) ^ uint64_t(int64_t(frame) + (int64_t(1) << 40)));
-            float r = float(hsh >> 40) / 16777216.f * 2.f - 1.f;
-            stops = std::max(0.f, stops + fl * r * std::min(1.f, stops / 2.f));
+        pl.timing = std::min(std::max(int(v.v[P_TIMING][0]), 0), 2);
+        if (pl.timing == 0) {
+            float stops = v.f(P_FLASH);
+            const float fl = v.f(P_FLICKER);
+            if (fl > 0.f && stops > 0.f) {
+                uint64_t hsh = mix64(mix64(uint64_t(v.v[P_SEED][0])) ^ uint64_t(int64_t(frame) + (int64_t(1) << 40)));
+                float r = float(hsh >> 40) / 16777216.f * 2.f - 1.f;
+                stops = std::max(0.f, stops + fl * r * std::min(1.f, stops / 2.f));
+            }
+            pl.stops = stops;
+            pl.blur = flash::blurFrames(sp, stops);
+        } else {
+            // The clip's extent: the effect's frame range, else the source clip's.
+            double range[2] = {0, 0};
+            bool ok = in->effectProps &&
+                      gProp->propGetDoubleN(in->effectProps, kOfxImageEffectPropFrameRange, 2, range) == kOfxStatOK &&
+                      range[1] > range[0];
+            if (!ok && in->src) {
+                OfxPropertySetHandle cp = nullptr;
+                ok = gFx->clipGetPropertySet(in->src, &cp) == kOfxStatOK && cp &&
+                     gProp->propGetDoubleN(cp, kOfxImageEffectPropFrameRange, 2, range) == kOfxStatOK &&
+                     range[1] > range[0];
+            }
+            pl.haveRange = ok;
+            pl.rangeLo = range[0];
+            pl.rangeHi = range[1];
+            if (ok) {
+                const int lo = int(std::lround(range[0])), hi = int(std::lround(range[1]));
+                const int L = std::min(std::max(int(v.v[P_FLEN][0]), 2), hi - lo + 1);
+                const bool runOut = pl.timing == 1;
+                const int a = runOut ? hi - L + 1 : lo;  // the flash's frames: a .. a+L-1
+                pl.regionLo = a;
+                pl.regionHi = a + L - 1;
+                const double budget = std::max(0.0, v.v[P_HANDLES][0]);
+                if (runOut) pl.readMax = hi + budget;
+                else pl.readMin = lo - budget;
+                if (frame >= a && frame <= a + L - 1) {
+                    // Map onto the transition envelope: a run-out is its first
+                    // half (peak at the clip's last frame), a run-up its second.
+                    flash::Envelope e;
+                    e.peak = v.f(P_PEAK);
+                    e.cut = 0.5f;
+                    e.hold = v.f(P_HOLD);
+                    e.runOut = v.f(P_RUNOUT);
+                    e.runUp = v.f(P_RUNUP);
+                    e.flicker = v.f(P_FLICKER);
+                    e.seed = uint32_t(v.v[P_SEED][0]);
+                    auto envP = [&](int f) {
+                        double q = double(f - a) / double(L - 1);
+                        return runOut ? 0.5 * q : 0.5 + 0.5 * q;
+                    };
+                    pl.p = envP(frame);
+                    pl.stops = flash::envelopeStops(e, float(pl.p), frame);
+                    pl.blur = flash::blurFrames(sp, pl.stops);
+                    if (sp.speedUp > 0.f) {
+                        flash::Envelope e0 = e;
+                        e0.flicker = 0.f;
+                        const bool even = int(v.v[P_SPEEDCURVE][0]) == 0;
+                        auto extra = [&](double q) -> double {
+                            if (even) {
+                                double u = runOut ? q / 0.5 : (1.0 - q) / 0.5;
+                                u = std::min(std::max(u, 0.0), 1.0);
+                                return (std::max(1.0, double(sp.maxSpeed)) - 1.0) * u * sp.speedUp;
+                            }
+                            return flash::speedFactor(sp, flash::envelopeStops(e0, float(q), 0)) - 1.0;
+                        };
+                        double total = 0, part = 0;
+                        for (int f = a; f < a + L; ++f) {
+                            const double x = extra(envP(f));
+                            total += x;
+                            if (runOut ? f < frame : f >= frame) part += x;
+                        }
+                        const double scale = total > budget ? budget / total : 1.0;
+                        pl.wantFrom = total;
+                        pl.scaleFrom = scale;
+                        // Run-out reads ahead (past the clip's end), run-up behind
+                        // (before its start), pinned where the flash begins / ends.
+                        pl.sFrom = runOut ? t + part * scale : t - part * scale;
+                        pl.speedNow = float(1.0 + extra(pl.p) * scale);
+                    }
+                }
+            }
         }
-        pl.stops = stops;
-        pl.blur = flash::blurFrames(sp, stops);
     }
     return pl;
 }
@@ -587,7 +677,10 @@ OfxStatus getFramesNeeded(OfxImageEffectHandle effect, OfxPropertySetHandle inAr
     gProp->propGetDouble(inArgs, kOfxPropTime, 0, &t);
     const Plan pl = planFor(in, readValues(in, t), t);
     auto range = [&](const char* clip, double s) {
-        double r[2] = {std::floor(s - pl.blur / 2.0 - 0.5), std::ceil(s + pl.blur / 2.0 + 0.5)};
+        double r[2] = {std::max(pl.readMin, std::floor(s - pl.blur / 2.0 - 0.5)),
+                       std::min(pl.readMax, std::ceil(s + pl.blur / 2.0 + 0.5))};
+        r[0] = std::min(r[0], t);
+        r[1] = std::max(r[1], t);
         std::string prop = std::string("OfxImageClipPropFrameRange_") + clip;
         gProp->propSetDoubleN(outArgs, prop.c_str(), 2, r);
     };
@@ -609,10 +702,13 @@ struct FetchStats {
 };
 
 bool gather(OfxImageClipHandle clip, double s, float width, double t, int encoding,
-            flash::Image& out, OfxRectI& bounds, FetchStats* st = nullptr) {
+            flash::Image& out, OfxRectI& bounds, FetchStats* st = nullptr,
+            double readMin = -1e18, double readMax = 1e18) {
     std::vector<flash::Image> imgs;
     std::vector<float> wts;
+    s = std::min(std::max(s, readMin), readMax);
     for (auto& tap : flash::blurTaps(s, width)) {
+        if (tap.first < readMin || tap.first > readMax) continue;
         flash::Image im;
         OfxRectI r;
         if (st) {
@@ -746,7 +842,8 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
     const bool diag = v.v[P_DIAG][0] != 0.0;
     FetchStats sa, sb;
     if (!in->transition) {
-        haveA = gather(in->src, pl.sFrom, pl.blur, t, lk.encoding, a, ab, diag ? &sa : nullptr);
+        haveA = gather(in->src, pl.sFrom, pl.blur, t, lk.encoding, a, ab, diag ? &sa : nullptr, pl.readMin,
+                       pl.readMax);
     } else {
         if (pl.toWeight < 1.f) haveA = gather(in->from, pl.sFrom, pl.blur, t, lk.encoding, a, ab, diag ? &sa : nullptr);
         if (pl.toWeight > 0.f) haveB = gather(in->to, pl.sTo, pl.blur, t, lk.encoding, b, bb, diag ? &sb : nullptr);
@@ -801,7 +898,19 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
             lines.push_back("SPEED-UP WANTS " + fmt("%.0f", pl.wantFrom) + " / " + fmt("%.0f", pl.wantTo) +
                             " HANDLE FR, SCALED X" + fmt("%.2f", pl.scaleFrom) + " / X" + fmt("%.2f", pl.scaleTo));
         } else {
-            lines.push_back("BLUR " + fmt("%.2f", pl.blur) + " FR");
+            static const char* const tm[] = {"KEYFRAME", "RUN-OUT AT END OF CLIP", "RUN-UP AT START OF CLIP"};
+            lines.push_back(std::string("TIMING ") + tm[pl.timing] + "   BLUR " + fmt("%.2f", pl.blur) + " FR");
+            if (pl.timing) {
+                if (!pl.haveRange) {
+                    lines.push_back("NO CLIP RANGE FROM HOST - CANNOT FIND THE CLIP END");
+                } else {
+                    lines.push_back("CLIP " + fmt("%.0f", pl.rangeLo) + " - " + fmt("%.0f", pl.rangeHi) + "   FLASH ON " +
+                                    fmt("%.0f", pl.regionLo) + " - " + fmt("%.0f", pl.regionHi) + "   P " + fmt("%.3f", pl.p));
+                    lines.push_back("SPEED NOW " + fmt("%.2f", pl.speedNow) + "X   READS " + fmt("%+.1f", pl.sFrom - t) +
+                                    " FR   WANTS " + fmt("%.0f", pl.wantFrom) + " HANDLE FR, SCALED X" +
+                                    fmt("%.2f", pl.scaleFrom));
+                }
+            }
         }
         auto stat = [&](const char* name, const FetchStats& st) {
             if (!st.asked) return;
@@ -843,7 +952,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 2, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 3, setHost, mainEntry};
 
 }  // namespace
 

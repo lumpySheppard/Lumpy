@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(FilmFlash VERSION 1.2.0 LANGUAGES CXX)
+project(FilmFlash VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -105,12 +105,26 @@ if(NOT WIN32)
                    --expect-identity-at 47:SourceTo)
   add_test(NAME effect_motion_blur
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_blur.rgb --context filter
-                   --set flash=3 --set motionBlur=1 --expect-fetches-above 2 --max-below 1.0)
-  # As an effect: Flash 0 leaves the clip alone; a big flash brightens without clipping.
+                   --set timing=0 --set flash=3 --set motionBlur=1 --expect-fetches-above 2 --max-below 1.0)
+  # As an effect with keyframed Flash: 0 leaves the clip alone; a big flash brightens without clipping.
   add_test(NAME effect_zero_is_identity
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_zero.rgb --context filter
-                   --expect-identity-at 0:Source --expect-identity-at 30:Source)
+                   --set timing=0 --expect-identity-at 0:Source --expect-identity-at 30:Source)
   add_test(NAME effect_flash
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_flash.rgb --context filter
-                   --set flash=9 --expect-mean-above 10:0.85 --max-below 1.0)
+                   --set timing=0 --set flash=9 --expect-mean-above 10:0.85 --max-below 1.0)
+  # Run-out on the outgoing clip: clean until the last 16 frames, peak on the
+  # last frame, speed-up reading at most 8 frames past the clip's end.
+  add_test(NAME effect_run_out
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_out.rgb --context filter
+                   --frames 40 --set timing=1 --set flashLength=16 --set spareHandles=8
+                   --expect-identity-at 0:Source --expect-identity-at 23:Source --expect-identity-at 24:Source
+                   --expect-mean-above 39:0.8 --expect-fetches-above 1.3 --expect-no-failed-fetches --max-below 1.0)
+  # Run-up on the incoming clip: peak on the first frame, clean from frame 16,
+  # reading at most 8 frames before the clip's start.
+  add_test(NAME effect_run_up
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_up.rgb --context filter
+                   --offset 8 --frames 40 --set timing=2 --set flashLength=16 --set spareHandles=8
+                   --expect-identity-at 15:Source --expect-identity-at 39:Source --expect-mean-above 0:0.8
+                   --expect-fetches-above 1.3 --expect-no-failed-fetches --max-below 1.0)
 endif()

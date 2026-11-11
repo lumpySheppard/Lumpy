@@ -46,47 +46,77 @@ It's a universal binary for macOS 11 or later.
 
 ## Use
 
-**As a transition:**
-1. Find it in **Effects → OpenFX → Transitions** (Resolve lists OFX
-   transitions with the other transitions; look for **FilmFlash**).
-2. Drag it onto a cut.
-3. Make the transition as long as you want the whole run-out/run-up to
-   last. 1–2 seconds feels right. It needs handles (extra frames) on both
-   clips, like any transition.
+There are two ways to use it.
+
+### For speed-up and motion blur: the effect, on each side of a plain cut
+
+DaVinci Resolve doesn't let OFX **transitions** read other frames of their
+clips. It always hands back the current frame, which Show Diagnostics
+reports as **HOST GAVE THE CURRENT FRAME**. Speed-up and the extra motion
+blur need other frames, so for those, use FilmFlash as an **effect**.
+Effects do get other frames.
+
+1. Leave a straight cut between the two clips.
+2. On the **outgoing** clip, add FilmFlash and set **Timing → Run-out at
+   end of clip**. Its last *Length* frames build to the flash, peaking on
+   the clip's last frame, with the action speeding up and blurring.
+3. On the **incoming** clip, add FilmFlash and set **Timing → Run-up at
+   start of clip**. It starts at the peak and clears as the camera gets
+   back up to speed.
+4. Use the same Peak and look settings on both, so the flash matches
+   across the cut. Copying the effect across and then switching Timing is
+   the quickest way.
+
+Speed-up reads past each clip's edit point: ahead past the outgoing clip's
+end, and back before the incoming clip's start. Set **Spare Handle Frames**
+to the handles your clips have. The speed-up is scaled so it never reads
+further than that. More handles = a stronger speed-up.
+
+### Flash only: the transition
+
+1. Find FilmFlash under **Effects → OpenFX → Transitions** and drag it
+   onto a cut.
+2. Set the transition to as long as you want the whole run-out/run-up to
+   last; 1–2 seconds feels right.
 
 The outgoing shot builds to the flash, the cut happens at the peak (where
-it's hidden), and the incoming shot clears as the camera gets back up to
-speed.
+it's hidden), and the incoming shot clears.
 
-**As an effect:**
-1. Drop it on a clip like any other effect.
-2. Keyframe **Flash (stops)**.
+The transition has the same speed and blur controls, and they work in
+hosts that give transitions other frames. In Resolve they currently have no
+effect.
+
+**Keyframe** timing (the effect's third option) lets you animate
+**Flash (stops)** by hand instead.
 
 | Control | What it does |
 | --- | --- |
 | Peak (stops) | How far over the flash goes at the cut. 6–8 burns nearly to white |
-| Cut Point | Where in the transition the shots change over (and the flash peaks) |
+| Cut Point | Transition only: where the shots change over (and the flash peaks) |
 | Peak Hold | Share of the transition held at the peak |
 | Run-out Shape | 1 = a motor slowing evenly (creeps up, then shoots off). Higher holds off longer, then rushes |
 | Run-up Shape | Higher = the camera gets back up to speed faster, so the flash clears sooner |
-| Cut Softness | 0 = a hard cut at the peak. Higher = a short dissolve across it |
-| Flash (stops) | Effect only: the flash amount to keyframe |
+| Cut Softness | Transition only: 0 = a hard cut at the peak. Higher = a short dissolve across it |
+| Timing | Effect only: Run-out at end of clip / Run-up at start of clip / Keyframe |
+| Length (frames) | Effect only: how many frames the run-out or run-up takes |
+| Flash (stops) | Effect only, with Timing = Keyframe: the flash amount to keyframe |
 | Flicker / Seed | Random frame-to-frame exposure wobble while flashing |
 
 **Camera Speed**
 
 | Control | What it does |
 | --- | --- |
-| Speed Up | Transition only. How much the action speeds up as the camera slows: 0 = off |
+| Speed Up | How much the action speeds up as the camera slows: 0 = off |
 | Speed Curve | **Even Ramp** (default): the action speeds up steadily into the cut and settles steadily after it, where you can see it. **Follows Exposure**: exactly like a real camera (speed = 2^stops), where most of the speed-up happens near the peak, inside the flash |
 | Max Speed | How fast the action runs at the cut |
-| Spare Handle Frames | Handle frames each clip has *beyond what the transition itself uses*. The speed-up is scaled so it never reads further than this. More handles = a stronger speed-up |
+| Spare Handle Frames | Effect: handle frames past the clip's edit point. Transition: handles beyond what the transition itself uses. The speed-up (and blur) is scaled so it never reads further than this. More handles = a stronger speed-up |
 | Motion Blur | Extra blur from the longer exposures: 1 = tied to the exposure, 0 = off |
 | Shutter Angle | The camera's shutter at normal speed (180° is standard); a wider shutter smears more |
 | Max Blur | Cap on the blur, in frames of action. Higher costs render time (one source frame per frame of blur) |
 | Show Diagnostics | Prints the timing on the picture (see below) |
 
-How speed-up works:
+How speed-up works (on the transition; the effect's run-out and run-up are
+the two halves of it):
 
 - **Outgoing shot.** The action plays normally at the start of the
   transition, then runs faster and faster into the cut. Running fast uses
@@ -107,9 +137,10 @@ How speed-up works:
 - how far ahead and behind each shot is reading
 - how much handle the speed-up wanted and how much it was scaled to fit
 - whether Resolve supplied those frames. **HOST GAVE THE CURRENT FRAME**
-  means Resolve isn't letting the transition read other moments of the
-  clips. Speed-up and blur can't work then, and the plugin falls back to
-  the current frame.
+  means the host isn't letting the plugin read other moments of the clip.
+  That's what Resolve does for transitions; use the effect with Run-out /
+  Run-up instead. On the effect it also shows the clip's range and which
+  frames the flash covers.
 
 Both only add to what the footage already has. With no flash, there's no
 extra speed and no extra blur.

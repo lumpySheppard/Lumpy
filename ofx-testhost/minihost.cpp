@@ -740,11 +740,23 @@ int main(int argc, char** argv) {
         if (!(m < v)) die("frame is too bright");
     }
     if (maxBelow >= 0) {
+        // Pixels already at the ceiling in the source don't count: only
+        // values the plugin pushed up there.
+        const bool tr = gContext == kOfxImageEffectContextTransition;
         double mx = 0;
-        for (auto& f : seq)
-            for (size_t i = 0; i < f.size(); i += 4)
-                mx = std::max({mx, double(f[i]), double(f[i + 1]), double(f[i + 2])});
-        std::printf("brightest output value %.6f (want < %g)\n", mx, maxBelow);
+        size_t mf = 0, mi = 0;
+        for (size_t fi = 0; fi < seq.size(); ++fi) {
+            const int t = gOffset + int(fi);
+            std::vector<float> s1 = sourceFrame(tr ? kOfxImageEffectTransitionSourceFromClipName
+                                                   : kOfxImageEffectSimpleSourceClipName, t);
+            std::vector<float> s2 = tr ? sourceFrame(kOfxImageEffectTransitionSourceToClipName, t) : s1;
+            for (size_t i = 0; i < seq[fi].size(); ++i) {
+                if (i % 4 == 3 || s1[i] >= maxBelow || s2[i] >= maxBelow) continue;
+                if (seq[fi][i] > mx) { mx = seq[fi][i]; mf = fi; mi = i; }
+            }
+        }
+        std::printf("brightest output value %.6f at frame %zu pixel %zu channel %zu (want < %g)\n", mx, mf,
+                    mi / 4, mi % 4, maxBelow);
         if (!(mx < maxBelow)) die("output reaches the ceiling (clipping)");
     }
 
