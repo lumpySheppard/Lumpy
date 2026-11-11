@@ -27,7 +27,7 @@ BLURB = ("Canadian cinematographer. Based out of Toronto and Vancouver "
 INSTAGRAM = "https://www.instagram.com/will_sheppard/"
 EMAIL = "willsheppard99@gmail.com"
 PHONE = "6046535556"
-TUMBLR = "https://hitmykushandchoke.tumblr.com/"  # source for /photography only
+TUMBLR = "https://hitmykushandchoke.tumblr.com/"  # source for /photo only
 ABOUT = [
     BLURB,
     'Co-founder of Blue Sheep, an independent production studio in Toronto: '
@@ -95,7 +95,6 @@ def sidebar(up, current):
 <span class="role">{e(ROLE)}</span>
 <ul class="sections">
 {link(up or "./", "Work", "work")}
-{link(f"{up}photography/", "Photography", "photography")}
 {link(f"{up}about/", "About", "about")}
 {link(f"{up}contact/", "Contact", "contact")}
 </ul>
@@ -219,10 +218,10 @@ def fetch_photos(limit=40):
         if f.name not in keep:
             f.unlink()
     PHOTOS.write_text(json.dumps(photos, indent=1) + "\n")
-    print(f"photography: {len(new)} new, {len(photos)} total")
+    print(f"photo: {len(new)} new, {len(photos)} total")
 
 
-def build_photography():
+def build_photo():
     photos = json.loads(PHOTOS.read_text()) if PHOTOS.exists() else []
     items = []
     for p in photos:
@@ -231,17 +230,22 @@ def build_photography():
             f'<li><a href="{src}"><img src="{src}" alt="" loading="lazy"></a>'
             + (f'<p>{e(p["caption"])}</p>' if p["caption"] else "") + "</li>")
     body = f"""<main class="photos">
+<p class="back"><a href="../about/">&lt; about</a></p>
 <ul class="feed">
 {chr(10).join(items)}
 </ul>
 </main>"""
-    (ROOT / "photography").mkdir(exist_ok=True)
-    (ROOT / "photography" / "index.html").write_text(
-        page("Photography", body, depth=1, current="photography"))
+    (ROOT / "photo").mkdir(exist_ok=True)
+    (ROOT / "photo" / "index.html").write_text(
+        page("Photo", body, depth=1, current="about"))
 
 
 def build_about():
-    body = '<main class="text">\n' + "\n".join(f"<p>{t}</p>" for t in ABOUT) + "\n</main>"
+    paras = "\n".join(f"<p>{t}</p>" for t in ABOUT)
+    body = f"""<main class="text">
+{paras}
+<p class="more"><a href="../photo/">photo &gt;</a></p>
+</main>"""
     (ROOT / "about").mkdir(exist_ok=True)
     (ROOT / "about" / "index.html").write_text(page("About", body, depth=1, current="about"))
 
@@ -264,7 +268,7 @@ if __name__ == "__main__":
         fetch_photos()
     build_index()
     build_projects()
-    build_photography()
+    build_photo()
     build_about()
     build_contact()
     print("built", ROOT)
