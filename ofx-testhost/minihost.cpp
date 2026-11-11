@@ -116,6 +116,7 @@ static int gOffset = 0;   // clip time of the first rendered frame
 static bool gStaticTransition = false;  // Transition param not animated over time
 static bool gIgnoreTime = false;        // clipGetImage returns the frame being rendered, whatever time is asked
 static double gRenderTime = 0;
+static bool gWholeRange = false;  // report the whole source clip as the effect's range, like Resolve
 struct ParamSet {
     PropSet props;
     std::map<std::string, std::unique_ptr<Param>> params;
@@ -410,6 +411,7 @@ static std::unique_ptr<Effect> makeInstance(Effect& desc, const std::vector<std:
     }
     setS(reinterpret_cast<OfxPropertySetHandle>(&fx->props), kOfxImageEffectPropContext, 0, gContext.c_str());
     double fr[2] = {double(gOffset), double(gOffset + gFrames - 1)};
+    if (gWholeRange) { fr[0] = 0; fr[1] = gVideo.n - 1; }
     setDN(reinterpret_cast<OfxPropertySetHandle>(&fx->props), kOfxImageEffectPropFrameRange, 2, fr);
     if (act(kOfxActionCreateInstance, fx.get()) != kOfxStatOK) die("createInstance");
     return fx;
@@ -487,7 +489,8 @@ int main(int argc, char** argv) {
                      "  --expect-fetches-above F (source frames fetched per rendered frame)\n"
                      "  --frames N --offset N (render N frames from clip time N)\n"
                      "  --static-transition --ignore-time (simulate host quirks)\n"
-                     "  --expect-no-failed-fetches\n");
+                     "  --expect-no-failed-fetches   --press BUTTON@TIME\n"
+                     "  --whole-clip-range (effect's frame range = the whole source clip, as Resolve reports)\n");
         return 2;
     }
     gVideo.w = std::atoi(argv[3]);
@@ -499,6 +502,7 @@ int main(int argc, char** argv) {
     std::vector<std::pair<int, double>> meanAbove, meanBelow;
     double maxBelow = -1, fetchesAbove = -1;
     int framesOpt = -1;
+    std::vector<std::pair<std::string, double>> presses;  // --press NAME@TIME
     bool noFailedFetches = false;
     auto frameColon = [](const std::string& kv, int& frame) {
         auto c = kv.find(':');
@@ -526,6 +530,13 @@ int main(int argc, char** argv) {
         if (a == "--expect-fetches-above" && i + 1 < argc) { fetchesAbove = std::atof(argv[++i]); continue; }
         if (a == "--frames" && i + 1 < argc) { framesOpt = std::atoi(argv[++i]); continue; }
         if (a == "--static-transition") { gStaticTransition = true; continue; }
+        if (a == "--whole-clip-range") { gWholeRange = true; continue; }
+        if (a == "--press" && i + 1 < argc) {
+            std::string kv = argv[++i];
+            auto at = kv.find('@');
+            presses.emplace_back(kv.substr(0, at), at == std::string::npos ? 0.0 : std::atof(kv.substr(at + 1).c_str()));
+            continue;
+        }
         if (a == "--expect-no-failed-fetches") { noFailedFetches = true; continue; }
         if (a == "--ignore-time") { gIgnoreTime = true; continue; }
         if (a == "--offset" && i + 1 < argc) { gOffset = std::atoi(argv[++i]); continue; }
@@ -661,6 +672,18 @@ int main(int argc, char** argv) {
         setD(h, kOfxPropTime, 0, 0);
         if (act(kOfxActionInstanceChanged, fx.get(), &ic) != kOfxStatOK) die("instanceChanged");
     };
+    for (auto& [button, time] : presses) {
+        PropSet ic;
+        auto h = reinterpret_cast<OfxPropertySetHandle>(&ic);
+        setS(h, kOfxPropType, 0, kOfxTypeParameter);
+        setS(h, kOfxPropName, 0, button.c_str());
+        setS(h, kOfxPropChangeReason, 0, kOfxChangeUserEdited);
+        setD(h, kOfxPropTime, 0, time);
+        if (act(kOfxActionInstanceChanged, fx.get(), &ic) != kOfxStatOK) die(("pressing " + button).c_str());
+        std::printf("pressed %s at %g\n", button.c_str(), time);
+    }
+    if (!presses.empty())  // the shuffled-order instance gets the same values
+        for (auto& n : fx->params.order) sets.emplace_back(n, fx->params.params[n]->value);
     if (applyLook >= 0) {
         fx->params.params["look"]->value = applyLook;
         press("applyLook");

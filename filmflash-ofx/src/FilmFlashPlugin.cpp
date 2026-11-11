@@ -35,7 +35,7 @@ const char* const kPluginId = "com.lumpy.FilmFlash";
 const char* const kGrouping = "Lumpy";
 
 enum P {
-    P_TIMING, P_FLEN,  // effect only
+    P_TIMING, P_CUTFRAME, P_FLEN,  // effect only
     P_FLASH,  // effect only
     P_PEAK, P_CUT, P_HOLD, P_RUNOUT, P_RUNUP, P_SOFT,  // transition only
     P_FLICKER, P_SEED,
@@ -79,6 +79,11 @@ const std::vector<PDef>& defs() {
          "yourself.",
          {1}, 0, 2, 0, 2,
          {"Keyframe Flash (stops)", "Run-out at end of clip", "Run-up at start of clip"}},
+        {P_CUTFRAME, "cutFrame", kInt, kFilterOnly, nullptr, "Cut Frame",
+         "The frame the flash peaks on: the last frame of the outgoing clip in your edit "
+         "(run-out) or the first frame of the incoming one (run-up). Park there and press Set "
+         "Cut Here. -1 = the end / start of the whole source clip.",
+         {-1}, -1, 10000000, -1, 10000, {}},
         {P_FLEN, "flashLength", kInt, kFilterOnly, nullptr, "Length (frames)",
          "How many frames at the end (run-out) or start (run-up) of the clip the flash takes.",
          {18}, 2, 1000, 4, 72, {}},
@@ -281,6 +286,7 @@ struct Plan {
     float speedNow = 1.f;
     double wantFrom = 0, wantTo = 0, scaleFrom = 1, scaleTo = 1;
     int timing = 0;             // effect: 0 keyframe, 1 run-out, 2 run-up
+    int cutFrame = -1;
     bool haveRange = false;
     double regionLo = 0, regionHi = 0, speedLo = 0, speedHi = 0;
     double readMin = -1e18, readMax = 1e18;  // never read source frames outside this
@@ -424,6 +430,20 @@ Plan planFor(Instance* in, const Values& v, double t) {
             pl.haveRange = ok;
             pl.rangeLo = range[0];
             pl.rangeHi = range[1];
+            // Cut Frame overrides the clip's end (run-out) or start (run-up):
+            // hosts report the whole source clip, not the part used in the edit.
+            const int cutFrame = int(v.v[P_CUTFRAME][0]);
+            pl.cutFrame = cutFrame;
+            if (cutFrame >= 0) {
+                if (pl.timing == 1) {
+                    range[1] = cutFrame;
+                    range[0] = ok ? std::min(range[0], double(cutFrame)) : cutFrame - 1000000.0;
+                } else {
+                    range[0] = cutFrame;
+                    range[1] = ok ? std::max(range[1], double(cutFrame)) : cutFrame + 1000000.0;
+                }
+                ok = true;
+            }
             if (ok) {
                 const int lo = int(std::lround(range[0])), hi = int(std::lround(range[1]));
                 const int L = std::min(std::max(int(v.v[P_FLEN][0]), 2), hi - lo + 1);
@@ -602,6 +622,15 @@ OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle in
                 }
             openGroup = d.group;
         }
+        if (d.id == P_FLEN) {
+            // Set Cut Here sits right after Cut Frame (defined just before).
+            OfxPropertySetHandle bp;
+            gParam->paramDefine(ps, kOfxParamTypePushButton, "setCutHere", &bp);
+            gProp->propSetString(bp, kOfxPropLabel, 0, "Set Cut Here");
+            gProp->propSetString(bp, kOfxParamPropHint, 0,
+                                 "Set Cut Frame to the current frame. Park on the last frame of the "
+                                 "outgoing clip (run-out) or the first frame of the incoming clip (run-up).");
+        }
         static const char* const types[] = {kOfxParamTypeDouble, kOfxParamTypeInteger,
                                             kOfxParamTypeChoice, kOfxParamTypeRGB,
                                             kOfxParamTypeBoolean};
@@ -676,6 +705,20 @@ OfxStatus destroyInstance(OfxImageEffectHandle effect) {
     OfxPropertySetHandle props;
     gFx->getPropertySet(effect, &props);
     gProp->propSetPointer(props, kOfxPropInstanceData, 0, nullptr);
+    return kOfxStatOK;
+}
+
+OfxStatus instanceChanged(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
+    char* type = nullptr;
+    char* name = nullptr;
+    gProp->propGetString(inArgs, kOfxPropType, 0, &type);
+    gProp->propGetString(inArgs, kOfxPropName, 0, &name);
+    if (!type || !name || std::strcmp(type, kOfxTypeParameter) || std::strcmp(name, "setCutHere"))
+        return kOfxStatReplyDefault;
+    Instance* in = getInstance(effect);
+    double t = 0;
+    gProp->propGetDouble(inArgs, kOfxPropTime, 0, &t);
+    if (in && in->h[P_CUTFRAME]) gParam->paramSetValue(in->h[P_CUTFRAME], int(std::lround(t)));
     return kOfxStatOK;
 }
 
@@ -932,6 +975,8 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
                 if (!pl.haveRange) {
                     lines.push_back("NO CLIP RANGE FROM HOST - CANNOT FIND THE CLIP END");
                 } else {
+                    lines.push_back(pl.cutFrame >= 0 ? "CUT FRAME " + std::to_string(pl.cutFrame) + " (SET)"
+                                                     : std::string("CUT FRAME NOT SET - USING THE WHOLE SOURCE CLIP"));
                     lines.push_back("CLIP " + fmt("%.0f", pl.rangeLo) + " - " + fmt("%.0f", pl.rangeHi) + "   FLASH ON " +
                                     fmt("%.0f", pl.regionLo) + " - " + fmt("%.0f", pl.regionHi) + "   SPEED ON " +
                                     fmt("%.0f", pl.speedLo) + " - " + fmt("%.0f", pl.speedHi));
@@ -966,6 +1011,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
             return describeInContext(effect, inArgs);
         if (!std::strcmp(action, kOfxActionCreateInstance)) return createInstance(effect);
         if (!std::strcmp(action, kOfxActionDestroyInstance)) return destroyInstance(effect);
+        if (!std::strcmp(action, kOfxActionInstanceChanged)) return instanceChanged(effect, inArgs);
         if (!std::strcmp(action, kOfxImageEffectActionIsIdentity))
             return isIdentity(effect, inArgs, outArgs);
         if (!std::strcmp(action, kOfxImageEffectActionGetFramesNeeded))
@@ -981,7 +1027,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 5, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 6, setHost, mainEntry};
 
 }  // namespace
 

@@ -62,14 +62,23 @@ Effects do get other frames.
 
 1. Leave a straight cut between the two clips.
 2. On the **outgoing** clip, add FilmFlash and set **Timing → Run-out at
-   end of clip**. Its last *Length* frames build to the flash, peaking on
-   the clip's last frame, with the action speeding up and blurring.
+   end of clip**. Park the playhead on that clip's **last frame in your
+   edit** and press **Set Cut Here**.
 3. On the **incoming** clip, add FilmFlash and set **Timing → Run-up at
-   start of clip**. It starts at the peak and clears as the camera gets
-   back up to speed.
+   start of clip**. Park on its **first frame in your edit** and press
+   **Set Cut Here**.
 4. Use the same Peak and look settings on both, so the flash matches
-   across the cut. Copying the effect across and then switching Timing is
-   the quickest way.
+   across the cut.
+
+**Set Cut Here matters.** Resolve tells the effect about the whole source
+clip, not the part of it you've used. If you use frames 150–400 of a
+600-frame clip, "end of clip" would otherwise mean frame 600, outside your
+edit, and you'd see nothing. Show Diagnostics says **CUT FRAME NOT SET**
+when that's happening.
+
+With Cut Frame set, the speed-up reads into the real frames past your edit
+point, from the unused part of the source clip, so there are no freeze
+frames. Don't use a compound clip for this: it has no frames past its end.
 
 Speed-up reads past each clip's edit point: ahead past the outgoing clip's
 end, and back before the incoming clip's start. Set **Spare Handle Frames**
@@ -106,6 +115,7 @@ Resolve only gives transitions the current frame.
 | Run-up Shape | Higher = the camera gets back up to speed faster, so the flash clears sooner |
 | Cut Softness | Transition only: 0 = a hard cut at the peak. Higher = a short dissolve across it |
 | Timing | Effect only: Run-out at end of clip / Run-up at start of clip / Keyframe |
+| Cut Frame / Set Cut Here | Effect only: the frame the flash peaks on, i.e. the outgoing clip's last frame in the edit, or the incoming clip's first. -1 = the end / start of the whole source clip |
 | Length (frames) | Effect only: how many frames the run-out or run-up takes |
 | Flash (stops) | Effect only, with Timing = Keyframe: the flash amount to keyframe |
 | Flicker / Seed | Random frame-to-frame exposure wobble while flashing |

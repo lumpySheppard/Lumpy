@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(FilmFlash VERSION 1.5.0 LANGUAGES CXX)
+project(FilmFlash VERSION 1.6.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -104,6 +104,29 @@ if(NOT WIN32)
                    --frames 40 --set timing=1 --set flashLength=16 --set speedRamp=32 --set spareHandles=8
                    --expect-identity-at 0:Source --expect-identity-at 7:Source
                    --expect-fetches-above 1.3 --expect-no-failed-fetches)
+  # The clip's source runs 0-47 but the edit ends at 30: Set Cut Here at 30
+  # puts the run-out's peak there, reads into the real frames after it, and
+  # leaves frames past the cut alone.
+  add_test(NAME effect_run_out_cut_here
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_cut.rgb --context filter
+                   --set timing=1 --set flashLength=12 --set speedRamp=16 --set spareHandles=10
+                   --whole-clip-range --press setCutHere@30 --expect cutFrame=30
+                   --expect-identity-at 0:Source --expect-identity-at 14:Source --expect-identity-at 31:Source
+                   --expect-identity-at 47:Source --expect-mean-above 30:0.8 --expect-fetches-above 1.2
+                   --expect-no-failed-fetches)
+  # Without Set Cut Here, a run-out on a 20-40 edit of a 0-47 clip peaks at
+  # the source's end (47), outside the edit: the edit is untouched. This is
+  # what Cut Frame is for.
+  add_test(NAME effect_run_out_without_cut_frame
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_nocut.rgb --context filter
+                   --offset 0 --frames 20 --whole-clip-range --set timing=1 --set flashLength=12
+                   --set speedRamp=16 --expect-identity-at 0:Source --expect-identity-at 19:Source)
+  add_test(NAME effect_run_up_cut_here
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_cutup.rgb --context filter
+                   --set timing=2 --set flashLength=12 --set speedRamp=16 --set spareHandles=10
+                   --whole-clip-range --press setCutHere@16 --expect cutFrame=16
+                   --expect-identity-at 15:Source --expect-identity-at 32:Source --expect-mean-above 16:0.8
+                   --expect-fetches-above 1.2 --expect-no-failed-fetches)
   # Run-up on the incoming clip: peak on the first frame, clean from frame 16,
   # reading at most 8 frames before the clip's start.
   add_test(NAME effect_run_up
