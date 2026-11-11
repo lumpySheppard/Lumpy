@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(FilmFlash VERSION 1.3.0 LANGUAGES CXX)
+project(FilmFlash VERSION 1.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -78,7 +78,7 @@ if(NOT WIN32)
   # still leave both ends untouched, and stay deterministic.
   add_test(NAME transition_speed_and_blur
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_speed.rgb --context transition
-                   --set speedUp=1 --set maxSpeed=8 --set motionBlur=1 --set maxBlur=8
+                   --set speedUp=1 --set maxSpeed=8 --set motionBlur=1 --set maxBlur=8 --set spareHandles=12
                    --expect-identity-at 0:SourceFrom --expect-identity-at 47:SourceTo
                    --expect-fetches-above 1.5 --max-below 1.0)
   # A 24-frame transition in the middle of 48-frame clips, so speed-up can
@@ -96,7 +96,7 @@ if(NOT WIN32)
   # Hosts that don't animate the Transition param: speed-up uses the frame range.
   add_test(NAME transition_static_param
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_static.rgb --context transition
-                   --offset 12 --frames 24 --static-transition --set diagnostics=1
+                   --offset 12 --frames 24 --static-transition --set diagnostics=1 --set spareHandles=12
                    --expect-fetches-above 1.5 --expect-no-failed-fetches)
   # Both off: exactly one fetch per frame and no reads from other times.
   add_test(NAME transition_speed_off
@@ -117,14 +117,21 @@ if(NOT WIN32)
   # last frame, speed-up reading at most 8 frames past the clip's end.
   add_test(NAME effect_run_out
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_out.rgb --context filter
-                   --frames 40 --set timing=1 --set flashLength=16 --set spareHandles=8
+                   --frames 40 --set timing=1 --set flashLength=16 --set speedRamp=16 --set spareHandles=8
                    --expect-identity-at 0:Source --expect-identity-at 23:Source --expect-identity-at 24:Source
                    --expect-mean-above 39:0.8 --expect-fetches-above 1.3 --expect-no-failed-fetches --max-below 1.0)
+  # Speed Ramp longer than the flash: the action speeds up before the flash
+  # starts (frames 8-23 differ from the source), and stays inside the handles.
+  add_test(NAME effect_run_out_long_ramp
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_ramp.rgb --context filter
+                   --frames 40 --set timing=1 --set flashLength=16 --set speedRamp=32 --set spareHandles=8
+                   --expect-identity-at 0:Source --expect-identity-at 7:Source
+                   --expect-fetches-above 1.3 --expect-no-failed-fetches)
   # Run-up on the incoming clip: peak on the first frame, clean from frame 16,
   # reading at most 8 frames before the clip's start.
   add_test(NAME effect_run_up
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/e_up.rgb --context filter
-                   --offset 8 --frames 40 --set timing=2 --set flashLength=16 --set spareHandles=8
+                   --offset 8 --frames 40 --set timing=2 --set flashLength=16 --set speedRamp=16 --set spareHandles=8
                    --expect-identity-at 15:Source --expect-identity-at 39:Source --expect-mean-above 0:0.8
                    --expect-fetches-above 1.3 --expect-no-failed-fetches --max-below 1.0)
 endif()

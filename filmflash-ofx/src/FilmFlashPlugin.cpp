@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -41,7 +42,7 @@ enum P {
     P_ENCODING, P_RESPONSE, P_SHIFT, P_HICOL, P_FOG, P_FOGCOL, P_HAL, P_HALSIZE,
     P_UNEVEN, P_ANGLE, P_LEAK, P_LEAKCOL, P_CEILING,
     P_SPEEDUP, P_MAXSPEED, P_BLUR, P_SHUTTER, P_MAXBLUR,
-    P_DIAG, P_HANDLES, P_SPEEDCURVE,
+    P_DIAG, P_HANDLES, P_SPEEDCURVE, P_RAMP,
     P_COUNT
 };
 enum PType { kDbl, kInt, kChoice, kRGB, kBool };
@@ -122,12 +123,18 @@ const std::vector<PDef>& defs() {
          "where most of the speed-up happens near the peak, inside the flash.",
          {0}, 0, 1, 0, 1, {"Even Ramp (easier to see)", "Follows Exposure (physical)"}},
         {P_MAXSPEED, "maxSpeed", kDbl, kBoth, "grpSpeed", "Max Speed",
-         "How fast the action runs at the cut.", {4}, 1, 32, 1, 12, {}},
+         "How fast the action runs at the cut (before Spare Handle Frames scales it down).",
+         {6}, 1, 32, 1, 12, {}},
+        {P_RAMP, "speedRamp", kInt, kFilterOnly, "grpSpeed", "Speed Ramp (frames)",
+         "Even Ramp: how many frames before the cut (run-out) or after it (run-up) the "
+         "speed change spans. Longer than the flash Length lets you see the camera slow "
+         "before the picture burns out.",
+         {48}, 2, 1000, 4, 120, {}},
         {P_HANDLES, "spareHandles", kInt, kBoth, "grpSpeed", "Spare Handle Frames",
          "Extra handle frames each clip has beyond what the transition itself uses, for "
          "the speed-up to read. It's scaled down so it never needs more. Raise it if your "
          "clips have long handles: more frames = a stronger speed-up.",
-         {12}, 0, 1000, 0, 60, {}},
+         {48}, 0, 1000, 0, 120, {}},
         {P_BLUR, "motionBlur", kDbl, kBoth, "grpSpeed", "Motion Blur",
          "Longer exposures smear more motion: frames are averaged across the longer shutter "
          "time. 1 = tied to the exposure, 0 = off.",
@@ -275,7 +282,7 @@ struct Plan {
     double wantFrom = 0, wantTo = 0, scaleFrom = 1, scaleTo = 1;
     int timing = 0;             // effect: 0 keyframe, 1 run-out, 2 run-up
     bool haveRange = false;
-    double regionLo = 0, regionHi = 0;
+    double regionLo = 0, regionHi = 0, speedLo = 0, speedHi = 0;
     double readMin = -1e18, readMax = 1e18;  // never read source frames outside this
     bool identity(double t) const {
         return stops == 0.f && blur == 0.f && std::fabs(sFrom - t) < 1e-9 && std::fabs(sTo - t) < 1e-9 &&
@@ -420,50 +427,59 @@ Plan planFor(Instance* in, const Values& v, double t) {
                 const double budget = std::max(0.0, v.v[P_HANDLES][0]);
                 if (runOut) pl.readMax = hi + budget;
                 else pl.readMin = lo - budget;
-                if (frame >= a && frame <= a + L - 1) {
-                    // Map onto the transition envelope: a run-out is its first
-                    // half (peak at the clip's last frame), a run-up its second.
-                    flash::Envelope e;
-                    e.peak = v.f(P_PEAK);
-                    e.cut = 0.5f;
-                    e.hold = v.f(P_HOLD);
-                    e.runOut = v.f(P_RUNOUT);
-                    e.runUp = v.f(P_RUNUP);
-                    e.flicker = v.f(P_FLICKER);
-                    e.seed = uint32_t(v.v[P_SEED][0]);
-                    auto envP = [&](int f) {
-                        double q = double(f - a) / double(L - 1);
-                        return runOut ? 0.5 * q : 0.5 + 0.5 * q;
-                    };
+                // Map onto the transition envelope: a run-out is its first
+                // half (peak at the clip's last frame), a run-up its second.
+                flash::Envelope e;
+                e.peak = v.f(P_PEAK);
+                e.cut = 0.5f;
+                e.hold = v.f(P_HOLD);
+                e.runOut = v.f(P_RUNOUT);
+                e.runUp = v.f(P_RUNUP);
+                e.flicker = v.f(P_FLICKER);
+                e.seed = uint32_t(v.v[P_SEED][0]);
+                auto envP = [&](int f) {
+                    double q = double(f - a) / double(L - 1);
+                    return runOut ? 0.5 * q : 0.5 + 0.5 * q;
+                };
+                const bool inFlash = frame >= a && frame <= a + L - 1;
+                if (inFlash) {
                     pl.p = envP(frame);
                     pl.stops = flash::envelopeStops(e, float(pl.p), frame);
                     pl.blur = flash::blurFrames(sp, pl.stops);
-                    if (sp.speedUp > 0.f) {
-                        flash::Envelope e0 = e;
-                        e0.flicker = 0.f;
-                        const bool even = int(v.v[P_SPEEDCURVE][0]) == 0;
-                        auto extra = [&](double q) -> double {
-                            if (even) {
-                                double u = runOut ? q / 0.5 : (1.0 - q) / 0.5;
-                                u = std::min(std::max(u, 0.0), 1.0);
-                                return (std::max(1.0, double(sp.maxSpeed)) - 1.0) * u * sp.speedUp;
-                            }
-                            return flash::speedFactor(sp, flash::envelopeStops(e0, float(q), 0)) - 1.0;
-                        };
-                        double total = 0, part = 0;
-                        for (int f = a; f < a + L; ++f) {
-                            const double x = extra(envP(f));
-                            total += x;
-                            if (runOut ? f < frame : f >= frame) part += x;
+                }
+                // Speed-up. Even Ramp runs over Speed Ramp frames (which can
+                // start before the flash, so the slowing camera is visible
+                // while the picture still is); Follows Exposure uses the flash.
+                const bool even = int(v.v[P_SPEEDCURVE][0]) == 0;
+                const int R = even ? std::min(std::max(int(v.v[P_RAMP][0]), L), hi - lo + 1) : L;
+                const int as = runOut ? hi - R + 1 : lo;  // speed region: as .. as+R-1
+                pl.speedLo = as;
+                pl.speedHi = as + R - 1;
+                if (sp.speedUp > 0.f && frame >= as && frame <= as + R - 1) {
+                    flash::Envelope e0 = e;
+                    e0.flicker = 0.f;
+                    auto extra = [&](int f) -> double {
+                        if (even) {
+                            double q = R > 1 ? double(f - as) / double(R - 1) : 1.0;
+                            double u = runOut ? q : 1.0 - q;
+                            return (std::max(1.0, double(sp.maxSpeed)) - 1.0) * u * sp.speedUp;
                         }
-                        const double scale = total > budget ? budget / total : 1.0;
-                        pl.wantFrom = total;
-                        pl.scaleFrom = scale;
-                        // Run-out reads ahead (past the clip's end), run-up behind
-                        // (before its start), pinned where the flash begins / ends.
-                        pl.sFrom = runOut ? t + part * scale : t - part * scale;
-                        pl.speedNow = float(1.0 + extra(pl.p) * scale);
+                        if (f < a || f > a + L - 1) return 0.0;
+                        return flash::speedFactor(sp, flash::envelopeStops(e0, float(envP(f)), 0)) - 1.0;
+                    };
+                    double total = 0, part = 0;
+                    for (int f = as; f < as + R; ++f) {
+                        const double x = extra(f);
+                        total += x;
+                        if (runOut ? f < frame : f >= frame) part += x;
                     }
+                    const double scale = total > budget ? budget / total : 1.0;
+                    pl.wantFrom = total;
+                    pl.scaleFrom = scale;
+                    // Run-out reads ahead (past the clip's end), run-up behind
+                    // (before its start), pinned where the speed-up begins / ends.
+                    pl.sFrom = runOut ? t + part * scale : t - part * scale;
+                    pl.speedNow = float(1.0 + extra(frame) * scale);
                 }
             }
         }
@@ -835,6 +851,9 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
     const Values v = readValues(in, t);
     const Plan pl = planFor(in, v, t);
     flash::Look lk = lookFrom(v);
+    if (std::getenv("FILMFLASH_LOG"))  // timing trace for testing outside a host
+        std::fprintf(stderr, "FFLOG t=%.0f stops=%.3f sFrom=%.3f sTo=%.3f blur=%.3f\n", t, pl.stops, pl.sFrom,
+                     pl.sTo, pl.blur);
 
     flash::Image a, b;
     OfxRectI ab{0, 0, 0, 0}, bb{0, 0, 0, 0};
@@ -905,7 +924,8 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
                     lines.push_back("NO CLIP RANGE FROM HOST - CANNOT FIND THE CLIP END");
                 } else {
                     lines.push_back("CLIP " + fmt("%.0f", pl.rangeLo) + " - " + fmt("%.0f", pl.rangeHi) + "   FLASH ON " +
-                                    fmt("%.0f", pl.regionLo) + " - " + fmt("%.0f", pl.regionHi) + "   P " + fmt("%.3f", pl.p));
+                                    fmt("%.0f", pl.regionLo) + " - " + fmt("%.0f", pl.regionHi) + "   SPEED ON " +
+                                    fmt("%.0f", pl.speedLo) + " - " + fmt("%.0f", pl.speedHi));
                     lines.push_back("SPEED NOW " + fmt("%.2f", pl.speedNow) + "X   READS " + fmt("%+.1f", pl.sFrom - t) +
                                     " FR   WANTS " + fmt("%.0f", pl.wantFrom) + " HANDLE FR, SCALED X" +
                                     fmt("%.2f", pl.scaleFrom));
@@ -952,7 +972,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 3, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 4, setHost, mainEntry};
 
 }  // namespace
 

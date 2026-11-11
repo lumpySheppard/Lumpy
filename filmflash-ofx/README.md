@@ -69,8 +69,13 @@ Effects do get other frames.
 
 Speed-up reads past each clip's edit point: ahead past the outgoing clip's
 end, and back before the incoming clip's start. Set **Spare Handle Frames**
-to the handles your clips have. The speed-up is scaled so it never reads
-further than that. More handles = a stronger speed-up.
+(default 48) to the handles your clips have. The speed-up is scaled so it
+never reads further than that.
+
+The amount of handle *is* the amount of speed-up: the outgoing shot ends
+that many frames further into its action than it would have. With the
+defaults (a 48-frame ramp, 48 handles) the action averages about 2× and
+reaches about 3× at the cut. With 80 handles it reaches about 4×.
 
 ### Flash only: the transition
 
@@ -108,7 +113,8 @@ effect.
 | --- | --- |
 | Speed Up | How much the action speeds up as the camera slows: 0 = off |
 | Speed Curve | **Even Ramp** (default): the action speeds up steadily into the cut and settles steadily after it, where you can see it. **Follows Exposure**: exactly like a real camera (speed = 2^stops), where most of the speed-up happens near the peak, inside the flash |
-| Max Speed | How fast the action runs at the cut |
+| Max Speed | How fast the action runs at the cut, before Spare Handle Frames scales it down (default 6×) |
+| Speed Ramp (frames) | Effect only, Even Ramp: how many frames before the cut (run-out) or after it (run-up) the speed change spans. Default 48 (2 s at 24 fps). Longer than the flash's Length, so you can see the camera slow before the picture burns out |
 | Spare Handle Frames | Effect: handle frames past the clip's edit point. Transition: handles beyond what the transition itself uses. The speed-up (and blur) is scaled so it never reads further than this. More handles = a stronger speed-up |
 | Motion Blur | Extra blur from the longer exposures: 1 = tied to the exposure, 0 = off |
 | Shutter Angle | The camera's shutter at normal speed (180° is standard); a wider shutter smears more |
