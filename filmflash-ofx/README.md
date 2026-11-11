@@ -77,19 +77,39 @@ speed.
 
 | Control | What it does |
 | --- | --- |
-| Speed Up | Transition only. How much the action speeds up as the camera slows: 1 = tied to the exposure like a real camera, 0 = off |
-| Max Speed | Cap on how fast the action runs near the peak |
+| Speed Up | Transition only. How much the action speeds up as the camera slows: 0 = off |
+| Speed Curve | **Even Ramp** (default): the action speeds up steadily into the cut and settles steadily after it, where you can see it. **Follows Exposure**: exactly like a real camera (speed = 2^stops), where most of the speed-up happens near the peak, inside the flash |
+| Max Speed | How fast the action runs at the cut |
+| Spare Handle Frames | Handle frames each clip has *beyond what the transition itself uses*. The speed-up is scaled so it never reads further than this. More handles = a stronger speed-up |
 | Motion Blur | Extra blur from the longer exposures: 1 = tied to the exposure, 0 = off |
 | Shutter Angle | The camera's shutter at normal speed (180° is standard); a wider shutter smears more |
 | Max Blur | Cap on the blur, in frames of action. Higher costs render time (one source frame per frame of blur) |
+| Show Diagnostics | Prints the timing on the picture (see below) |
 
-Speed-up reads past the edit point, ahead into the outgoing clip's tail and
-back into the incoming clip's head. Give both clips enough handles: about
-as many frames as the transition is long is plenty with the defaults. The
-outgoing shot is pinned at the start of the transition and the incoming
-shot at its end, so nothing jumps where the transition starts or ends. If
-Resolve can't supply a frame, the plugin uses the current frame for it
-instead.
+How speed-up works:
+
+- **Outgoing shot.** The action plays normally at the start of the
+  transition, then runs faster and faster into the cut. Running fast uses
+  up footage, so it reads into the clip's tail past the edit point.
+- **Incoming shot.** It's the mirror image: it starts fast at the cut and
+  settles to normal by the end. That means starting further back, in the
+  clip's head before the edit point.
+- **No jumps.** Both are pinned at the transition's outer ends, so nothing
+  jumps where the transition starts or ends.
+- **Handles.** How much speed-up you get depends on how much footage
+  there is past the edit. Spare Handle Frames tells the plugin how much it
+  may use. A 1-second transition with 12 spare frames on each side gives
+  roughly a 2× average speed-up into the cut.
+
+**Show Diagnostics** prints, on the frame:
+- where the transition is, and how the plugin found its frame step (from
+  the Transition value, or from the effect's frame range)
+- how far ahead and behind each shot is reading
+- how much handle the speed-up wanted and how much it was scaled to fit
+- whether Resolve supplied those frames. **HOST GAVE THE CURRENT FRAME**
+  means Resolve isn't letting the transition read other moments of the
+  clips. Speed-up and blur can't work then, and the plugin falls back to
+  the current frame.
 
 Both only add to what the footage already has. With no flash, there's no
 extra speed and no extra blur.
@@ -129,8 +149,10 @@ transition and as an effect. They check:
 
 - both ends of the transition, and Flash 0, return the source untouched
 - the cut is near white
-- speed-up and motion blur actually read other frames, including real
-  handles, and turning them off reads only the current frame
+- speed-up and motion blur actually read other frames, but never beyond
+  the clips' handles (Spare Handle Frames). This includes hosts that don't
+  animate the Transition value. Turning them off reads only the current
+  frame
 - nothing ever passes white, even at 18 stops with everything turned up
 - frames rendered out of order match frames rendered in order
 

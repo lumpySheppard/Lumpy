@@ -8,7 +8,9 @@
 //
 // Plain OFX C API; the image work is in FlashEngine.
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -38,9 +40,10 @@ enum P {
     P_ENCODING, P_RESPONSE, P_SHIFT, P_HICOL, P_FOG, P_FOGCOL, P_HAL, P_HALSIZE,
     P_UNEVEN, P_ANGLE, P_LEAK, P_LEAKCOL, P_CEILING,
     P_SPEEDUP, P_MAXSPEED, P_BLUR, P_SHUTTER, P_MAXBLUR,
+    P_DIAG, P_HANDLES, P_SPEEDCURVE,
     P_COUNT
 };
-enum PType { kDbl, kInt, kChoice, kRGB };
+enum PType { kDbl, kInt, kChoice, kRGB, kBool };
 enum Ctx { kBoth, kFilterOnly, kTransitionOnly };
 
 struct PDef {
@@ -101,8 +104,18 @@ const std::vector<PDef>& defs() {
          "fast). 1 = tied to the exposure like a real camera, 0 = off. Reads further into "
          "the clips' handles.",
          {1}, 0, 2, 0, 1, {}},
+        {P_SPEEDCURVE, "speedCurve", kChoice, kTransitionOnly, "grpSpeed", "Speed Curve",
+         "Even Ramp: the action speeds up steadily all the way into the cut (and slows "
+         "steadily after it), so you can see it. Follows Exposure: exactly as a real camera, "
+         "where most of the speed-up happens near the peak, inside the flash.",
+         {0}, 0, 1, 0, 1, {"Even Ramp (easier to see)", "Follows Exposure (physical)"}},
         {P_MAXSPEED, "maxSpeed", kDbl, kTransitionOnly, "grpSpeed", "Max Speed",
-         "Cap on how fast the action runs near the peak.", {6}, 1, 32, 1, 12, {}},
+         "How fast the action runs at the cut.", {4}, 1, 32, 1, 12, {}},
+        {P_HANDLES, "spareHandles", kInt, kTransitionOnly, "grpSpeed", "Spare Handle Frames",
+         "Extra handle frames each clip has beyond what the transition itself uses, for "
+         "the speed-up to read. It's scaled down so it never needs more. Raise it if your "
+         "clips have long handles: more frames = a stronger speed-up.",
+         {12}, 0, 1000, 0, 60, {}},
         {P_BLUR, "motionBlur", kDbl, kBoth, "grpSpeed", "Motion Blur",
          "Longer exposures smear more motion: frames are averaged across the longer shutter "
          "time. 1 = tied to the exposure, 0 = off.",
@@ -113,6 +126,12 @@ const std::vector<PDef>& defs() {
         {P_MAXBLUR, "maxBlur", kDbl, kBoth, "grpSpeed", "Max Blur",
          "Cap on the blur, in frames of action. More costs render time.", {6}, 0, 32, 0, 12,
          {}},
+
+        {P_DIAG, "diagnostics", kBool, kBoth, "grpSpeed", "Show Diagnostics",
+         "Prints the speed-up timing on the picture: where the transition is, how far ahead / "
+         "behind each shot is reading, and whether Resolve supplied those frames. For "
+         "troubleshooting; turn off for the real render.",
+         {0}, 0, 1, 0, 1, {}},
 
         {P_ENCODING, "encoding", kChoice, kBoth, "grpFilm", "Input Encoding",
          "How the incoming images are encoded, so stops are real stops. Rec.709 (gamma 2.4) "
@@ -169,6 +188,7 @@ struct Instance {
     OfxImageClipHandle src = nullptr, from = nullptr, to = nullptr, dst = nullptr;
     OfxParamHandle h[P_COUNT] = {};
     OfxParamHandle transitionParam = nullptr;
+    OfxPropertySetHandle effectProps = nullptr;
 };
 
 struct Values {
@@ -236,6 +256,11 @@ struct Plan {
     float toWeight = 0.f;
     double sFrom = 0, sTo = 0;  // source times (speed-up), sFrom is also the effect's
     float blur = 0.f;           // extra exposure window, source frames
+    // For Show Diagnostics.
+    double p = 0, dp = 0, rangeLo = 0, rangeHi = 0;
+    int dpSource = 0;           // 0 none, 1 Transition param, 2 effect frame range
+    float speedNow = 1.f;
+    double wantFrom = 0, wantTo = 0, scaleFrom = 1, scaleTo = 1;
     bool identity(double t) const {
         return stops == 0.f && blur == 0.f && std::fabs(sFrom - t) < 1e-9 && std::fabs(sTo - t) < 1e-9 &&
                (toWeight == 0.f || toWeight == 1.f);
@@ -280,17 +305,60 @@ Plan planFor(Instance* in, const Values& v, double t) {
         // start and runs ahead; the incoming shot is pinned at its end and
         // starts behind. Needs the transition's frame step, from how the
         // host animates the Transition param.
+        // The step comes from the Transition param if the host animates it;
+        // otherwise from the effect's frame range (the transition's span).
         double dp = pn - p;
         if (!(dp > 1e-6)) dp = p - pp;
-        if (sp.speedUp > 0.f && dp > 1e-6) {
+        pl.dpSource = dp > 1e-6 ? 1 : 0;
+        double range[2] = {0, 0};
+        if (in->effectProps &&
+            gProp->propGetDoubleN(in->effectProps, kOfxImageEffectPropFrameRange, 2, range) == kOfxStatOK) {
+            pl.rangeLo = range[0];
+            pl.rangeHi = range[1];
+            if (!pl.dpSource && range[1] - range[0] >= 1.0) {
+                dp = 1.0 / (range[1] - range[0]);
+                pl.dpSource = 2;
+            }
+        }
+        pl.p = p;
+        pl.dp = pl.dpSource ? dp : 0.0;
+        pl.speedNow = 1.f;
+        if (sp.speedUp > 0.f && pl.dpSource) {
             flash::Envelope e0 = e;
             e0.flicker = 0.f;  // timing follows the motor, not the flicker
-            const int K = std::min(20000, int(std::floor(p / dp + 1e-6)));
-            for (int k = 1; k <= K; ++k)
-                pl.sFrom += flash::speedFactor(sp, flash::envelopeStops(e0, float(p - k * dp), 0)) - 1.0;
-            const int K2 = std::min(20000, int(std::floor((1.0 - p) / dp + 1e-6)));
-            for (int k = 0; k < K2; ++k)
-                pl.sTo -= flash::speedFactor(sp, flash::envelopeStops(e0, float(p + k * dp), 0)) - 1.0;
+            const float cut = std::min(std::max(v.f(P_CUT), 0.001f), 0.999f);
+            const bool even = int(v.v[P_SPEEDCURVE][0]) == 0;
+            // Extra source frames the action advances during the frame at q.
+            auto extra = [&](double q) -> double {
+                if (even) {
+                    double u = q < cut ? q / cut : (1.0 - q) / (1.0 - cut);
+                    u = std::min(std::max(u, 0.0), 1.0);
+                    return (std::max(1.0, double(sp.maxSpeed)) - 1.0) * u * sp.speedUp;
+                }
+                return flash::speedFactor(sp, flash::envelopeStops(e0, float(q), 0)) - 1.0;
+            };
+            const int M = std::min(20000, int(std::lround(1.0 / dp)));
+            const int i = std::min(M, std::max(0, int(std::lround(p / dp))));
+            double xFrom = 0, xTo = 0, before = 0, after = 0;
+            for (int j = 0; j < M; ++j) {
+                const double q = j * dp, x = extra(q);
+                if (q < cut) {
+                    xFrom += x;
+                    if (j < i) before += x;
+                } else {
+                    xTo += x;
+                    if (j >= i) after += x;
+                }
+            }
+            // Never read further past the edit than the clips have.
+            const double budget = std::max(0.0, v.v[P_HANDLES][0]);
+            pl.wantFrom = xFrom;
+            pl.wantTo = xTo;
+            pl.scaleFrom = xFrom > budget ? budget / xFrom : 1.0;
+            pl.scaleTo = xTo > budget ? budget / xTo : 1.0;
+            pl.sFrom = t + before * pl.scaleFrom;
+            pl.sTo = t - after * pl.scaleTo;
+            pl.speedNow = float(1.0 + extra(p) * (p < cut ? pl.scaleFrom : pl.scaleTo));
         }
         const float s = v.f(P_SOFT), c = v.f(P_CUT);
         if (s <= 0.f) {
@@ -420,7 +488,8 @@ OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle in
             openGroup = d.group;
         }
         static const char* const types[] = {kOfxParamTypeDouble, kOfxParamTypeInteger,
-                                            kOfxParamTypeChoice, kOfxParamTypeRGB};
+                                            kOfxParamTypeChoice, kOfxParamTypeRGB,
+                                            kOfxParamTypeBoolean};
         gParam->paramDefine(ps, types[d.type], d.name, &p);
         gProp->propSetString(p, kOfxPropLabel, 0, d.label);
         gProp->propSetString(p, kOfxParamPropHint, 0, d.hint);
@@ -452,6 +521,10 @@ OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle in
             case kRGB:
                 gProp->propSetDoubleN(p, kOfxParamPropDefault, 3, d.def);
                 break;
+            case kBool:
+                gProp->propSetInt(p, kOfxParamPropDefault, 0, int(d.def[0]));
+                gProp->propSetInt(p, kOfxParamPropAnimates, 0, 0);
+                break;
         }
     }
     return kOfxStatOK;
@@ -464,6 +537,7 @@ OfxStatus createInstance(OfxImageEffectHandle effect) {
     char* context = nullptr;
     gProp->propGetString(props, kOfxImageEffectPropContext, 0, &context);
     in->transition = context && !std::strcmp(context, kOfxImageEffectContextTransition);
+    in->effectProps = props;
     if (in->transition) {
         gFx->clipGetHandle(effect, kOfxImageEffectTransitionSourceFromClipName, &in->from, nullptr);
         gFx->clipGetHandle(effect, kOfxImageEffectTransitionSourceToClipName, &in->to, nullptr);
@@ -495,8 +569,9 @@ OfxStatus isIdentity(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs,
     Instance* in = getInstance(effect);
     double t = 0;
     gProp->propGetDouble(inArgs, kOfxPropTime, 0, &t);
-    Plan pl = planFor(in, readValues(in, t), t);
-    if (!pl.identity(t)) return kOfxStatReplyDefault;
+    const Values vals = readValues(in, t);
+    Plan pl = planFor(in, vals, t);
+    if (!pl.identity(t) || vals.v[P_DIAG][0] != 0.0) return kOfxStatReplyDefault;
     const char* clip = !in->transition ? kOfxImageEffectSimpleSourceClipName
                        : pl.toWeight >= 1.f ? kOfxImageEffectTransitionSourceToClipName
                                             : kOfxImageEffectTransitionSourceFromClipName;
@@ -527,20 +602,47 @@ OfxStatus getFramesNeeded(OfxImageEffectHandle effect, OfxPropertySetHandle inAr
 
 // The picture from `clip` at source time `s`, averaged over a `width`-frame
 // exposure. Falls back to the frame at `t` if the host can't supply them.
+struct FetchStats {
+    int asked = 0, got = 0;
+    int firstTime = 0;
+    bool checked = false, sameAsNow = false;  // host returned frame t for another time?
+};
+
 bool gather(OfxImageClipHandle clip, double s, float width, double t, int encoding,
-            flash::Image& out, OfxRectI& bounds) {
+            flash::Image& out, OfxRectI& bounds, FetchStats* st = nullptr) {
     std::vector<flash::Image> imgs;
     std::vector<float> wts;
     for (auto& tap : flash::blurTaps(s, width)) {
         flash::Image im;
         OfxRectI r;
+        if (st) {
+            if (!st->asked) st->firstTime = tap.first;
+            ++st->asked;
+        }
         if (!fetch(clip, tap.first, im, r)) continue;
+        if (st) ++st->got;
         if (!imgs.empty() && (im.w != imgs[0].w || im.h != imgs[0].h)) continue;
         if (imgs.empty()) bounds = r;
         imgs.push_back(std::move(im));
         wts.push_back(tap.second);
     }
-    if (imgs.empty()) return fetch(clip, t, out, bounds);
+    if (st && !imgs.empty() && st->firstTime != int(std::lround(t))) {
+        // Did the host really give us another moment, or just frame t again?
+        flash::Image now;
+        OfxRectI r;
+        if (fetch(clip, t, now, r) && now.px.size() == imgs[0].px.size()) {
+            st->checked = true;
+            st->sameAsNow = std::memcmp(now.px.data(), imgs[0].px.data(), now.px.size() * sizeof(float)) == 0;
+        }
+    }
+    if (imgs.empty()) {
+        // Couldn't get those frames: step back toward the current frame.
+        for (int k = 1; k <= 3; ++k) {
+            const int tt = int(std::lround(s + (t - s) * k / 4.0));
+            if (fetch(clip, tt, out, bounds)) return true;
+        }
+        return fetch(clip, t, out, bounds);
+    }
     float total = 0;
     for (float w : wts) total += w;
     std::vector<const flash::Image*> ptrs;
@@ -550,6 +652,79 @@ bool gather(OfxImageClipHandle clip, double s, float width, double t, int encodi
     }
     flash::blendFrames(ptrs, wts, encoding, out);
     return true;
+}
+
+// ---------------------------------------------------------------- diagnostics
+
+// 5x7 bitmap font: each glyph is 7 rows of 5 bits, top row first.
+const uint8_t* glyph(char c) {
+    struct G { char c; uint8_t r[7]; };
+    static const G font[] = {
+        {'0', {14, 17, 19, 21, 25, 17, 14}}, {'1', {4, 12, 4, 4, 4, 4, 14}},
+        {'2', {14, 17, 1, 2, 4, 8, 31}},     {'3', {30, 1, 1, 14, 1, 1, 30}},
+        {'4', {2, 6, 10, 18, 31, 2, 2}},     {'5', {31, 16, 30, 1, 1, 17, 14}},
+        {'6', {6, 8, 16, 30, 17, 17, 14}},   {'7', {31, 1, 2, 4, 8, 8, 8}},
+        {'8', {14, 17, 17, 14, 17, 17, 14}}, {'9', {14, 17, 17, 15, 1, 2, 12}},
+        {'.', {0, 0, 0, 0, 0, 12, 12}},      {'-', {0, 0, 0, 31, 0, 0, 0}},
+        {'+', {0, 4, 4, 31, 4, 4, 0}},       {'/', {1, 2, 2, 4, 8, 8, 16}},
+        {':', {0, 12, 12, 0, 12, 12, 0}},    {'=', {0, 0, 31, 0, 31, 0, 0}},
+        {'(', {2, 4, 8, 8, 8, 4, 2}},        {')', {8, 4, 2, 2, 2, 4, 8}},
+        {'A', {14, 17, 17, 31, 17, 17, 17}}, {'B', {30, 17, 17, 30, 17, 17, 30}},
+        {'C', {14, 17, 16, 16, 16, 17, 14}}, {'D', {30, 17, 17, 17, 17, 17, 30}},
+        {'E', {31, 16, 16, 30, 16, 16, 31}}, {'F', {31, 16, 16, 30, 16, 16, 16}},
+        {'G', {14, 17, 16, 23, 17, 17, 15}}, {'H', {17, 17, 17, 31, 17, 17, 17}},
+        {'I', {14, 4, 4, 4, 4, 4, 14}},      {'K', {17, 18, 20, 24, 20, 18, 17}},
+        {'L', {16, 16, 16, 16, 16, 16, 31}}, {'M', {17, 27, 21, 21, 17, 17, 17}},
+        {'N', {17, 25, 21, 19, 17, 17, 17}}, {'O', {14, 17, 17, 17, 17, 17, 14}},
+        {'P', {30, 17, 17, 30, 16, 16, 16}}, {'R', {30, 17, 17, 30, 20, 18, 17}},
+        {'S', {15, 16, 16, 14, 1, 1, 30}},   {'T', {31, 4, 4, 4, 4, 4, 4}},
+        {'U', {17, 17, 17, 17, 17, 17, 14}}, {'V', {17, 17, 17, 17, 17, 10, 4}},
+        {'W', {17, 17, 17, 21, 21, 21, 10}}, {'X', {17, 17, 10, 4, 10, 17, 17}},
+        {'Y', {17, 17, 10, 4, 4, 4, 4}},
+    };
+    for (const G& g : font)
+        if (g.c == c) return g.r;
+    return nullptr;
+}
+
+// Draws lines of text, top-left, on a bottom-up RGBA float image.
+void drawText(float* data, int rowBytes, const OfxRectI& b, const std::vector<std::string>& lines) {
+    const int w = b.x2 - b.x1, h = b.y2 - b.y1;
+    const int sc = std::max(2, h / 300);
+    const int lineH = 9 * sc, pad = 2 * sc;
+    size_t longest = 0;
+    for (auto& l : lines) longest = std::max(longest, l.size());
+    const int boxW = std::min(w, int(longest) * 6 * sc + 2 * pad);
+    const int boxH = std::min(h, int(lines.size()) * lineH + 2 * pad);
+    auto px = [&](int x, int yTop) -> float* {  // yTop: rows from the top
+        int y = h - 1 - yTop;
+        if (x < 0 || x >= w || y < 0 || y >= h) return nullptr;
+        return reinterpret_cast<float*>(reinterpret_cast<char*>(data) + std::ptrdiff_t(y) * rowBytes) + size_t(x) * 4;
+    };
+    for (int y = 0; y < boxH; ++y)
+        for (int x = 0; x < boxW; ++x)
+            if (float* p = px(x, y)) { p[0] *= 0.25f; p[1] *= 0.25f; p[2] *= 0.25f; p[3] = 1.f; }
+    for (size_t li = 0; li < lines.size(); ++li)
+        for (size_t ci = 0; ci < lines[li].size(); ++ci) {
+            const uint8_t* g = glyph(char(std::toupper((unsigned char)lines[li][ci])));
+            if (!g) continue;
+            for (int gy = 0; gy < 7; ++gy)
+                for (int gx = 0; gx < 5; ++gx) {
+                    if (!(g[gy] & (16 >> gx))) continue;
+                    for (int sy = 0; sy < sc; ++sy)
+                        for (int sx = 0; sx < sc; ++sx)
+                            if (float* p = px(pad + int(ci) * 6 * sc + gx * sc + sx, pad + int(li) * lineH + gy * sc + sy)) {
+                                p[0] = p[1] = p[2] = 1.f;
+                                p[3] = 1.f;
+                            }
+                }
+        }
+}
+
+std::string fmt(const char* f, double a) {
+    char buf[64];
+    std::snprintf(buf, sizeof buf, f, a);
+    return buf;
 }
 
 OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
@@ -568,11 +743,13 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
     flash::Image a, b;
     OfxRectI ab{0, 0, 0, 0}, bb{0, 0, 0, 0};
     bool haveA = false, haveB = false;
+    const bool diag = v.v[P_DIAG][0] != 0.0;
+    FetchStats sa, sb;
     if (!in->transition) {
-        haveA = gather(in->src, pl.sFrom, pl.blur, t, lk.encoding, a, ab);
+        haveA = gather(in->src, pl.sFrom, pl.blur, t, lk.encoding, a, ab, diag ? &sa : nullptr);
     } else {
-        if (pl.toWeight < 1.f) haveA = gather(in->from, pl.sFrom, pl.blur, t, lk.encoding, a, ab);
-        if (pl.toWeight > 0.f) haveB = gather(in->to, pl.sTo, pl.blur, t, lk.encoding, b, bb);
+        if (pl.toWeight < 1.f) haveA = gather(in->from, pl.sFrom, pl.blur, t, lk.encoding, a, ab, diag ? &sa : nullptr);
+        if (pl.toWeight > 0.f) haveB = gather(in->to, pl.sTo, pl.blur, t, lk.encoding, b, bb, diag ? &sb : nullptr);
     }
     if (!haveA && !haveB) return gFx->abort(effect) ? kOfxStatOK : kOfxStatFailed;
 
@@ -610,6 +787,32 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
             }
         }
     });
+    if (diag) {
+        std::vector<std::string> lines;
+        lines.push_back("FILMFLASH DIAGNOSTICS   T " + fmt("%.1f", t) + "   FLASH " + fmt("%.2f", pl.stops) +
+                        " STOPS");
+        if (in->transition) {
+            static const char* const src[] = {"NONE - SPEED OFF", "TRANSITION PARAM", "FRAME RANGE"};
+            lines.push_back("P " + fmt("%.3f", pl.p) + "   STEP " + fmt("%.4f", pl.dp) + " FROM " + src[pl.dpSource]);
+            lines.push_back("RANGE " + fmt("%.0f", pl.rangeLo) + " - " + fmt("%.0f", pl.rangeHi) + "   SPEED NOW " +
+                            fmt("%.2f", pl.speedNow) + "X   BLUR " + fmt("%.2f", pl.blur) + " FR");
+            lines.push_back("OUT SHOT READS " + fmt("%+.1f", pl.sFrom - t) + " FR   IN SHOT READS " +
+                            fmt("%+.1f", pl.sTo - t) + " FR");
+            lines.push_back("SPEED-UP WANTS " + fmt("%.0f", pl.wantFrom) + " / " + fmt("%.0f", pl.wantTo) +
+                            " HANDLE FR, SCALED X" + fmt("%.2f", pl.scaleFrom) + " / X" + fmt("%.2f", pl.scaleTo));
+        } else {
+            lines.push_back("BLUR " + fmt("%.2f", pl.blur) + " FR");
+        }
+        auto stat = [&](const char* name, const FetchStats& st) {
+            if (!st.asked) return;
+            std::string l = std::string(name) + " FRAMES " + std::to_string(st.got) + "/" + std::to_string(st.asked);
+            if (st.checked) l += st.sameAsNow ? "   HOST GAVE THE CURRENT FRAME (NO TIME ACCESS)" : "   OTHER TIMES OK";
+            lines.push_back(l);
+        };
+        stat(in->transition ? "OUT SHOT" : "SOURCE", sa);
+        stat("IN SHOT", sb);
+        drawText(static_cast<float*>(dd), drb, db, lines);
+    }
     gFx->clipReleaseImage(dh);
     return kOfxStatOK;
 }
@@ -640,7 +843,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 1, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 2, setHost, mainEntry};
 
 }  // namespace
 

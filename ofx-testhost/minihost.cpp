@@ -112,6 +112,10 @@ struct Param {
 };
 static int gFrames = 1;   // frames rendered (the transition's length)
 static int gOffset = 0;   // clip time of the first rendered frame
+// Host quirks to simulate:
+static bool gStaticTransition = false;  // Transition param not animated over time
+static bool gIgnoreTime = false;        // clipGetImage returns the frame being rendered, whatever time is asked
+static double gRenderTime = 0;
 struct ParamSet {
     PropSet props;
     std::map<std::string, std::unique_ptr<Param>> params;
@@ -147,7 +151,7 @@ static OfxStatus paramGetPropertySet(OfxParamHandle h, OfxPropertySetHandle* pro
 static bool isDouble(const Param* p) { return p->type == kOfxParamTypeDouble; }
 static OfxStatus getValueV(OfxParamHandle h, va_list ap, const double* time = nullptr) {
     auto* p = reinterpret_cast<Param*>(h);
-    if (time && p->transitionCurve) {
+    if (time && p->transitionCurve && !gStaticTransition) {
         *va_arg(ap, double*) = gFrames > 1 ? (*time - gOffset) / (gFrames - 1) : 0.0;
         return kOfxStatOK;
     }
@@ -237,6 +241,7 @@ struct Effect {
 };
 
 static int gSourceFetches = 0;
+static int gFailedFetches = 0;  // asked for a frame outside the clip
 static int gLiveImages = 0;
 
 static OfxStatus getPropertySet(OfxImageEffectHandle e, OfxPropertySetHandle* p) {
@@ -287,8 +292,11 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime t, const OfxRectD*,
         return kOfxStatOK;
     }
     const Video& vid = c->name == kOfxImageEffectTransitionSourceToClipName ? gVideoB : gVideo;
-    int f = int(std::lround(t));
-    if (f < 0 || f >= vid.n) return kOfxStatFailed;
+    int f = int(std::lround(gIgnoreTime ? gRenderTime : t));
+    if (f < 0 || f >= vid.n) {
+        ++gFailedFetches;
+        return kOfxStatFailed;
+    }
     auto* img = new Image;
     img->data.resize(size_t(w) * h * 4);
     // OFX images are bottom-up; store rows flipped like a real host would.
@@ -401,6 +409,8 @@ static std::unique_ptr<Effect> makeInstance(Effect& desc, const std::vector<std:
         fx->clips[n] = std::move(cc);
     }
     setS(reinterpret_cast<OfxPropertySetHandle>(&fx->props), kOfxImageEffectPropContext, 0, gContext.c_str());
+    double fr[2] = {double(gOffset), double(gOffset + gFrames - 1)};
+    setDN(reinterpret_cast<OfxPropertySetHandle>(&fx->props), kOfxImageEffectPropFrameRange, 2, fr);
     if (act(kOfxActionCreateInstance, fx.get()) != kOfxStatOK) die("createInstance");
     return fx;
 }
@@ -411,6 +421,7 @@ static std::vector<float> renderFrame(Effect* fx, int t) {
     PropSet in, out;
     auto inH = reinterpret_cast<OfxPropertySetHandle>(&in);
     setD(inH, kOfxPropTime, 0, t);
+    gRenderTime = t;
     double rs[2] = {1, 1};
     setDN(inH, kOfxImageEffectPropRenderScale, 2, rs);
     setS(inH, kOfxImageEffectPropFieldToRender, 0, kOfxImageFieldNone);
@@ -473,7 +484,10 @@ int main(int argc, char** argv) {
                      "  --context filter|transition   --set name=value   --start-here N\n"
                      "  --apply-look N   --expect name=value   --expect-identity-at N:Source|SourceFrom|SourceTo\n"
                      "  --max-below V   --expect-mean-above N:V   --expect-mean-below N:V\n"
-                     "  --expect-fetches-above F (source frames fetched per rendered frame)\n");
+                     "  --expect-fetches-above F (source frames fetched per rendered frame)\n"
+                     "  --frames N --offset N (render N frames from clip time N)\n"
+                     "  --static-transition --ignore-time (simulate host quirks)\n"
+                     "  --expect-no-failed-fetches\n");
         return 2;
     }
     gVideo.w = std::atoi(argv[3]);
@@ -485,6 +499,7 @@ int main(int argc, char** argv) {
     std::vector<std::pair<int, double>> meanAbove, meanBelow;
     double maxBelow = -1, fetchesAbove = -1;
     int framesOpt = -1;
+    bool noFailedFetches = false;
     auto frameColon = [](const std::string& kv, int& frame) {
         auto c = kv.find(':');
         frame = std::atoi(kv.substr(0, c).c_str());
@@ -510,6 +525,9 @@ int main(int argc, char** argv) {
         if (a == "--max-below" && i + 1 < argc) { maxBelow = std::atof(argv[++i]); continue; }
         if (a == "--expect-fetches-above" && i + 1 < argc) { fetchesAbove = std::atof(argv[++i]); continue; }
         if (a == "--frames" && i + 1 < argc) { framesOpt = std::atoi(argv[++i]); continue; }
+        if (a == "--static-transition") { gStaticTransition = true; continue; }
+        if (a == "--expect-no-failed-fetches") { noFailedFetches = true; continue; }
+        if (a == "--ignore-time") { gIgnoreTime = true; continue; }
         if (a == "--offset" && i + 1 < argc) { gOffset = std::atoi(argv[++i]); continue; }
         if (a == "--set" && i + 1 < argc) {
             std::string kv = argv[++i];
@@ -666,6 +684,8 @@ int main(int argc, char** argv) {
     for (int i = 0; i < N; ++i) seq[i] = renderFrame(fx.get(), gOffset + i);
     std::printf("sequential: %d frames, %d source fetches (%.2f per frame)\n", N,
                 gSourceFetches, double(gSourceFetches) / N);
+    std::printf("fetches outside the clips: %d\n", gFailedFetches);
+    if (noFailedFetches && gFailedFetches) die("plugin asked for frames beyond the clips' handles");
     if (fetchesAbove >= 0 && !(double(gSourceFetches) / N > fetchesAbove))
         die("plugin fetched fewer source frames than expected (no temporal access?)");
 

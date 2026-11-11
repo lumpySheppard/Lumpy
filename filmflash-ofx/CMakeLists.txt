@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(FilmFlash VERSION 1.1.0 LANGUAGES CXX)
+project(FilmFlash VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -85,9 +85,19 @@ if(NOT WIN32)
   # read into real handles on both sides.
   add_test(NAME transition_with_handles
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_handles.rgb --context transition
-                   --offset 12 --frames 24 --set maxSpeed=12
+                   --offset 12 --frames 24 --set maxSpeed=12 --set spareHandles=12
                    --expect-identity-at 0:SourceFrom --expect-identity-at 23:SourceTo
-                   --expect-fetches-above 1.5 --max-below 1.0)
+                   --expect-fetches-above 1.5 --expect-no-failed-fetches --max-below 1.0)
+  add_test(NAME transition_physical_curve_with_handles
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_phys.rgb --context transition
+                   --offset 12 --frames 24 --set speedCurve=1 --set spareHandles=12
+                   --expect-identity-at 0:SourceFrom --expect-identity-at 23:SourceTo
+                   --expect-no-failed-fetches)
+  # Hosts that don't animate the Transition param: speed-up uses the frame range.
+  add_test(NAME transition_static_param
+           COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_static.rgb --context transition
+                   --offset 12 --frames 24 --static-transition --set diagnostics=1
+                   --expect-fetches-above 1.5 --expect-no-failed-fetches)
   # Both off: exactly one fetch per frame and no reads from other times.
   add_test(NAME transition_speed_off
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_nospeed.rgb --context transition
