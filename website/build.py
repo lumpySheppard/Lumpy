@@ -58,12 +58,39 @@ WORK = [
 e = html.escape
 
 
+def sidebar(up, current):
+    """Right-hand column on every page: name, the work list, then links."""
+    work = []
+    for w in WORK:
+        if w["slug"]:
+            here = ' class="here"' if w["slug"] == current else ""
+            work.append(f'<li><a href="{up}{w["slug"]}/"{here}>{e(w["title"])}</a></li>')
+        else:
+            work.append(f'<li><span title="coming soon">{e(w["title"])}</span></li>')
+    blog_here = ' class="here"' if current == "blog" else ""
+    out = '<span class="ext">[&rarr;]</span>'
+    return f"""<aside class="side">
+<div>
+<a class="name" href="{up or './'}">{e(NAME.upper())}</a>
+<span class="role">{e(ROLE)}</span>
+<ul class="work">
+{chr(10).join(work)}
+</ul>
+</div>
+<div>
+<ul class="links">
+<li><a href="{up}blog/"{blog_here}>Blog</a></li>
+<li><a href="{INSTAGRAM}">Instagram {out}</a></li>
+<li><a href="mailto:{EMAIL}">Email {out}</a></li>
+<li><a href="tel:{PHONE}">Phone {out}</a></li>
+</ul>
+<p class="copy">&copy; {datetime.now().year} {e(NAME)}</p>
+</div>
+</aside>"""
+
+
 def page(title, body, depth=0, current="", cls=""):
     up = "../" * depth
-    nav = "\n".join(
-        f'<a href="{up}{href}"{" class=here" if key == current else ""}>{key}</a>'
-        for key, href in (("work", "./" if not up else ""), ("blog", "blog/"))
-    )
     full_title = f"{title} | {NAME}" if title else f"{NAME} | {ROLE}"
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -77,18 +104,12 @@ def page(title, body, depth=0, current="", cls=""):
 <link rel="stylesheet" href="{up}style.css">
 </head>
 <body{f' class="{cls}"' if cls else ''}>
-<nav>
-{nav}
-</nav>
+<div class="layout">
+<div class="content">
 {body}
-<footer id="contact">
-<a class="big" href="mailto:{EMAIL}">CONTACT&gt;</a>
-<ul>
-<li><a href="{INSTAGRAM}">instagram</a></li>
-<li><a href="mailto:{EMAIL}">email</a></li>
-<li><a href="tel:{PHONE}">phone</a></li>
-</ul>
-</footer>
+</div>
+{sidebar(up, current)}
+</div>
 </body>
 </html>
 """
@@ -106,16 +127,12 @@ def build_index():
             tiles.append(f'<li><a href="{w["slug"]}/">{img}<span>{caption(w)}</span></a></li>')
         else:
             tiles.append(f"<li>{img}<span>{caption(w)}</span></li>")
-    body = f"""<header>
-<h1>{e(NAME.upper())}</h1>
-<p>{e(ROLE)}</p>
-</header>
-<main>
+    body = f"""<main>
 <ul class="grid">
 {chr(10).join(tiles)}
 </ul>
 </main>"""
-    (ROOT / "index.html").write_text(page("", body, current="work"))
+    (ROOT / "index.html").write_text(page("", body))
 
 
 def embed(video):
@@ -147,7 +164,7 @@ def build_projects():
         body = "<main class=\"project\">\n" + "\n".join(parts) + "\n</main>"
         out = ROOT / w["slug"]
         out.mkdir(exist_ok=True)
-        (out / "index.html").write_text(page(title, body, depth=1))
+        (out / "index.html").write_text(page(title, body, depth=1, current=w["slug"]))
 
 
 def fetch_tumblr(limit=20):

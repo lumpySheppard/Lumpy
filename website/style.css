@@ -16,33 +16,43 @@ a:visited { color: #9a5cff; }
 a:hover { color: #ff9900; }
 
 img { display: block; max-width: 100%; height: auto; }
-
-nav {
-  text-align: right;
-  padding: 14px 20px;
-}
-nav a { margin-left: 10px; text-decoration: none; }
-nav a.here { color: #ff9900; text-decoration: underline; }
-
-header, main {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 0 20px;
-}
-
-header { padding-top: 70px; padding-bottom: 80px; }
-header h1 { margin: 0; font-size: 26px; font-weight: bold; letter-spacing: .01em; }
-header p { margin: 2px 0 0; font-size: 21px; }
-header h1 a, header h1 a:visited { color: inherit; text-decoration: none; }
-
 ul { list-style: none; margin: 0; padding: 0; }
+
+/* layout: work on the left, the menu pinned on the right */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  min-height: 100vh;
+}
+.content { padding: 50px 30px 80px 50px; min-width: 0; }
+
+.side {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 50px 50px 40px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: right;
+  gap: 40px;
+}
+.side a { text-decoration: none; }
+.side a:hover, .side a.here { text-decoration: underline; }
+.side a.here { color: #ff9900; }
+.side .name { display: block; font-weight: bold; font-size: 18px; color: #fff; }
+.side .role { display: block; margin-bottom: 34px; }
+.side li { margin: 0 0 6px; }
+.side .work span { color: #777; }
+.side .ext { color: #ff9900; font-size: .85em; }
+.side .copy { margin: 18px 0 0; font-size: 12px; color: #888; }
 
 /* work grid */
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px 12px;
-  padding-bottom: 120px;
 }
 .grid img {
   width: 100%;
@@ -56,7 +66,6 @@ ul { list-style: none; margin: 0; padding: 0; }
 .grid a:hover span { text-decoration: underline; }
 
 /* project pages */
-.project { padding-top: 50px; padding-bottom: 120px; }
 .project h2 { font-size: 18px; font-weight: normal; margin: 0 0 18px; }
 .video { position: relative; aspect-ratio: 16 / 9; background: #111; }
 .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
@@ -68,42 +77,35 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .next { margin: 26px 0 0; text-align: right; }
 
-/* contact band */
-footer {
-  background: #ff9900;
-  color: #0000ff;
-  padding: 70px 20px 80px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 30px 25%;
-  justify-content: center;
-  align-items: center;
-}
-footer a, footer a:visited { color: #0000ff; }
-footer a:hover { color: #fff; }
-footer .big { font-size: 40px; text-decoration: none; }
-footer li { font-size: 20px; }
-
 /* blog: a nod to the tumblr (Plain Times) — white page, blue Times */
-body.plain { background: #fff; color: #0000ff; }
+body.plain, html:has(body.plain) { background: #fff; color: #0000ff; }
 body.plain a { color: #0000ff; }
 body.plain a:visited { color: #551a8b; }
 body.plain a:hover { color: #ff9900; }
-body.plain nav a.here { color: #ff9900; }
-body.plain header, body.plain main { max-width: 540px; text-align: center; }
-body.plain header { padding-top: 20px; padding-bottom: 30px; }
-body.plain header h1 { font-size: 28px; }
-body.plain header p { font-size: 15px; }
+body.plain .side .name { color: #0000ff; }
+body.plain header, body.plain main { max-width: 540px; margin: 0 auto; text-align: center; }
+body.plain header { padding-bottom: 30px; }
+body.plain header h1 { margin: 0; font-size: 28px; }
+body.plain header h1 a { text-decoration: none; }
+body.plain header p { margin: 6px 0 0; font-size: 15px; }
 .feed li { margin-bottom: 50px; }
 .feed img { width: 100%; }
 .feed p { margin: 8px 0 0; font-size: 14px; }
 .feed .meta { font-size: 13px; }
 .more { padding: 10px 0 20px; }
-.stamp { font-size: 12px; color: #888; padding-bottom: 60px; }
+.stamp { font-size: 12px; color: #888; }
 
-@media (max-width: 600px) {
-  header { padding-top: 30px; padding-bottom: 40px; }
+/* phones: menu first, then the work */
+@media (max-width: 700px) {
+  .layout { display: flex; flex-direction: column-reverse; }
+  .side {
+    position: static;
+    height: auto;
+    padding: 24px 20px 10px;
+    gap: 24px;
+  }
+  .side .role { margin-bottom: 20px; }
+  .side .copy { display: none; }
+  .content { padding: 20px 20px 60px; }
   .grid { grid-template-columns: 1fr; }
-  footer { flex-direction: column; gap: 20px; padding: 50px 20px; }
-  footer .big { font-size: 32px; }
 }
