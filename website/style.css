@@ -1,0 +1,109 @@
+/* dpwillsheppard.com: plain on purpose. Times, blue links, black page. */
+
+* { box-sizing: border-box; }
+
+html { background: #000; }
+
+body {
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font: 16px/1.35 "Times New Roman", Times, serif;
+}
+
+a { color: #4d4dff; }
+a:visited { color: #9a5cff; }
+a:hover { color: #ff9900; }
+
+img { display: block; max-width: 100%; height: auto; }
+
+nav {
+  text-align: right;
+  padding: 14px 20px;
+}
+nav a { margin-left: 10px; text-decoration: none; }
+nav a.here { color: #ff9900; text-decoration: underline; }
+
+header, main {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+header { padding-top: 70px; padding-bottom: 80px; }
+header h1 { margin: 0; font-size: 26px; font-weight: bold; letter-spacing: .01em; }
+header p { margin: 2px 0 0; font-size: 21px; }
+header h1 a, header h1 a:visited { color: inherit; text-decoration: none; }
+
+ul { list-style: none; margin: 0; padding: 0; }
+
+/* work grid */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 12px;
+  padding-bottom: 120px;
+}
+.grid img {
+  width: 100%;
+  aspect-ratio: 503 / 360;
+  object-fit: cover;
+  background: #111;
+}
+.grid span { display: block; margin-top: 5px; font-size: 13px; }
+.grid li > span { color: #4d4dff; }
+.grid a { text-decoration: none; }
+.grid a:hover span { text-decoration: underline; }
+
+/* project pages */
+.project { padding-top: 50px; padding-bottom: 120px; }
+.project h2 { font-size: 18px; font-weight: normal; margin: 0 0 18px; }
+.video { position: relative; aspect-ratio: 16 / 9; background: #111; }
+.video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.stills {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.next { margin: 26px 0 0; text-align: right; }
+
+/* contact band */
+footer {
+  background: #ff9900;
+  color: #0000ff;
+  padding: 70px 20px 80px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px 25%;
+  justify-content: center;
+  align-items: center;
+}
+footer a, footer a:visited { color: #0000ff; }
+footer a:hover { color: #fff; }
+footer .big { font-size: 40px; text-decoration: none; }
+footer li { font-size: 20px; }
+
+/* blog: a nod to the tumblr (Plain Times) — white page, blue Times */
+body.plain { background: #fff; color: #0000ff; }
+body.plain a { color: #0000ff; }
+body.plain a:visited { color: #551a8b; }
+body.plain a:hover { color: #ff9900; }
+body.plain nav a.here { color: #ff9900; }
+body.plain header, body.plain main { max-width: 540px; text-align: center; }
+body.plain header { padding-top: 20px; padding-bottom: 30px; }
+body.plain header h1 { font-size: 28px; }
+body.plain header p { font-size: 15px; }
+.feed li { margin-bottom: 50px; }
+.feed img { width: 100%; }
+.feed p { margin: 8px 0 0; font-size: 14px; }
+.feed .meta { font-size: 13px; }
+.more { padding: 10px 0 20px; }
+.stamp { font-size: 12px; color: #888; padding-bottom: 60px; }
+
+@media (max-width: 600px) {
+  header { padding-top: 30px; padding-bottom: 40px; }
+  .grid { grid-template-columns: 1fr; }
+  footer { flex-direction: column; gap: 20px; padding: 50px 20px; }
+  footer .big { font-size: 32px; }
+}
