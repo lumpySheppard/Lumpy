@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.8.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.9.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -159,18 +159,11 @@ if(NOT WIN32)
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5 --set topStartOffset=0.8
                    --expect-mean-above 28:0.14 --max-below 1.0)
   set_tests_properties(pinch_shape side_blast_top PROPERTIES FIXTURES_REQUIRED clip)
-  # Organic looks (veil, iridescence, sparkle, curve) render a flare that never clips.
-  foreach(look 6 7 8)
-    add_test(NAME organic_look_${look}
-             COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/org${look}.rgb --context filter
-                     --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=${look}
-                     --expect-mean-above 28:0.14 --max-below 1.0)
-    set_tests_properties(organic_look_${look} PROPERTIES FIXTURES_REQUIRED clip)
-  endforeach()
+  # Veil, iridescence and curve render a flare that never clips.
   add_test(NAME organic_controls
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/orgc.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set veil=1 --set iridescence=1
-                   --set rainbowAlong=0.5 --set prismEdges=0.5 --set sparkle=1 --set curve=1
+                   --set rainbowAlong=0.5 --set prismEdges=0.5 --set curve=1
                    --expect-mean-above 28:0.14 --max-below 1.0)
   set_tests_properties(organic_controls PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(top_look_preset look_blend pairs_independent pairs_off_identity

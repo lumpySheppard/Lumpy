@@ -70,9 +70,6 @@ Top & Bottom and **Side Blast** for Left & Right, so you can raise
 | Blue Blade | Stills, *A Clockwork Orange* | A hard-edged blue wedge, leaning slightly |
 | Side Blast | *Gummo* | A **Pinch**: the light comes to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone, just after the light has gone |
 
-| Warm Beam | Veiling-flare stills | A long orange-white beam straight in, in a wide veil of haze, going greenish far out |
-| Rainbow Arc | Veiling-flare stills | A curved band with a white, glittery core and soft thin-film rainbow bands either side |
-| Prism Rays | Veiling-flare stills | Sharp warm rays with thin rainbow edges, dust sparkling in the light |
 
 Side Blast starts after the light has left the frame (Flare Start −0.8%).
 A light can only flare as far past the edge as **Gate Crop** leaves picture
@@ -110,7 +107,6 @@ Used wherever a pair's Look A or B is **Custom**.
 | Iridescence / Rainbow Bands | Rainbow banding like thin-film or prism colours: same brightness, shifted hue |
 | Rainbow Direction | 0: bands across the depth. 1: bands running along the flare, parallel to it (with Curve: rainbow arcs, the middle staying white) |
 | Prism Edges | 1: the rainbow only on the rays' edges, as thin spectral lines |
-| Sparkle / Sparkle Size | Sparse, clumped glittering specks where the flare is (dust in the light), twinkling with Shimmer |
 | Streaks | Striations from the gate edge's nicks and roughness, radiating from the light and softening as they go in. 0 = a smooth glow |
 | Streak Detail | Broad (0) to fine (1) streaks |
 | Shimmer / Shimmer Speed | The streaks, and gently the flare's strength, change from frame to frame, like light catching a rough edge as it moves. 0 = still |

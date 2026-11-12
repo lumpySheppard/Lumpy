@@ -35,7 +35,7 @@ enum P {
     P_SHAPE, P_PINCH, P_LEAN, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
     P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT, P_FARTINT,
     P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE,
-    P_CURVE, P_VEIL, P_IRID, P_BANDS, P_ALONG, P_EDGES, P_SPARKLE, P_SPARKSIZE,
+    P_CURVE, P_VEIL, P_IRID, P_BANDS, P_ALONG, P_EDGES,
     // sources
     P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE,
     P_TOP, P_BOTTOM, P_LEFT, P_RIGHT,
@@ -56,16 +56,13 @@ struct PDef {
     std::vector<const char*> options = {};  // choices (empty: the encodings list)
 };
 
-const std::vector<const char*> kLookOptions = {"Custom",     "Soft Haze",  "Thin Streak",
-                                               "Cool Column", "Blue Blade", "Side Blast",
-                                               "Warm Beam",  "Rainbow Arc", "Prism Rays"};
+const std::vector<const char*> kLookOptions = {"Custom", "Soft Haze", "Thin Streak", "Cool Column", "Blue Blade",
+                                               "Side Blast"};
 const char* const kLookHint =
     "Custom: the Custom Look controls below. Soft Haze: a soft, streaky plume in the lights' own colour. "
     "Thin Streak: a long, thin streak straight in (a light leaving the side, Road to Perdition). Cool "
     "Column: a cool column straight in. Blue Blade: a hard-edged blue wedge. Side Blast: the light comes "
-    "to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone (Gummo). Warm Beam: a long warm beam in a wide veil of haze, going greenish far out. "
-    "Rainbow Arc: a curved band of thin-film rainbow arcs, fine streaks and glitter. Prism Rays: sharp rays "
-    "with rainbow edges and dust sparkling in them.";
+    "to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone (Gummo).";
 
 const std::vector<PDef>& defs() {
     static const std::vector<PDef> d = {
@@ -81,8 +78,8 @@ const std::vector<PDef>& defs() {
          "flare in magenta. For setting up; turn off to render.",
          {0}, 0, 1, 0, 1},
 
-        {P_TLOOKA, "topLookA", kChoice, "grpTop", "Look A", kLookHint, {0}, 0, 8, 0, 8, kLookOptions},
-        {P_TLOOKB, "topLookB", kChoice, "grpTop", "Look B", kLookHint, {1}, 0, 8, 0, 8, kLookOptions},
+        {P_TLOOKA, "topLookA", kChoice, "grpTop", "Look A", kLookHint, {0}, 0, 5, 0, 5, kLookOptions},
+        {P_TLOOKB, "topLookB", kChoice, "grpTop", "Look B", kLookHint, {1}, 0, 5, 0, 5, kLookOptions},
         {P_TBLEND, "topBlend", kDbl, "grpTop", "Blend A > B", "0 = all Look A, 1 = all Look B, between = a mix.",
          {0}, 0, 1, 0, 1},
         {P_TINT_T, "topIntensity", kDbl, "grpTop", "Intensity", "Strength of the top and bottom flares.", {1}, 0,
@@ -92,8 +89,8 @@ const std::vector<PDef>& defs() {
          {0}, -20, 10, -5, 3},
         {P_TTINT, "topTint", kRGB, "grpTop", "Tint", "Colours the top and bottom flares.", {1, 1, 1}, 0, 2, 0, 1},
 
-        {P_SLOOKA, "sideLookA", kChoice, "grpSide", "Look A", kLookHint, {0}, 0, 8, 0, 8, kLookOptions},
-        {P_SLOOKB, "sideLookB", kChoice, "grpSide", "Look B", kLookHint, {5}, 0, 8, 0, 8, kLookOptions},
+        {P_SLOOKA, "sideLookA", kChoice, "grpSide", "Look A", kLookHint, {0}, 0, 5, 0, 5, kLookOptions},
+        {P_SLOOKB, "sideLookB", kChoice, "grpSide", "Look B", kLookHint, {5}, 0, 5, 0, 5, kLookOptions},
         {P_SBLEND, "sideBlend", kDbl, "grpSide", "Blend A > B", "0 = all Look A, 1 = all Look B, between = a mix.",
          {0}, 0, 1, 0, 1},
         {P_SINT, "sideIntensity", kDbl, "grpSide", "Intensity", "Strength of the left and right flares.", {1}, 0,
@@ -183,10 +180,6 @@ const std::vector<PDef>& defs() {
         {P_EDGES, "prismEdges", kDbl, "grpCustom", "Prism Edges",
          "1: the rainbow only on the rays' edges, as thin spectral lines (a prism). 0: everywhere.", {0}, 0, 1, 0,
          1},
-        {P_SPARKLE, "sparkle", kDbl, "grpCustom", "Sparkle",
-         "Glittering specks where the flare is (dust in the light), twinkling with Shimmer.", {0}, 0, 2, 0, 1},
-        {P_SPARKSIZE, "sparkleSize", kDbl, "grpCustom", "Sparkle Size (%)", "Size of the specks.", {0.3}, 0.05,
-         3, 0.1, 1},
 
         {P_THRESH, "threshold", kDbl, "grpSources", "Source Threshold",
          "How bright (as encoded) something must be to flare. Use Show Gate & Sources to see what's picked "
@@ -289,8 +282,6 @@ gate::Settings read(Instance* in, double t) {
     c.rainbowBands = f(P_BANDS);
     c.rainbowAlong = f(P_ALONG);
     c.prismEdges = f(P_EDGES);
-    c.sparkle = f(P_SPARKLE);
-    c.sparkleSize = f(P_SPARKSIZE);
     c.intensity = f(P_INTENSITY);
     c.flareStart = f(P_START);
     c.reach = f(P_REACH);
@@ -560,7 +551,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 8, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 9, setHost, mainEntry};
 
 }  // namespace
 

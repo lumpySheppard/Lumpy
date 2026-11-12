@@ -80,8 +80,6 @@ struct Look {
     float rainbowBands = 3.f;  // how many bands
     float rainbowAlong = 0.f;  // 0 = bands across the depth, 1 = along the flare (parallel to it)
     float prismEdges = 0.f;    // 1 = the colour only on the rays' edges (thin spectral lines)
-    float sparkle = 0.f;       // glittering specks in the flare (dust, the gate's grain)
-    float sparkleSize = 0.3f;  // speck size, % of frame height
 };
 
 // Built-in looks, from reference footage.
@@ -92,9 +90,6 @@ enum LookPreset {
     kCoolColumn,       // a cool column straight down from the top
     kBlueBlade,        // a hard-edged blue wedge
     kSideBlast,        // a tight blue neck that pinches and fans out, just after the light has gone
-    kWarmBeam,         // a long warm beam in a wide veil, going greenish far out
-    kRainbowArc,       // a curved band of iridescent rainbow bands with glitter
-    kPrismRays,        // sharp rays with rainbow edges, dust sparkling in them
     kLookCount
 };
 const char* lookName(int preset);

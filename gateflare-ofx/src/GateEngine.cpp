@@ -242,11 +242,6 @@ struct Flare {
                 rgb[c] += (cumAt(centre + hwc + 0.5f, c) - cumAt(centre - hwc + 0.5f, c)) * amp / chanScale[c];
             }
         }
-        // Sparkle: glittering specks where the flare is.
-        if (L.sparkle > 0.f) {
-            const float sp = sparkleAt(u, v);
-            for (int c = 0; c < 3; ++c) rgb[c] *= sp;
-        }
         // The lights' colour, or white.
         float col[3];
         const float lum = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
@@ -280,23 +275,6 @@ struct Flare {
         // Tint, and Far Tint: the colour drifts as the flare goes into the frame.
         const float m = 1.f - std::exp(-v / farFall);
         for (int c = 0; c < 3; ++c) add[c] += weight * col[c] * L.tint[c] * (1.f + (L.farTint[c] - 1.f) * m);
-    }
-
-    // Specks about Sparkle Size across, twinkling with Shimmer; about 1 on average.
-    float sparkleAt(int u, float v) const {
-        const float cell = std::max(1.5f, L.sparkleSize * frameH / 100.f);
-        const float n1 = valueNoise2(u / cell, v / cell, seed + 333u);
-        const float n2 = valueNoise2(u / cell * 0.37f + 19.f, v / cell * 0.37f, seed + 334u);
-        // Sparse specks (n1^16), gathered in clumps.
-        float speck = n1 * n1;
-        speck *= speck;
-        speck *= speck;
-        speck *= speck;
-        speck *= smoothstep(0.45f, 0.8f, valueNoise2(u / (cell * 14.f), v / (cell * 14.f), seed + 335u));
-        const float sh = std::min(std::max(L.shimmer, 0.f), 1.f);
-        speck *= 1.f - sh + sh * (0.5f + 0.5f * std::sin(time * L.shimmerSpeed * 1.3f + 25.f * n2));
-        const float sk = std::min(std::max(L.sparkle, 0.f), 2.f);
-        return std::max(0.f, 1.f - 0.3f * std::min(sk, 1.f) + sk * 60.f * speck);
     }
 
     // Pinch: a real focus. Each light's rays come in from the edge, converge
@@ -678,9 +656,8 @@ void render(const Image& in, const Settings& s, Image& out) {
 }
 
 const char* lookName(int preset) {
-    static const char* const names[kLookCount] = {"Custom",     "Soft Haze",  "Thin Streak",
-                                                  "Cool Column", "Blue Blade", "Side Blast",
-                                                  "Warm Beam",  "Rainbow Arc", "Prism Rays"};
+    static const char* const names[kLookCount] = {"Custom", "Soft Haze", "Thin Streak", "Cool Column",
+                                                  "Blue Blade", "Side Blast"};
     return preset >= 0 && preset < kLookCount ? names[preset] : "Custom";
 }
 
@@ -717,27 +694,6 @@ Look presetLook(int preset, const Look& custom) {
             L.farTint[0] = 0.35f; L.farTint[1] = 0.6f; L.farTint[2] = 1.f;
             L.veil = 0.3f;
             L.shimmerSpeed = 1.5f;
-            break;
-        case kWarmBeam:  // a long warm beam from the edge in a wide veil, going greenish far out
-            set(L, kPinch, 1.6f, 0.f, 10.f, 45.f, 5.f, 0.22f, 0.15f, 0.6f, 0.5f, 0.3f, 0.5f, 0.4f, 1.f, 0.7f, 0.42f, 0.f);
-            L.pinch = 0.f;
-            L.farTint[0] = 0.8f; L.farTint[1] = 1.05f; L.farTint[2] = 0.75f;
-            L.veil = 0.8f;
-            break;
-        case kRainbowArc:  // a curved band of thin-film rainbow arcs, fine streaks across it, glitter
-            set(L, kPinch, 1.3f, 0.f, 8.f, 30.f, 6.f, 1.f, 0.1f, 1.1f, 0.95f, 0.4f, 0.3f, 1.f, 1.f, 0.95f, 0.85f, 0.f);
-            L.pinch = 0.f;
-            L.curve = 1.2f;
-            L.iridescence = 0.6f; L.rainbowBands = 2.f; L.rainbowAlong = 1.f;
-            L.sparkle = 0.6f; L.sparkleSize = 0.35f;
-            L.veil = 0.7f;
-            break;
-        case kPrismRays:  // sharp rays with rainbow edges, dust glittering in the light
-            set(L, kPinch, 1.5f, 0.f, 10.f, 35.f, 4.f, 0.6f, 0.1f, 1.8f, 0.2f, 0.4f, 0.4f, 0.8f, 1.f, 0.92f, 0.8f, 0.f);
-            L.pinch = 3.f;
-            L.iridescence = 0.45f; L.rainbowBands = 3.f; L.rainbowAlong = 1.f; L.prismEdges = 1.f;
-            L.sparkle = 0.7f; L.sparkleSize = 0.4f;
-            L.veil = 0.4f;
             break;
         default:
             return custom;
