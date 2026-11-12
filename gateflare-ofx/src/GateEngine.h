@@ -39,6 +39,8 @@ enum Shape {
     kPlume = 0,  // a fan that widens into the frame
     kBeam = 1,   // narrow, parallel-sided column straight in from the edge
     kBlade = 2,  // hard-edged wedge, can be angled
+    kPinch = 3,  // a tight, hot neck straight in from the edge that pinches, then fans out
+                 // (the light focused by the gate edge, Gummo)
 };
 
 // How the flare is combined with the picture.
@@ -68,6 +70,9 @@ struct Look {
     float fringe = 0.3f;       // red scatters wider than blue
     float tint[3] = {1.f, 1.f, 1.f};
     float sourceColour = 1.f;  // 1 = the lights' own colour, 0 = white (then tinted)
+    float farTint[3] = {1.f, 1.f, 1.f};  // colour it shifts toward as it goes into the frame
+    float pinch = 15.f;        // pinch: length of the tight neck before it fans out
+    float lean = 0.f;          // pinch: degrees the fan leans (+ = up on the sides, left on top/bottom)
 };
 
 // Built-in looks, from reference footage.
@@ -77,7 +82,7 @@ enum LookPreset {
     kThinStreak,       // long, thin beam (a light leaving the side of frame)
     kCoolColumn,       // a cool column straight down from the top
     kBlueBlade,        // a hard-edged blue wedge
-    kSideBlast,        // a wide, streaky blue fan that blasts in after the light has gone
+    kSideBlast,        // a tight blue neck that pinches and fans out, just after the light has gone
     kLookCount
 };
 const char* lookName(int preset);

@@ -32,8 +32,8 @@ enum P {
     P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TTINT,
     P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_STINT,
     // custom look
-    P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
-    P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT,
+    P_SHAPE, P_PINCH, P_LEAN, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
+    P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT, P_FARTINT,
     P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE,
     // sources
     P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE,
@@ -60,8 +60,8 @@ const std::vector<const char*> kLookOptions = {"Custom", "Soft Haze", "Thin Stre
 const char* const kLookHint =
     "Custom: the Custom Look controls below. Soft Haze: a soft, streaky plume in the lights' own colour. "
     "Thin Streak: a long, thin streak straight in (a light leaving the side, Road to Perdition). Cool "
-    "Column: a cool column straight in. Blue Blade: a hard-edged blue wedge. Side Blast: a wide, streaky "
-    "blue fan that blasts in just after the light has gone (Gummo).";
+    "Column: a cool column straight in. Blue Blade: a hard-edged blue wedge. Side Blast: a tight cyan "
+    "neck that pinches, then fans out in a few big blue rays, just after the light has gone (Gummo).";
 
 const std::vector<PDef>& defs() {
     static const std::vector<PDef> d = {
@@ -101,8 +101,17 @@ const std::vector<PDef>& defs() {
 
         {P_SHAPE, "shape", kChoice, "grpCustom", "Shape",
          "Plume: a fan that widens into the frame. Beam: a narrow, straight column in from the edge. "
-         "Blade: a hard-edged wedge that can lean (Angle).",
-         {0}, 0, 2, 0, 2, {"Plume (fan)", "Beam (straight column)", "Blade (hard-edged wedge)"}},
+         "Blade: a hard-edged wedge that can lean (Angle). Pinch: a tight, hot neck (Spread wide) "
+         "straight in from the edge that pinches and then fans out (Fan) in big rays that all run back "
+         "through the pinch, like the side flares in Gummo.",
+         {0}, 0, 3, 0, 3,
+         {"Plume (fan)", "Beam (straight column)", "Blade (hard-edged wedge)", "Pinch (neck, then fan)"}},
+        {P_PINCH, "pinchLength", kDbl, "grpCustom", "Pinch Length (%)",
+         "Pinch: how far the tight neck runs into the frame before it fans out.", {15}, 0, 100, 0, 40},
+        {P_LEAN, "lean", kDbl, "grpCustom", "Lean",
+         "Pinch: degrees the fan leans (positive = up on the left and right edges, left on the top and "
+         "bottom).",
+         {0}, -60, 60, -30, 30},
         {P_BLADEANGLE, "bladeAngle", kDbl, "grpCustom", "Blade Angle",
          "Blade: degrees it leans away from straight in (negative leans the other way).", {15}, -75, 75, -45,
          45},
@@ -134,9 +143,14 @@ const std::vector<PDef>& defs() {
         {P_SRCCOL, "sourceColour", kDbl, "grpCustom", "Source Colour",
          "With Flare Colour = Source: 1 = the lights' colour, 0 = white.", {1}, 0, 1, 0, 1},
         {P_TINT, "tint", kRGB, "grpCustom", "Tint", "Colours the flare.", {1, 1, 1}, 0, 2, 0, 1},
+        {P_FARTINT, "farTint", kRGB, "grpCustom", "Far Tint",
+         "The colour the flare shifts toward as it goes into the frame (white = no shift). E.g. deep blue "
+         "for a cyan-white core that turns blue.",
+         {1, 1, 1}, 0, 2, 0, 1},
         {P_STREAKS, "streaks", kDbl, "grpCustom", "Streaks",
-         "Striations from the gate edge's nicks and roughness, radiating from the light. 0 = smooth.", {0.5}, 0,
-         2, 0, 1},
+         "Striations from the gate edge's nicks and roughness, radiating from the light (Pinch: rays through "
+         "the pinch). 0 = smooth.",
+         {0.5}, 0, 2, 0, 2},
         {P_STREAKDETAIL, "streakDetail", kDbl, "grpCustom", "Streak Detail", "0 = broad streaks, 1 = fine ones.",
          {0.5}, 0, 1, 0, 1},
         {P_SHIMMER, "shimmer", kDbl, "grpCustom", "Shimmer",
@@ -240,7 +254,10 @@ gate::Settings read(Instance* in, double t) {
 
     // The Custom Look.
     gate::Look c;
-    c.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 2);
+    c.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 3);
+    c.pinch = f(P_PINCH);
+    c.lean = f(P_LEAN);
+    for (int i = 0; i < 3; ++i) c.farTint[i] = f(P_FARTINT, i);
     c.intensity = f(P_INTENSITY);
     c.flareStart = f(P_START);
     c.reach = f(P_REACH);
@@ -510,7 +527,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 6, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 7, setHost, mainEntry};
 
 }  // namespace
 

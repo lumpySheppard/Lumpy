@@ -22,6 +22,7 @@ static void usage() {
                  "  custom look: --shape N --intensity F --flare-start PCT --reach PCT --depth PCT --spread PCT\n"
                  "               --fan F --edge-glow F --blade-angle DEG --blade-softness PCT --streaks F\n"
                  "               --streak-detail F --shimmer F --shimmer-speed F --core F --fringe F --source-colour F\n"
+                 "               --pinch PCT --lean DEG --tint-r/g/b F --far-r/g/b F\n"
                  "  sources: --threshold F --knee F --isolate F --light-size PCT\n"
                  "  other: --crop PCT --no-crop 1 --show-gate 1 --encoding N --composite N --seed N\n");
     std::exit(2);
@@ -43,7 +44,9 @@ int main(int argc, char** argv) {
         {"--edge-glow", &c.edgeGlow}, {"--blade-angle", &c.bladeAngle}, {"--blade-softness", &c.bladeSoftness},
         {"--streaks", &c.streaks}, {"--streak-detail", &c.streakDetail}, {"--shimmer", &c.shimmer},
         {"--shimmer-speed", &c.shimmerSpeed}, {"--core", &c.core}, {"--fringe", &c.fringe},
-        {"--source-colour", &c.sourceColour}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
+        {"--source-colour", &c.sourceColour}, {"--pinch", &c.pinch}, {"--lean", &c.lean},
+        {"--tint-r", &c.tint[0]}, {"--tint-g", &c.tint[1]}, {"--tint-b", &c.tint[2]},
+        {"--far-r", &c.farTint[0]}, {"--far-g", &c.farTint[1]}, {"--far-b", &c.farTint[2]}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
         {"--encoding", &enc}, {"--composite", &comp}, {"--shape", &shape}, {"--seed", &seed},
         {"--look-top", &lookTop}, {"--look-top-b", &lookTopB}, {"--blend-top", &blendTop},
         {"--look-side", &lookSide}, {"--look-side-b", &lookSideB}, {"--blend-side", &blendSide}};

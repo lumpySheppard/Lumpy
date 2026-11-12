@@ -153,6 +153,12 @@ struct Flare {
     std::vector<std::vector<float>> streak;   // streak texture per level
     std::vector<float> glow;                  // RGB
     std::vector<float> cum;                   // RGB prefix sums (blade)
+    // Pinch: each light collapsed to where it is and how much light it has.
+    struct Src { float cen; float e[3]; };
+    std::vector<Src> srcs;
+    float pinchPx = 0, leanTan = 0, neckHw = 1, farFall = 1;
+    std::vector<float> rays;                  // ray texture across the fan, rho in [-2, 2]
+    static constexpr int kRays = 512;
 
     static float at1(const std::vector<float>& a, float q, int n) {
         q = std::min(std::max(q, 0.f), float(n - 1));
@@ -198,7 +204,9 @@ struct Flare {
             mod = std::max(0.f, 1.f + 2.f * L.streaks * ((a + (b - a) * t) - 0.5f));
         }
 
-        if (L.shape == kPlume || L.shape == kBeam) {
+        if (L.shape == kPinch) {
+            evalPinch(u, v, fall, rgb);
+        } else if (L.shape == kPlume || L.shape == kBeam) {
             const float* a = &levels[k0][size_t(u) * 3];
             const float* b = &levels[k0 + 1][size_t(u) * 3];
             for (int c = 0; c < 3; ++c) rgb[c] += (a[c] + (b[c] - a[c]) * t) * fall * mod;
@@ -222,7 +230,39 @@ struct Flare {
         }
         // The lights' colour, or white; then the tint.
         const float lum = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
-        for (int c = 0; c < 3; ++c) add[c] += weight * (lum + (rgb[c] - lum) * L.sourceColour) * L.tint[c];
+        // Far Tint: the colour drifts as the flare goes into the frame.
+        const float m = 1.f - std::exp(-v / farFall);
+        for (int c = 0; c < 3; ++c)
+            add[c] += weight * (lum + (rgb[c] - lum) * L.sourceColour) * L.tint[c] * (1.f + (L.farTint[c] - 1.f) * m);
+    }
+
+    // Pinch: each light becomes a tight neck straight in from the edge, the
+    // width set by Spread, for Pinch % of the frame; past that it fans out
+    // (Fan), leaning by Lean, in a few big rays that all run back through the
+    // pinch. The light's energy is conserved, so the neck is hot and the fan
+    // dims as it opens.
+    void evalPinch(int u, float v, float fall, float* rgb) const {
+        if (srcs.empty()) return;
+        const float dv = v - pinchPx;
+        const float kneeW = 0.15f * pinchPx + 1.f;
+        const float s = 0.5f * (dv + std::sqrt(dv * dv + kneeW * kneeW));  // smooth max(dv, 0)
+        const float hw = neckHw + 0.5f * L.fan * s;
+        const float rampRays = smoothstep(0.f, pinchPx + 0.3f * depthPx, v);
+        for (const Src& sr : srcs) {
+            const float c0 = sr.cen - leanTan * s;
+            const float rho = (float(u) - c0) / hw;
+            if (std::fabs(rho) > 1.1f * chanScale[0] + 0.1f) continue;
+            float mod = 1.f;
+            if (!rays.empty()) {
+                const float q = std::min(std::max((rho + 2.f) * 0.25f * (kRays - 1), 0.f), float(kRays - 1));
+                mod = std::max(0.f, 1.f + 2.f * L.streaks * rampRays * (at1(rays, q, kRays) - 0.5f));
+            }
+            for (int c = 0; c < 3; ++c) {
+                const float rc = std::fabs(rho) / chanScale[c];
+                const float k = (1.f - smoothstep(0.3f, 1.f, rc)) / (1.3f * hw * chanScale[c]);
+                rgb[c] += sr.e[c] * k * fall * mod;
+            }
+        }
     }
 };
 
@@ -283,10 +323,62 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
             const float r[3] = {r0 * fl.chanScale[0], r0 * fl.chanScale[1], r0 * fl.chanScale[2]};
             fl.levels.push_back(blurChannels(prof, n, r));
         }
-        if (L.streaks > 0.f && fan > 0.f) {
+        if (L.streaks > 0.f && fan > 0.f && L.shape != kPinch) {
             fl.den.push_back(blur1(lum, n, std::max(r0, 2.f)));
             fl.num.push_back(blur1(lumU, n, std::max(r0, 2.f)));
         }
+    }
+    fl.farFall = std::max(1.f, 0.6f * fl.depthPx);
+    if (L.shape == kPinch) {
+        fl.pinchPx = std::max(0.f, L.pinch * unit);
+        fl.leanTan = std::tan(std::min(std::max(L.lean, -60.f), 60.f) * 3.14159265f / 180.f);
+        fl.neckHw = std::max(1.f, 0.5f * fl.spreadPx);
+        // Lights along the edge: runs of the profile, merged when closer than the neck.
+        float mx = 0.f;
+        for (int u = 0; u < n; ++u) mx = std::max(mx, lum[u]);
+        const float thr = std::max(mx * 1e-3f, 1e-7f);
+        const int gap = std::max(1, int(fl.neckHw));
+        for (int u = 0; u < n;) {
+            if (lum[u] <= thr) { ++u; continue; }
+            Flare::Src sr{0.f, {0.f, 0.f, 0.f}};
+            float sl = 0.f, slu = 0.f;
+            int last = u;
+            for (; u < n && u - last <= gap; ++u) {
+                if (lum[u] <= thr) continue;
+                last = u;
+                for (int c = 0; c < 3; ++c) sr.e[c] += prof[size_t(u) * 3 + c];
+                sl += lum[u];
+                slu += lum[u] * float(u);
+            }
+            if (sl <= 0.f) continue;
+            sr.cen = slu / sl;
+            fl.srcs.push_back(sr);
+        }
+        std::sort(fl.srcs.begin(), fl.srcs.end(), [](const Flare::Src& a, const Flare::Src& b) {
+            return a.e[0] + a.e[1] + a.e[2] > b.e[0] + b.e[1] + b.e[2];
+        });
+        if (fl.srcs.size() > 16) fl.srcs.resize(16);
+        if (L.streaks > 0.f) {
+            // A few big rays (Streak Detail 0) to many fine ones (1), shimmering.
+            const float lobes = 3.f + 30.f * std::min(std::max(L.streakDetail, 0.f), 1.f);
+            const float tSh = time * L.shimmerSpeed * 0.15f;
+            fl.rays.resize(Flare::kRays);
+            for (int i = 0; i < Flare::kRays; ++i) {
+                const float rho = -2.f + 4.f * i / (Flare::kRays - 1);
+                float acc = 0.f, norm = 0.f;
+                for (int o = 0; o < 3; ++o) {
+                    const float fq = float(1 << o), a = 1.f / fq;
+                    const float x = (rho * 0.5f * lobes + 100.f * g.e) * fq;
+                    const float st = valueNoise2(x, 0.f, seed + 17u * o);
+                    const float mv = valueNoise2(x * 1.31f + 57.f, tSh * fq, seed + 101u + 17u * o);
+                    acc += a * (st + (mv - st) * sh);
+                    norm += a;
+                }
+                fl.rays[size_t(i)] = acc / norm;
+            }
+        }
+        fl.glow = blurProfile(prof, n, std::max(1.f, fl.spreadPx * 0.4f));
+        return fl;
     }
     if (L.shape == kBlade) {
         const std::vector<float> soft = blurProfile(prof, n, std::max(0.f, L.bladeSoftness * unit));
@@ -518,8 +610,12 @@ Look presetLook(int preset, const Look& custom) {
             L.bladeAngle = 8.f;
             L.bladeSoftness = 0.4f;
             break;
-        case kSideBlast:  // Gummo: a wide, streaky blue fan that blasts in just after the light has gone
-            set(L, kPlume, 2.f, -0.8f, 14.f, 28.f, 1.5f, 1.4f, 0.15f, 1.2f, 0.8f, 0.6f, 0.5f, 1.f, 0.3f, 0.55f, 1.f, 0.f);
+        case kSideBlast:  // Gummo: a tight cyan neck that pinches and fans out in a few big blue rays,
+                          // leaning up, just after the light has gone
+            set(L, kPinch, 2.f, -0.8f, 14.f, 40.f, 7.f, 0.45f, 0.1f, 1.8f, 0.08f, 0.5f, 0.3f, 0.3f, 0.75f, 0.88f, 1.f, 0.f);
+            L.pinch = 15.f;
+            L.lean = 8.f;
+            L.farTint[0] = 0.05f; L.farTint[1] = 0.4f; L.farTint[2] = 1.f;
             L.shimmerSpeed = 1.5f;
             break;
         default:

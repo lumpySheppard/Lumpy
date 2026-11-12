@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.6.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.7.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -136,11 +136,11 @@ if(NOT WIN32)
   add_test(NAME top_look_preset
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/lookp.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5
-                   --expect-mean-above 28:0.25 --max-below 1.0)
+                   --expect-mean-above 28:0.15 --max-below 1.0)
   add_test(NAME look_blend
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/blend.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookB=5 --set topBlend=0.5
-                   --expect-mean-above 28:0.23 --expect-mean-below 28:0.265)
+                   --expect-mean-above 28:0.17 --expect-mean-below 28:0.22)
   add_test(NAME pairs_independent
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pairs.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topIntensity=0 --set sideLookA=5
@@ -148,6 +148,17 @@ if(NOT WIN32)
   add_test(NAME pairs_off_identity
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pairsoff.rgb --context filter
                    --set cropToGate=0 --set topIntensity=0 --set sideIntensity=0 --expect-identity-at 28:Source)
+  # Pinch shape (Custom) and the Side Blast preset (a pinch) both render a
+  # flare that never clips.
+  add_test(NAME pinch_shape
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pinch.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set shape=3 --set lean=10
+                   --expect-mean-above 28:0.14 --max-below 1.0)
+  add_test(NAME side_blast_top
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/blastt.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5 --set topStartOffset=0.8
+                   --expect-mean-above 28:0.14 --max-below 1.0)
+  set_tests_properties(pinch_shape side_blast_top PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(top_look_preset look_blend pairs_independent pairs_off_identity
                        PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(flare_start_later flare_start_earlier PROPERTIES FIXTURES_REQUIRED clip)

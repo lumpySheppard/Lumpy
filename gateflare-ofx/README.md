@@ -68,7 +68,7 @@ Top & Bottom and **Side Blast** for Left & Right, so you can raise
 | Thin Streak | *Road to Perdition* | A long, thin, faint streak straight in, for a light leaving the side |
 | Cool Column | Stills | A cool column straight down from the top |
 | Blue Blade | Stills, *A Clockwork Orange* | A hard-edged blue wedge, leaning slightly |
-| Side Blast | *Gummo* | A wide, streaky blue fan that blasts in just after the light has gone and fades quickly |
+| Side Blast | *Gummo* | A **Pinch**: a hot cyan-white neck straight in from the edge that pinches, then fans out in a few big blue rays leaning up, just after the light has gone |
 
 Side Blast starts after the light has left the frame (Flare Start −0.8%).
 A light can only flare as far past the edge as **Gate Crop** leaves picture
@@ -89,7 +89,8 @@ Used wherever a pair's Look A or B is **Custom**.
 
 | Control | What it does |
 | --- | --- |
-| Shape | **Plume**: a fan that widens into the frame. **Beam**: a narrow, parallel-sided column straight in from the edge. **Blade**: a hard-edged wedge that can lean |
+| Shape | **Plume**: a fan that widens into the frame. **Beam**: a narrow, parallel-sided column straight in from the edge. **Blade**: a hard-edged wedge that can lean. **Pinch**: each light becomes a tight, hot neck (Spread wide) for Pinch Length, then fans out (Fan) in big rays that all run back through the pinch: the gate edge focusing the light, as in *Gummo* |
+| Pinch Length (%) / Lean | Pinch: how far the neck runs in before it fans out, and how many degrees the fan leans (positive = up on the left and right edges, left on the top and bottom) |
 | Blade Angle / Blade Softness | Blade: how far it leans from straight in, and how soft its sides are (0 = razor sharp) |
 | Flare Colour | **Source** (the lights' own colour), **Cool Blue**, **Cyan**, **Warm**, or **Custom** (white coloured by Tint). Tint applies on top of all of them |
 | Intensity | Strength of the flare. Lights are usually clipped in the footage, so they get a built-in boost (about 6×) that tapers off for lights that are genuinely very bright in scene-linear footage |
@@ -99,6 +100,7 @@ Used wherever a pair's Look A or B is **Custom**.
 | Spread (%) / Fan | Width of the flare along the edge (beam and blade width), and how much wider it gets as it goes in (plume and blade; a beam never widens) |
 | Edge Glow | A thin glow right along the gate edge |
 | Source Colour / Tint | With Flare Colour = Source: take the lights' colour (1) or go white (0). Tint colours every mode |
+| Far Tint | The colour the flare shifts toward as it goes into the frame (white = none). Side Blast goes from cyan-white at the neck to deep blue, the way red drops out first in the reference |
 | Streaks | Striations from the gate edge's nicks and roughness, radiating from the light and softening as they go in. 0 = a smooth glow |
 | Streak Detail | Broad (0) to fine (1) streaks |
 | Shimmer / Shimmer Speed | The streaks, and gently the flare's strength, change from frame to frame, like light catching a rough edge as it moves. 0 = still |
