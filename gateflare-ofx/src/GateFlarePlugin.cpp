@@ -62,8 +62,8 @@ const std::vector<const char*> kLookOptions = {"Custom",     "Soft Haze",  "Thin
 const char* const kLookHint =
     "Custom: the Custom Look controls below. Soft Haze: a soft, streaky plume in the lights' own colour. "
     "Thin Streak: a long, thin streak straight in (a light leaving the side, Road to Perdition). Cool "
-    "Column: a cool column straight in. Blue Blade: a hard-edged blue wedge. Side Blast: a tight cyan "
-    "neck that pinches, then fans out in a few big blue rays, just after the light has gone (Gummo). Warm Beam: a long warm beam in a wide veil of haze, going greenish far out. "
+    "Column: a cool column straight in. Blue Blade: a hard-edged blue wedge. Side Blast: the light comes "
+    "to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone (Gummo). Warm Beam: a long warm beam in a wide veil of haze, going greenish far out. "
     "Rainbow Arc: a curved band of thin-film rainbow arcs, fine streaks and glitter. Prism Rays: sharp rays "
     "with rainbow edges and dust sparkling in them.";
 
@@ -105,15 +105,15 @@ const std::vector<PDef>& defs() {
 
         {P_SHAPE, "shape", kChoice, "grpCustom", "Shape",
          "Plume: a fan that widens into the frame. Beam: a narrow, straight column in from the edge. "
-         "Blade: a hard-edged wedge that can lean (Angle). Pinch: a tight, hot neck (Spread wide) "
-         "straight in from the edge that pinches and then fans out (Fan) in big rays that all run back "
-         "through the pinch, like the side flares in Gummo.",
+         "Blade: a hard-edged wedge that can lean (Angle). Pinch: a real focus: the light converges "
+         "from the edge to a focal point (Pinch Length in), crosses and diverges again at the same angle "
+         "(Fan); Spread sets how tight the focus is. Like the side flares in Gummo.",
          {0}, 0, 3, 0, 3,
          {"Plume (fan)", "Beam (straight column)", "Blade (hard-edged wedge)", "Pinch (neck, then fan)"}},
         {P_PINCH, "pinchLength", kDbl, "grpCustom", "Pinch Length (%)",
-         "Pinch: how far the tight neck runs into the frame before it fans out.", {15}, 0, 100, 0, 40},
+         "Pinch: how far into the frame the focal point is.", {15}, 0, 100, 0, 40},
         {P_LEAN, "lean", kDbl, "grpCustom", "Lean",
-         "Pinch: degrees the fan leans (positive = up on the left and right edges, left on the top and "
+         "Pinch: degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and "
          "bottom).",
          {0}, -60, 60, -30, 30},
         {P_BLADEANGLE, "bladeAngle", kDbl, "grpCustom", "Blade Angle",

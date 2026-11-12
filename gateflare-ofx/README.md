@@ -68,7 +68,7 @@ Top & Bottom and **Side Blast** for Left & Right, so you can raise
 | Thin Streak | *Road to Perdition* | A long, thin, faint streak straight in, for a light leaving the side |
 | Cool Column | Stills | A cool column straight down from the top |
 | Blue Blade | Stills, *A Clockwork Orange* | A hard-edged blue wedge, leaning slightly |
-| Side Blast | *Gummo* | A **Pinch**: a hot cyan-white neck straight in from the edge that pinches, then fans out in a few big blue rays leaning up, just after the light has gone |
+| Side Blast | *Gummo* | A **Pinch**: the light comes to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone, just after the light has gone |
 
 | Warm Beam | Veiling-flare stills | A long orange-white beam straight in, in a wide veil of haze, going greenish far out |
 | Rainbow Arc | Veiling-flare stills | A curved band with a white, glittery core and soft thin-film rainbow bands either side |
@@ -93,8 +93,8 @@ Used wherever a pair's Look A or B is **Custom**.
 
 | Control | What it does |
 | --- | --- |
-| Shape | **Plume**: a fan that widens into the frame. **Beam**: a narrow, parallel-sided column straight in from the edge. **Blade**: a hard-edged wedge that can lean. **Pinch**: each light becomes a tight, hot neck (Spread wide) for Pinch Length, then fans out (Fan) in big rays that all run back through the pinch: the gate edge focusing the light, as in *Gummo* |
-| Pinch Length (%) / Lean | Pinch: how far the neck runs in before it fans out, and how many degrees the fan leans (positive = up on the left and right edges, left on the top and bottom) |
+| Shape | **Plume**: a fan that widens into the frame. **Beam**: a narrow, parallel-sided column straight in from the edge. **Blade**: a hard-edged wedge that can lean. **Pinch**: a real focus. Each light's rays converge from the edge to a focal point Pinch Length in, cross there and diverge again at the same angle (Fan); Spread sets how tight the focus is. The rays break up along their length, carry fine filaments, have ragged edges and blur together at the focus |
+| Pinch Length (%) / Lean | Pinch: how far in the focal point is, and how many degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and bottom) |
 | Blade Angle / Blade Softness | Blade: how far it leans from straight in, and how soft its sides are (0 = razor sharp) |
 | Flare Colour | **Source** (the lights' own colour), **Cool Blue**, **Cyan**, **Warm**, or **Custom** (white coloured by Tint). Tint applies on top of all of them |
 | Intensity | Strength of the flare. Lights are usually clipped in the footage, so they get a built-in boost (about 6×) that tapers off for lights that are genuinely very bright in scene-linear footage |

@@ -182,7 +182,9 @@ struct Flare {
 
         // A hot, tight core at the edge plus a long subtle tail.
         const float core = std::min(std::max(L.core, 0.f), 1.f);
-        const float fall = ((1.f - core) * std::exp(-v / depthPx) + core * 2.2f * std::exp(-v / (0.2f * depthPx))) *
+        // (A pinch's hot core is at its focus.)
+        const float vc = L.shape == kPinch ? std::fabs(v - pinchPx) : v;
+        const float fall = ((1.f - core) * std::exp(-v / depthPx) + core * 2.2f * std::exp(-vc / (0.2f * depthPx))) *
                            L.intensity * fade * flicker;
         const float fk = v / maxD * (K - 1);
         const int k0 = std::min(int(fk), K - 2);
@@ -297,39 +299,54 @@ struct Flare {
         return std::max(0.f, 1.f - 0.3f * std::min(sk, 1.f) + sk * 60.f * speck);
     }
 
-    // Pinch: each light becomes a tight neck straight in from the edge, the
-    // width set by Spread, for Pinch % of the frame; past that it fans out
-    // (Fan), leaning by Lean, in a few big rays that all run back through the
-    // pinch. The light's energy is conserved, so the neck is hot and the fan
-    // dims as it opens.
+    // Pinch: a real focus. Each light's rays come in from the edge, converge
+    // to a focal point Pinch % into the frame, cross there and diverge again
+    // (Fan sets the angle, the same either side; Spread how tight the focus
+    // is). The width follows a smooth hourglass, so the focus is soft. The
+    // light's energy is conserved, so the focus is hot and the cone dims as
+    // it opens. The rays break up along their length, carry fine filaments
+    // and have ragged edges, and blur together at the focus, where they all
+    // cross.
     void evalPinch(int u, float v, float fall, float* rgb, float& rayCoord, float& streakVal) const {
         if (srcs.empty()) return;
         float wsum = 0.f, rsum = 0.f, ssum = 0.f;
         const float dv = v - pinchPx;
-        const float kneeW = 0.15f * pinchPx + 1.f;
-        const float s = 0.5f * (dv + std::sqrt(dv * dv + kneeW * kneeW));  // smooth max(dv, 0)
-        const float hw = neckHw + 0.5f * L.fan * s;
-        const float rampRays = smoothstep(0.f, pinchPx + 0.3f * depthPx, v);
+        const float slope = std::max(0.5f * L.fan, 0.01f);
+        const float z0 = neckHw / slope;  // how far either side of the focus it stays tight
+        const float hw = std::sqrt(neckHw * neckHw + slope * slope * dv * dv);
+        const float cross = dv / std::sqrt(dv * dv + z0 * z0);  // -1 before the focus, +1 after
+        const float sh = std::min(std::max(L.shimmer, 0.f), 1.f);
+        const float tSh = time * L.shimmerSpeed * 0.3f * sh;
+        const float lobes = 3.f + 30.f * std::min(std::max(L.streakDetail, 0.f), 1.f);
+        const float alongScale = std::max(1.f, 0.15f * depthPx);
         for (const Src& sr : srcs) {
-            const float c0 = sr.cen - leanTan * s;
+            const float c0 = sr.cen - leanTan * dv;
             const float rho = (float(u) - c0) / hw;
-            if (std::fabs(rho) > 1.1f * chanScale[0] + 0.1f) continue;
-            float mod = 1.f, tv = 0.5f;
+            if (std::fabs(rho) > 2.2f) continue;
+            const float rr = rho * cross;  // which ray (rays swap sides through the focus)
+            float tv = 0.5f;
             if (!rays.empty()) {
-                const float q = std::min(std::max((rho + 2.f) * 0.25f * (kRays - 1), 0.f), float(kRays - 1));
-                tv = at1(rays, q, kRays);
-                mod = std::max(0.f, 1.f + 2.f * L.streaks * rampRays * (tv - 0.5f));
+                const float q = std::min(std::max((rr + 2.f) * 0.25f * (kRays - 1), 0.f), float(kRays - 1));
+                // Big rays, broken up along their length, plus fine filaments.
+                const float big = at1(rays, q, kRays);
+                const float brk = valueNoise2(rr * lobes * 0.5f + 50.f, v / alongScale - tSh, seed + 77u);
+                const float fine = valueNoise2(rr * lobes * 4.f + 9.f, v / (2.5f * alongScale) - tSh, seed + 78u);
+                tv = 0.6f * big + 0.4f * brk + 0.25f * (fine - 0.5f);
             }
+            const float mod = std::max(0.f, 1.f + 2.f * L.streaks * std::fabs(cross) * (tv - 0.5f));
+            // Ragged edges.
+            const float rag = 1.f + 0.35f * (valueNoise2(v / (0.6f * alongScale), rho > 0.f ? 3.f : 11.f,
+                                                         seed + 79u) - 0.5f);
             float wl = 0.f;
             for (int c = 0; c < 3; ++c) {
-                const float rc = std::fabs(rho) / chanScale[c];
-                const float k = (1.f - smoothstep(0.3f, 1.f, rc)) / (1.3f * hw * chanScale[c]);
+                const float rc = std::fabs(rho) / (chanScale[c] * rag);
+                const float k = std::exp(-2.5f * rc * rc) / (1.12f * hw * chanScale[c]);
                 const float add = sr.e[c] * k * fall * mod;
                 rgb[c] += add;
                 wl += add;
             }
             wsum += wl;
-            rsum += wl * rho;
+            rsum += wl * rr;
             ssum += wl * tv;
         }
         if (wsum > 0.f) {
@@ -692,12 +709,13 @@ Look presetLook(int preset, const Look& custom) {
             L.bladeAngle = 8.f;
             L.bladeSoftness = 0.4f;
             break;
-        case kSideBlast:  // Gummo: a tight cyan neck that pinches and fans out in a few big blue rays,
-                          // leaning up, just after the light has gone
-            set(L, kPinch, 2.f, -0.8f, 14.f, 40.f, 7.f, 0.45f, 0.1f, 1.8f, 0.08f, 0.5f, 0.3f, 0.3f, 0.75f, 0.88f, 1.f, 0.f);
-            L.pinch = 15.f;
-            L.lean = 8.f;
-            L.farTint[0] = 0.05f; L.farTint[1] = 0.4f; L.farTint[2] = 1.f;
+        case kSideBlast:  // Gummo: the light comes to a focus just inside the edge, crosses and opens
+                          // into a soft, broken-up blue cone, just after the light has gone
+            set(L, kPinch, 1.f, -0.8f, 10.f, 20.f, 1.2f, 0.35f, 0.05f, 1.f, 0.3f, 0.5f, 0.35f, 0.3f, 0.8f, 0.9f, 1.f, 0.f);
+            L.pinch = 12.f;
+            L.lean = 0.f;
+            L.farTint[0] = 0.35f; L.farTint[1] = 0.6f; L.farTint[2] = 1.f;
+            L.veil = 0.3f;
             L.shimmerSpeed = 1.5f;
             break;
         case kWarmBeam:  // a long warm beam from the edge in a wide veil, going greenish far out
