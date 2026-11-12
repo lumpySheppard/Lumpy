@@ -23,6 +23,7 @@ static void usage() {
                  "               --fan F --edge-glow F --blade-angle DEG --blade-softness PCT --streaks F\n"
                  "               --streak-detail F --shimmer F --shimmer-speed F --core F --fringe F --source-colour F\n"
                  "               --pinch PCT --lean DEG --tint-r/g/b F --far-r/g/b F\n"
+                 "               --curve F --veil F --iridescence F --bands F --along F --sparkle F --sparkle-size PCT\n"
                  "  sources: --threshold F --knee F --isolate F --light-size PCT\n"
                  "  other: --crop PCT --no-crop 1 --show-gate 1 --encoding N --composite N --seed N\n");
     std::exit(2);
@@ -45,6 +46,8 @@ int main(int argc, char** argv) {
         {"--streaks", &c.streaks}, {"--streak-detail", &c.streakDetail}, {"--shimmer", &c.shimmer},
         {"--shimmer-speed", &c.shimmerSpeed}, {"--core", &c.core}, {"--fringe", &c.fringe},
         {"--source-colour", &c.sourceColour}, {"--pinch", &c.pinch}, {"--lean", &c.lean},
+        {"--curve", &c.curve}, {"--veil", &c.veil}, {"--iridescence", &c.iridescence}, {"--bands", &c.rainbowBands},
+        {"--along", &c.rainbowAlong}, {"--edges", &c.prismEdges}, {"--sparkle", &c.sparkle}, {"--sparkle-size", &c.sparkleSize},
         {"--tint-r", &c.tint[0]}, {"--tint-g", &c.tint[1]}, {"--tint-b", &c.tint[2]},
         {"--far-r", &c.farTint[0]}, {"--far-g", &c.farTint[1]}, {"--far-b", &c.farTint[2]}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
         {"--encoding", &enc}, {"--composite", &comp}, {"--shape", &shape}, {"--seed", &seed},

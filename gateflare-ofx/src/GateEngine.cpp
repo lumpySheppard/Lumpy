@@ -158,6 +158,9 @@ struct Flare {
     std::vector<Src> srcs;
     float pinchPx = 0, leanTan = 0, neckHw = 1, farFall = 1;
     std::vector<float> rays;                  // ray texture across the fan, rho in [-2, 2]
+    std::vector<float> veil;                  // RGB, the edge profile blurred very wide
+    float veilFall = 1, frameH = 100, time = 0;
+    unsigned seed = 1;
     static constexpr int kRays = 512;
 
     static float at1(const std::vector<float>& a, float q, int n) {
@@ -169,6 +172,9 @@ struct Flare {
 
     void eval(int u, float v, float* add) const {
         if (v > maxD) return;
+        // Curve: the flare that starts at u bends sideways as it goes in.
+        if (L.curve != 0.f)
+            u = std::min(std::max(int(std::lround(u + L.curve * v * v / (0.5f * frameH))), 0), n - 1);
         const float fade = 1.f - smoothstep(0.6f * maxD, maxD, v);
         float rgb[3] = {0, 0, 0};
         const float glowK = std::exp(-v / glowFall) * L.edgeGlow;
@@ -186,6 +192,9 @@ struct Flare {
         // centroid of what feeds this point) and squeeze the texture toward it
         // as the flare widens, so the streaks fan out like rays.
         float mod = 1.f;
+        float streakVal = 0.5f;
+        // Where across the flare this point is (for the rainbow bands).
+        float rayCoord = float(u) / std::max(spreadPx, 2.f);
         if (!streak.empty()) {
             const float uu = L.shape == kBlade ? u - v * bladeTan : float(u);
             float xi = uu;
@@ -198,14 +207,16 @@ struct Flare {
                     const float cen = mm / dd;
                     const float sp = std::max(spreadPx, 1.f);
                     xi = cen + (uu - cen) * sp / (sp + fan * v);
+                    rayCoord = (uu - cen) / (sp + fan * v);
                 }
             }
             const float a = at1(streak[k0], xi, n), b = at1(streak[k0 + 1], xi, n);
-            mod = std::max(0.f, 1.f + 2.f * L.streaks * ((a + (b - a) * t) - 0.5f));
+            streakVal = a + (b - a) * t;
+            mod = std::max(0.f, 1.f + 2.f * L.streaks * (streakVal - 0.5f));
         }
 
         if (L.shape == kPinch) {
-            evalPinch(u, v, fall, rgb);
+            evalPinch(u, v, fall, rgb, rayCoord, streakVal);
         } else if (L.shape == kPlume || L.shape == kBeam) {
             const float* a = &levels[k0][size_t(u) * 3];
             const float* b = &levels[k0 + 1][size_t(u) * 3];
@@ -222,18 +233,68 @@ struct Flare {
                 const float a0 = cum[size_t(q0) * 3 + c], a1 = cum[size_t(q0 + 1) * 3 + c];
                 return a0 + (a1 - a0) * tq;
             };
+            rayCoord = (u - v * bladeTan) / hw;
             const float amp = fall * mod / (2.f * bladeHw0) * std::sqrt(bladeHw0 / hw);
             for (int c = 0; c < 3; ++c) {
                 const float hwc = hw * chanScale[c];  // fringe: red's box a little wider
                 rgb[c] += (cumAt(centre + hwc + 0.5f, c) - cumAt(centre - hwc + 0.5f, c)) * amp / chanScale[c];
             }
         }
-        // The lights' colour, or white; then the tint.
+        // Sparkle: glittering specks where the flare is.
+        if (L.sparkle > 0.f) {
+            const float sp = sparkleAt(u, v);
+            for (int c = 0; c < 3; ++c) rgb[c] *= sp;
+        }
+        // The lights' colour, or white.
+        float col[3];
         const float lum = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
-        // Far Tint: the colour drifts as the flare goes into the frame.
+        for (int c = 0; c < 3; ++c) col[c] = lum + (rgb[c] - lum) * L.sourceColour;
+        // Iridescence: rainbow bands (same brightness, shifted hue), across
+        // the depth like thin-film arcs, or along the rays like prism edges,
+        // broken up by the streaks.
+        if (L.iridescence > 0.f) {
+            const float al = std::min(std::max(L.rainbowAlong, 0.f), 1.f);
+            const float pe = std::min(std::max(L.prismEdges, 0.f), 1.f);
+            const float ph = L.rainbowBands * (al * (0.5f * rayCoord + (0.15f + 1.2f * pe) * streakVal) +
+                                               (1.f - al) * (v / std::max(depthPx, 1.f) + 0.35f * streakVal));
+            float sp[3];
+            for (int c = 0; c < 3; ++c) sp[c] = 0.5f + 0.5f * std::cos(6.2831853f * (ph + c / 3.f));
+            const float ls = std::max(0.2126f * sp[0] + 0.7152f * sp[1] + 0.0722f * sp[2], 0.15f);
+            // Along the rays, the colour sits on the rays' edges (a narrow band
+            // of the streak texture), like a prism's thin spectral lines.
+            const float edge = 1.f - smoothstep(0.05f, 0.16f, std::fabs(streakVal - 0.55f));
+            // Running along the flare, the hot middle stays white; the colours sit outside it.
+            const float mid = al * (1.f - pe) * 0.8f * (1.f - smoothstep(0.1f, 0.55f, std::fabs(rayCoord)));
+            const float ir = std::min(std::max(L.iridescence, 0.f), 1.f) * (1.f - pe + pe * edge) * (1.f - mid);
+            for (int c = 0; c < 3; ++c) col[c] += (lum * sp[c] / ls - col[c]) * ir;
+        }
+        // Veil: a wide, low haze (veiling glare), without the streaks.
+        if (!veil.empty()) {
+            const float vk = L.veil * std::exp(-v / veilFall) * fade * flicker * L.intensity;
+            const float* vv = &veil[size_t(u) * 3];
+            const float vl = 0.2126f * vv[0] + 0.7152f * vv[1] + 0.0722f * vv[2];
+            for (int c = 0; c < 3; ++c) col[c] += (vl + (vv[c] - vl) * L.sourceColour) * vk;
+        }
+        // Tint, and Far Tint: the colour drifts as the flare goes into the frame.
         const float m = 1.f - std::exp(-v / farFall);
-        for (int c = 0; c < 3; ++c)
-            add[c] += weight * (lum + (rgb[c] - lum) * L.sourceColour) * L.tint[c] * (1.f + (L.farTint[c] - 1.f) * m);
+        for (int c = 0; c < 3; ++c) add[c] += weight * col[c] * L.tint[c] * (1.f + (L.farTint[c] - 1.f) * m);
+    }
+
+    // Specks about Sparkle Size across, twinkling with Shimmer; about 1 on average.
+    float sparkleAt(int u, float v) const {
+        const float cell = std::max(1.5f, L.sparkleSize * frameH / 100.f);
+        const float n1 = valueNoise2(u / cell, v / cell, seed + 333u);
+        const float n2 = valueNoise2(u / cell * 0.37f + 19.f, v / cell * 0.37f, seed + 334u);
+        // Sparse specks (n1^16), gathered in clumps.
+        float speck = n1 * n1;
+        speck *= speck;
+        speck *= speck;
+        speck *= speck;
+        speck *= smoothstep(0.45f, 0.8f, valueNoise2(u / (cell * 14.f), v / (cell * 14.f), seed + 335u));
+        const float sh = std::min(std::max(L.shimmer, 0.f), 1.f);
+        speck *= 1.f - sh + sh * (0.5f + 0.5f * std::sin(time * L.shimmerSpeed * 1.3f + 25.f * n2));
+        const float sk = std::min(std::max(L.sparkle, 0.f), 2.f);
+        return std::max(0.f, 1.f - 0.3f * std::min(sk, 1.f) + sk * 60.f * speck);
     }
 
     // Pinch: each light becomes a tight neck straight in from the edge, the
@@ -241,8 +302,9 @@ struct Flare {
     // (Fan), leaning by Lean, in a few big rays that all run back through the
     // pinch. The light's energy is conserved, so the neck is hot and the fan
     // dims as it opens.
-    void evalPinch(int u, float v, float fall, float* rgb) const {
+    void evalPinch(int u, float v, float fall, float* rgb, float& rayCoord, float& streakVal) const {
         if (srcs.empty()) return;
+        float wsum = 0.f, rsum = 0.f, ssum = 0.f;
         const float dv = v - pinchPx;
         const float kneeW = 0.15f * pinchPx + 1.f;
         const float s = 0.5f * (dv + std::sqrt(dv * dv + kneeW * kneeW));  // smooth max(dv, 0)
@@ -252,16 +314,27 @@ struct Flare {
             const float c0 = sr.cen - leanTan * s;
             const float rho = (float(u) - c0) / hw;
             if (std::fabs(rho) > 1.1f * chanScale[0] + 0.1f) continue;
-            float mod = 1.f;
+            float mod = 1.f, tv = 0.5f;
             if (!rays.empty()) {
                 const float q = std::min(std::max((rho + 2.f) * 0.25f * (kRays - 1), 0.f), float(kRays - 1));
-                mod = std::max(0.f, 1.f + 2.f * L.streaks * rampRays * (at1(rays, q, kRays) - 0.5f));
+                tv = at1(rays, q, kRays);
+                mod = std::max(0.f, 1.f + 2.f * L.streaks * rampRays * (tv - 0.5f));
             }
+            float wl = 0.f;
             for (int c = 0; c < 3; ++c) {
                 const float rc = std::fabs(rho) / chanScale[c];
                 const float k = (1.f - smoothstep(0.3f, 1.f, rc)) / (1.3f * hw * chanScale[c]);
-                rgb[c] += sr.e[c] * k * fall * mod;
+                const float add = sr.e[c] * k * fall * mod;
+                rgb[c] += add;
+                wl += add;
             }
+            wsum += wl;
+            rsum += wl * rho;
+            ssum += wl * tv;
+        }
+        if (wsum > 0.f) {
+            rayCoord = rsum / wsum;
+            streakVal = ssum / wsum;
         }
     }
 };
@@ -329,6 +402,14 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
         }
     }
     fl.farFall = std::max(1.f, 0.6f * fl.depthPx);
+    fl.frameH = float(g.h);
+    fl.time = time;
+    fl.seed = seed;
+    if (L.veil > 0.f) {
+        // Veiling glare: the light spread very wide and low, reaching further in.
+        fl.veil = blurProfile(prof, n, 0.6f * fl.depthPx + 2.f * fl.spreadPx + 0.05f * g.h);
+        fl.veilFall = 1.5f * fl.depthPx;
+    }
     if (L.shape == kPinch) {
         fl.pinchPx = std::max(0.f, L.pinch * unit);
         fl.leanTan = std::tan(std::min(std::max(L.lean, -60.f), 60.f) * 3.14159265f / 180.f);
@@ -580,8 +661,9 @@ void render(const Image& in, const Settings& s, Image& out) {
 }
 
 const char* lookName(int preset) {
-    static const char* const names[kLookCount] = {"Custom", "Soft Haze", "Thin Streak", "Cool Column",
-                                                  "Blue Blade", "Side Blast"};
+    static const char* const names[kLookCount] = {"Custom",     "Soft Haze",  "Thin Streak",
+                                                  "Cool Column", "Blue Blade", "Side Blast",
+                                                  "Warm Beam",  "Rainbow Arc", "Prism Rays"};
     return preset >= 0 && preset < kLookCount ? names[preset] : "Custom";
 }
 
@@ -617,6 +699,27 @@ Look presetLook(int preset, const Look& custom) {
             L.lean = 8.f;
             L.farTint[0] = 0.05f; L.farTint[1] = 0.4f; L.farTint[2] = 1.f;
             L.shimmerSpeed = 1.5f;
+            break;
+        case kWarmBeam:  // a long warm beam from the edge in a wide veil, going greenish far out
+            set(L, kPinch, 1.6f, 0.f, 10.f, 45.f, 5.f, 0.22f, 0.15f, 0.6f, 0.5f, 0.3f, 0.5f, 0.4f, 1.f, 0.7f, 0.42f, 0.f);
+            L.pinch = 0.f;
+            L.farTint[0] = 0.8f; L.farTint[1] = 1.05f; L.farTint[2] = 0.75f;
+            L.veil = 0.8f;
+            break;
+        case kRainbowArc:  // a curved band of thin-film rainbow arcs, fine streaks across it, glitter
+            set(L, kPinch, 1.3f, 0.f, 8.f, 30.f, 6.f, 1.f, 0.1f, 1.1f, 0.95f, 0.4f, 0.3f, 1.f, 1.f, 0.95f, 0.85f, 0.f);
+            L.pinch = 0.f;
+            L.curve = 1.2f;
+            L.iridescence = 0.6f; L.rainbowBands = 2.f; L.rainbowAlong = 1.f;
+            L.sparkle = 0.6f; L.sparkleSize = 0.35f;
+            L.veil = 0.7f;
+            break;
+        case kPrismRays:  // sharp rays with rainbow edges, dust glittering in the light
+            set(L, kPinch, 1.5f, 0.f, 10.f, 35.f, 4.f, 0.6f, 0.1f, 1.8f, 0.2f, 0.4f, 0.4f, 0.8f, 1.f, 0.92f, 0.8f, 0.f);
+            L.pinch = 3.f;
+            L.iridescence = 0.45f; L.rainbowBands = 3.f; L.rainbowAlong = 1.f; L.prismEdges = 1.f;
+            L.sparkle = 0.7f; L.sparkleSize = 0.4f;
+            L.veil = 0.4f;
             break;
         default:
             return custom;
