@@ -74,6 +74,7 @@ struct Look {
     float pinch = 15.f;        // pinch: length of the tight neck before it fans out
     float lean = 0.f;          // pinch: degrees the fan leans (+ = up on the sides, left on top/bottom)
     // Organic veiling-flare character.
+    float falloff = 0.f;       // 0 = fades gradually from the edge, 1 = holds its strength, then drops away
     float curve = 0.f;         // bends the flare as it goes in (+ the same way as Lean)
     float veil = 0.f;          // a wide, low haze around the flare (veiling glare)
     float iridescence = 0.f;   // rainbow banding (thin-film / prism colours)

@@ -35,7 +35,7 @@ enum P {
     P_SHAPE, P_PINCH, P_LEAN, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
     P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT, P_FARTINT,
     P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE,
-    P_CURVE, P_VEIL, P_IRID, P_BANDS, P_ALONG, P_EDGES,
+    P_FALLOFF, P_CURVE, P_VEIL, P_IRID, P_BANDS, P_ALONG, P_EDGES,
     // sources
     P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE,
     P_TOP, P_BOTTOM, P_LEFT, P_RIGHT,
@@ -163,6 +163,9 @@ const std::vector<PDef>& defs() {
          0, 1},
         {P_FRINGE, "fringe", kDbl, "grpCustom", "Fringe", "Colour fringing: red scatters a little wider than blue.",
          {0.3}, 0, 2, 0, 1},
+        {P_FALLOFF, "falloff", kDbl, "grpCustom", "Falloff",
+         "0: the flare fades gradually from the edge. 1: it holds its strength, then drops away at about Depth.",
+         {0}, 0, 1, 0, 1},
         {P_CURVE, "curve", kDbl, "grpCustom", "Curve",
          "Bends the flare as it goes into the frame, into an arc (positive bends the same way as Lean).", {0},
          -3, 3, -1.5, 1.5},
@@ -276,6 +279,7 @@ gate::Settings read(Instance* in, double t) {
     c.pinch = f(P_PINCH);
     c.lean = f(P_LEAN);
     for (int i = 0; i < 3; ++i) c.farTint[i] = f(P_FARTINT, i);
+    c.falloff = f(P_FALLOFF);
     c.curve = f(P_CURVE);
     c.veil = f(P_VEIL);
     c.iridescence = f(P_IRID);

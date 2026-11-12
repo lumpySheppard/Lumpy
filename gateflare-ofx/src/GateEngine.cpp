@@ -184,7 +184,10 @@ struct Flare {
         const float core = std::min(std::max(L.core, 0.f), 1.f);
         // (A pinch's hot core is at its focus.)
         const float vc = L.shape == kPinch ? std::fabs(v - pinchPx) : v;
-        const float fall = ((1.f - core) * std::exp(-v / depthPx) + core * 2.2f * std::exp(-vc / (0.2f * depthPx))) *
+        // Falloff 0: exponential; 1: holds, then drops away (exp of (v/depth)^4).
+        const float vd = v / depthPx;
+        const float body = L.falloff > 0.f ? std::exp(-std::pow(vd, 1.f + 3.f * std::min(L.falloff, 1.f))) : std::exp(-vd);
+        const float fall = ((1.f - core) * body + core * 2.2f * std::exp(-vc / (0.2f * depthPx))) *
                            L.intensity * fade * flicker;
         const float fk = v / maxD * (K - 1);
         const int k0 = std::min(int(fk), K - 2);
@@ -686,13 +689,15 @@ Look presetLook(int preset, const Look& custom) {
             L.bladeAngle = 8.f;
             L.bladeSoftness = 0.4f;
             break;
-        case kSideBlast:  // Gummo: the light comes to a focus just inside the edge, crosses and opens
-                          // into a soft, broken-up blue cone, just after the light has gone
-            set(L, kPinch, 1.f, -0.8f, 10.f, 20.f, 1.2f, 0.35f, 0.05f, 1.f, 0.3f, 0.5f, 0.35f, 0.3f, 0.8f, 0.9f, 1.f, 0.f);
-            L.pinch = 12.f;
+        case kSideBlast:  // Gummo (measured on the full frame): a small teal-blue flare that narrows to a
+                          // soft focus about 3% in, then opens to ~10% wide and is gone by ~20-25% in;
+                          // no white core, no lean, just after the light has gone
+            set(L, kPinch, 0.07f, -0.8f, 10.f, 13.f, 4.f, 1.f, 0.f, 0.8f, 0.3f, 0.5f, 0.f, 0.2f, 0.1f, 0.72f, 1.f, 0.f);
+            L.falloff = 1.f;
+            L.pinch = 3.f;
             L.lean = 0.f;
-            L.farTint[0] = 0.35f; L.farTint[1] = 0.6f; L.farTint[2] = 1.f;
-            L.veil = 0.3f;
+            L.farTint[0] = 0.5f; L.farTint[1] = 0.55f; L.farTint[2] = 1.f;
+            L.veil = 0.2f;
             L.shimmerSpeed = 1.5f;
             break;
         default:

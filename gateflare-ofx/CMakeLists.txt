@@ -136,7 +136,7 @@ if(NOT WIN32)
   add_test(NAME top_look_preset
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/lookp.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5
-                   --expect-mean-above 28:0.15 --max-below 1.0)
+                   --set topIntensity=10 --expect-mean-above 28:0.15 --max-below 1.0)
   add_test(NAME look_blend
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/blend.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookB=5 --set topBlend=0.5
@@ -157,13 +157,13 @@ if(NOT WIN32)
   add_test(NAME side_blast_top
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/blastt.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5 --set topStartOffset=0.8
-                   --expect-mean-above 28:0.14 --max-below 1.0)
+                   --set topIntensity=10 --expect-mean-above 28:0.14 --max-below 1.0)
   set_tests_properties(pinch_shape side_blast_top PROPERTIES FIXTURES_REQUIRED clip)
   # Veil, iridescence and curve render a flare that never clips.
   add_test(NAME organic_controls
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/orgc.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set veil=1 --set iridescence=1
-                   --set rainbowAlong=0.5 --set prismEdges=0.5 --set curve=1
+                   --set rainbowAlong=0.5 --set prismEdges=0.5 --set curve=1 --set falloff=1
                    --expect-mean-above 28:0.14 --max-below 1.0)
   set_tests_properties(organic_controls PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(top_look_preset look_blend pairs_independent pairs_off_identity

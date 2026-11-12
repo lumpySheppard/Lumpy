@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
         {"--streaks", &c.streaks}, {"--streak-detail", &c.streakDetail}, {"--shimmer", &c.shimmer},
         {"--shimmer-speed", &c.shimmerSpeed}, {"--core", &c.core}, {"--fringe", &c.fringe},
         {"--source-colour", &c.sourceColour}, {"--pinch", &c.pinch}, {"--lean", &c.lean},
-        {"--curve", &c.curve}, {"--veil", &c.veil}, {"--iridescence", &c.iridescence}, {"--bands", &c.rainbowBands},
+        {"--falloff", &c.falloff}, {"--curve", &c.curve}, {"--veil", &c.veil}, {"--iridescence", &c.iridescence}, {"--bands", &c.rainbowBands},
         {"--along", &c.rainbowAlong}, {"--edges", &c.prismEdges},
         {"--tint-r", &c.tint[0]}, {"--tint-g", &c.tint[1]}, {"--tint-b", &c.tint[2]},
         {"--far-r", &c.farTint[0]}, {"--far-g", &c.farTint[1]}, {"--far-b", &c.farTint[2]}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
