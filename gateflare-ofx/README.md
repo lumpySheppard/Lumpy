@@ -48,9 +48,8 @@ Then:
 | Gate Crop (%) | How much of the picture lies beyond the gate; the shot is zoomed in by this much |
 | Crop to Gate | Scale the gate up to fill the frame. Turn off to keep the full picture and crop it yourself |
 | Show Gate & Sources | Setup view: the gate, the margin, and the detected sources |
-| Shape | **Plume**: a soft fan that widens into the frame. **Beam**: a narrow, parallel-sided column straight in from the edge (the streak in *Road to Perdition*, or a cool column from the top). **Blade**: a hard-edged wedge that can lean. **Ring**: a faint ghost arc around the light beyond the edge (*A Clockwork Orange*) |
+| Shape | **Plume**: a fan that widens into the frame. **Beam**: a narrow, parallel-sided column straight in from the edge (the streak in *Road to Perdition*, or a cool column from the top). **Blade**: a hard-edged wedge that can lean |
 | Blade Angle / Blade Softness | Blade: how far it leans from straight in, and how soft its sides are (0 = razor sharp) |
-| Ring Size / Ring Width | Ring: radius and line thickness |
 | Flare Colour | **Source** (the lights' own colour), **Cool Blue**, **Cyan**, **Warm**, or **Custom** (white coloured by Tint). Tint applies on top of all of them |
 | Source Threshold / Softness | How bright (as encoded) something must be to flare (default 0.9) |
 | Isolate Lights | 1 (default): only small things much brighter than their surroundings flare, such as lamps, practicals and speculars. Big bright areas like lit walls don't. 0: anything over the threshold flares, windows and walls included |
@@ -62,6 +61,20 @@ Then:
 | Edge Glow | A thin glow right along the gate edge |
 | Source Colour / Tint | With Flare Colour = Source: take the lights' colour (1) or go white (0). Tint colours every mode |
 | Edges | Which edges flare |
+
+**Character** makes it read as real gate flare instead of a soft blob:
+
+| Control | What it does |
+| --- | --- |
+| Streaks | Striations from the gate edge's nicks and roughness, running in the flare's direction and softening as they go in. 0 = a smooth glow |
+| Streak Detail | Broad (0) to fine (1) streaks |
+| Shimmer / Shimmer Speed | The streaks, and gently the flare's strength, change from frame to frame, like light catching a rough edge as it moves. 0 = still |
+| Core | A hot, tight core right at the edge with a long subtle tail (1), versus one even falloff (0) |
+| Fringe | Colour fringing: red scatters a little wider than blue |
+| Seed | A different streak pattern |
+
+The shimmer depends only on the frame number, so a frame always renders
+the same way.
 | Input Encoding | How the images are encoded, so the flare is added in linear light. Same list as FilmFlash: Rec.709, DaVinci Intermediate, Cineon, camera logs (LogC3/4, S-Log3, V-Log, Log3G10, Apple Log, BMD Film Gen 5) and HLG (iPhone footage) |
 
 On log or a colour-managed timeline, set Input Encoding to match. The flare

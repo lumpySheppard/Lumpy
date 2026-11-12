@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.2.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -89,14 +89,26 @@ if(NOT WIN32)
                    --set encoding=7 --set gateCrop=8 --set fan=2 --set sourceColour=0)
   add_test(NAME show_gate
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/show.rgb --context filter --set showGate=1)
-  # Each shape (Beam, Blade, Ring) flares from the margin too, with a colour preset.
-  foreach(SHAPE 1 2 3)
+  # Each shape (Beam, Blade) flares from the margin too, with a colour preset.
+  foreach(SHAPE 1 2)
     add_test(NAME shape_${SHAPE}
              COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/shape${SHAPE}.rgb --context filter
                      --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set shape=${SHAPE}
                      --set flareColour=${SHAPE} --expect-mean-above 28:0.128 --max-below 1.0000001)
     set_tests_properties(shape_${SHAPE} PROPERTIES FIXTURES_REQUIRED clip)
   endforeach()
+  # Character off (smooth, no shimmer): still flares; with heavy streaks,
+  # shimmer and fringe: still flares, deterministic, never past white.
+  add_test(NAME character_off
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/charoff.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set streaks=0 --set shimmer=0
+                   --set core=0 --set fringe=0 --expect-mean-above 28:0.15)
+  add_test(NAME character_heavy
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/charheavy.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set streaks=2 --set shimmer=1
+                   --set shimmerSpeed=5 --set fringe=2 --set core=1 --set seed=7 --set shape=2
+                   --expect-mean-above 28:0.15 --max-below 1.0000001)
+  set_tests_properties(character_off character_heavy PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(off_is_identity flare_from_margin no_flare_baseline crop_and_options show_gate
                        isolate_ignores_big_areas
                        PROPERTIES FIXTURES_REQUIRED clip)

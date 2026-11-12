@@ -28,14 +28,15 @@ const char* const kPluginId = "com.lumpy.GateFlare";
 
 enum P {
     P_CROP, P_CROPOUT, P_SHOWGATE,
-    P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_RINGSIZE, P_RINGWIDTH, P_COLOURMODE,
+    P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
+    P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE, P_SEED,
     P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE, P_INTENSITY, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW,
     P_SRCCOL, P_TINT,
     P_TOP, P_BOTTOM, P_LEFT, P_RIGHT,
     P_ENCODING,
     P_COUNT
 };
-enum PType { kDbl, kBool, kChoice, kRGB };
+enum PType { kDbl, kBool, kChoice, kRGB, kInt };
 
 struct PDef {
     P id;
@@ -66,19 +67,14 @@ const std::vector<PDef>& defs() {
          {0}, 0, 1, 0, 1},
 
         {P_SHAPE, "shape", kChoice, "grpFlare", "Shape",
-         "Plume: a soft fan that widens into the frame. Beam: a narrow, straight column in from "
-         "the edge (Road to Perdition's streak). Blade: a hard-edged wedge that can lean "
-         "(Angle). Ring: a faint ghost arc around the light beyond the edge (A Clockwork Orange).",
-         {0}, 0, 3, 0, 3, {"Plume (soft fan)", "Beam (straight column)", "Blade (hard-edged wedge)", "Ring (ghost arc)"}},
+         "Plume: a fan that widens into the frame. Beam: a narrow, straight column in from the "
+         "edge (Road to Perdition's streak). Blade: a hard-edged wedge that can lean (Angle).",
+         {0}, 0, 2, 0, 2, {"Plume (fan)", "Beam (straight column)", "Blade (hard-edged wedge)"}},
         {P_BLADEANGLE, "bladeAngle", kDbl, "grpFlare", "Blade Angle",
          "Blade: degrees it leans away from straight in (negative leans the other way).", {15}, -75,
          75, -45, 45},
         {P_BLADESOFT, "bladeSoftness", kDbl, "grpFlare", "Blade Softness (%)",
          "Blade: how soft its sides are, as % of frame height. 0 = razor sharp.", {0.3}, 0, 10, 0, 3},
-        {P_RINGSIZE, "ringSize", kDbl, "grpFlare", "Ring Size (%)",
-         "Ring: radius, as % of frame height.", {25}, 2, 150, 5, 80},
-        {P_RINGWIDTH, "ringWidth", kDbl, "grpFlare", "Ring Width (%)",
-         "Ring: thickness of the line, as % of frame height.", {1.2}, 0.1, 20, 0.2, 6},
         {P_COLOURMODE, "flareColour", kChoice, "grpFlare", "Flare Colour",
          "Source: the colour of the lights causing it. Cool Blue / Cyan / Warm: the tinted flares "
          "of coated lenses and gates. Custom: white, coloured by Tint. Tint applies on top of all "
@@ -121,6 +117,26 @@ const std::vector<PDef>& defs() {
          "1 = the flare takes the colour of the lights causing it; 0 = white.", {1}, 0, 1, 0, 1},
         {P_TINT, "tint", kRGB, "grpFlare", "Tint", "Colours the flare.", {1, 1, 1}, 0, 2, 0, 1},
 
+        {P_STREAKS, "streaks", kDbl, "grpCharacter", "Streaks",
+         "Striations in the flare from the gate edge's nicks and roughness, running in the "
+         "flare's direction. 0 = a smooth glow.",
+         {0.5}, 0, 2, 0, 1},
+        {P_STREAKDETAIL, "streakDetail", kDbl, "grpCharacter", "Streak Detail",
+         "0 = broad streaks, 1 = fine ones.", {0.5}, 0, 1, 0, 1},
+        {P_SHIMMER, "shimmer", kDbl, "grpCharacter", "Shimmer",
+         "How much the streaks and the flare change from frame to frame, like light catching a "
+         "rough edge as it moves. 0 = still.",
+         {0.3}, 0, 1, 0, 1},
+        {P_SHIMMERSPEED, "shimmerSpeed", kDbl, "grpCharacter", "Shimmer Speed", "How fast it shimmers.",
+         {1}, 0, 10, 0, 4},
+        {P_CORE, "core", kDbl, "grpCharacter", "Core",
+         "A hot, tight core right at the edge with a long subtle tail (1), versus one even falloff "
+         "(0).",
+         {0.4}, 0, 1, 0, 1},
+        {P_FRINGE, "fringe", kDbl, "grpCharacter", "Fringe",
+         "Colour fringing: red scatters a little wider than blue.", {0.3}, 0, 2, 0, 1},
+        {P_SEED, "seed", kInt, "grpCharacter", "Seed", "A different streak pattern.", {1}, 0, 100000,
+         0, 100},
         {P_TOP, "edgeTop", kBool, "grpEdges", "Top", "Flare from the top edge.", {1}, 0, 1, 0, 1},
         {P_BOTTOM, "edgeBottom", kBool, "grpEdges", "Bottom", "Flare from the bottom edge.", {1}, 0,
          1, 0, 1},
@@ -142,7 +158,7 @@ struct GDef {
     const char* label;
     bool open;
 };
-const GDef kGroups[] = {{"grpFlare", "Flare", true}, {"grpEdges", "Edges", false}, {"grpInput", "Input", false}};
+const GDef kGroups[] = {{"grpFlare", "Flare", true}, {"grpCharacter", "Character", true}, {"grpEdges", "Edges", false}, {"grpInput", "Input", false}};
 
 const OfxPropertySuiteV1* gProp = nullptr;
 const OfxImageEffectSuiteV1* gFx = nullptr;
@@ -195,11 +211,17 @@ gate::Settings read(Instance* in, double t) {
     s.edges[2] = v[P_LEFT][0] != 0;
     s.edges[3] = v[P_RIGHT][0] != 0;
     s.encoding = std::min(std::max(int(v[P_ENCODING][0]), 0), int(encodings::kEncodingCount) - 1);
-    s.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 3);
+    s.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 2);
     s.bladeAngle = float(v[P_BLADEANGLE][0]);
     s.bladeSoftness = float(v[P_BLADESOFT][0]);
-    s.ringSize = float(v[P_RINGSIZE][0]);
-    s.ringWidth = float(v[P_RINGWIDTH][0]);
+    s.streaks = float(v[P_STREAKS][0]);
+    s.streakDetail = float(v[P_STREAKDETAIL][0]);
+    s.shimmer = float(v[P_SHIMMER][0]);
+    s.shimmerSpeed = float(v[P_SHIMMERSPEED][0]);
+    s.core = float(v[P_CORE][0]);
+    s.fringe = float(v[P_FRINGE][0]);
+    s.seed = unsigned(std::max(0, int(v[P_SEED][0])));
+    s.time = float(t);
     // Flare Colour presets: replace the source's colour, then Tint on top.
     static const float presets[5][3] = {{1, 1, 1}, {0.55f, 0.72f, 1.f}, {0.55f, 0.95f, 1.f}, {1.f, 0.75f, 0.5f}, {1, 1, 1}};
     const int cm = std::min(std::max(int(v[P_COLOURMODE][0]), 0), 4);
@@ -268,7 +290,7 @@ OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle) {
             openGroup = d.group;
         }
         static const char* const types[] = {kOfxParamTypeDouble, kOfxParamTypeBoolean, kOfxParamTypeChoice,
-                                            kOfxParamTypeRGB};
+                                            kOfxParamTypeRGB, kOfxParamTypeInteger};
         OfxPropertySetHandle p;
         gParam->paramDefine(ps, types[d.type], d.name, &p);
         gProp->propSetString(p, kOfxPropLabel, 0, d.label);
@@ -286,6 +308,14 @@ OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle) {
                 break;
             case kBool:
                 gProp->propSetInt(p, kOfxParamPropDefault, 0, int(d.def[0]));
+                break;
+            case kInt:
+                gProp->propSetInt(p, kOfxParamPropDefault, 0, int(d.def[0]));
+                gProp->propSetInt(p, kOfxParamPropMin, 0, int(d.lo));
+                gProp->propSetInt(p, kOfxParamPropMax, 0, int(d.hi));
+                gProp->propSetInt(p, kOfxParamPropDisplayMin, 0, int(d.dlo));
+                gProp->propSetInt(p, kOfxParamPropDisplayMax, 0, int(d.dhi));
+                gProp->propSetInt(p, kOfxParamPropAnimates, 0, 0);
                 break;
             case kChoice:
                 if (d.options.empty())
@@ -420,7 +450,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 2, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 3, setHost, mainEntry};
 
 }  // namespace
 

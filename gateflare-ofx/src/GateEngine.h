@@ -37,7 +37,6 @@ enum Shape {
     kPlume = 0,  // soft fan that widens into the frame
     kBeam = 1,   // narrow, parallel-sided column straight in from the edge
     kBlade = 2,  // hard-edged wedge, can be angled
-    kRing = 3,   // ghost ring/arc centred on the light beyond the edge
 };
 
 struct Settings {
@@ -45,8 +44,15 @@ struct Settings {
     int shape = kPlume;
     float bladeAngle = 15.f;   // degrees the blade leans away from straight-in
     float bladeSoftness = 0.3f;  // blade edge softness, % of frame height
-    float ringSize = 25.f;     // ring radius, % of frame height
-    float ringWidth = 1.2f;    // ring line width, % of frame height
+    // Natural character: real gate flare isn't a smooth blob.
+    float streaks = 0.5f;      // striations from the gate edge's nicks and roughness
+    float streakDetail = 0.5f; // 0 = broad streaks, 1 = fine
+    float shimmer = 0.3f;      // how much the streaks (and the flare) change frame to frame
+    float shimmerSpeed = 1.f;
+    float core = 0.4f;         // hot, tight core at the edge vs one soft falloff
+    float fringe = 0.3f;       // red scatters wider than blue
+    float time = 0.f;          // frame number (drives the shimmer)
+    unsigned seed = 1;
     float crop = 6.f;          // % of the picture beyond the gate (zoom-in amount)
     bool cropOutput = true;    // scale the gate up to fill the frame
     float threshold = 0.9f;    // encoded value a source must exceed to flare

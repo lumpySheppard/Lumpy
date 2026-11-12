@@ -28,8 +28,10 @@ int main(int argc, char** argv) {
     s.upSign = -1;  // rgb24 rows are top-down
     float showGate = 0, noCrop = 0, enc = 0, shapeF = 0;
     std::map<std::string, float*> f = {
-        {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate}, {"--blade-angle", &s.bladeAngle}, {"--blade-softness", &s.bladeSoftness},
-        {"--ring-size", &s.ringSize}, {"--ring-width", &s.ringWidth}, {"--shape", &shapeF}, {"--light-size", &s.lightSize},
+        {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate}, {"--streaks", &s.streaks}, {"--streak-detail", &s.streakDetail},
+        {"--shimmer", &s.shimmer}, {"--shimmer-speed", &s.shimmerSpeed}, {"--core", &s.core},
+        {"--fringe", &s.fringe}, {"--blade-angle", &s.bladeAngle}, {"--blade-softness", &s.bladeSoftness},
+        {"--shape", &shapeF}, {"--light-size", &s.lightSize},
         {"--intensity", &s.intensity}, {"--reach", &s.reach}, {"--depth", &s.depth},
         {"--spread", &s.spread}, {"--fan", &s.fan}, {"--edge-glow", &s.edgeGlow},
         {"--source-colour", &s.sourceColour}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
@@ -46,7 +48,8 @@ int main(int argc, char** argv) {
     const size_t fb = size_t(w) * h * 3;
     std::vector<unsigned char> buf(fb);
     gate::Image img(w, h), out;
-    while (std::fread(buf.data(), 1, fb, stdin) == fb) {
+    for (int frame = 0; std::fread(buf.data(), 1, fb, stdin) == fb; ++frame) {
+        s.time = float(frame);
         for (size_t i = 0, n = size_t(w) * h; i < n; ++i) {
             for (int k = 0; k < 3; ++k) img.px[i * 4 + k] = buf[i * 3 + k] / 255.f;
             img.px[i * 4 + 3] = 1.f;
