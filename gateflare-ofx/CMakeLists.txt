@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.5.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.6.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -130,6 +130,26 @@ if(NOT WIN32)
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/early.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set flareStart=5
                    --expect-mean-above 20:0.13)
+  # Looks: a preset on the top & bottom pair changes the flare; Blend mixes
+  # two looks; the left & right pair leaves a top-edge flare alone; both pairs
+  # at zero intensity (and no crop) is a pass-through.
+  add_test(NAME top_look_preset
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/lookp.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5
+                   --expect-mean-above 28:0.25 --max-below 1.0)
+  add_test(NAME look_blend
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/blend.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookB=5 --set topBlend=0.5
+                   --expect-mean-above 28:0.23 --expect-mean-below 28:0.265)
+  add_test(NAME pairs_independent
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pairs.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topIntensity=0 --set sideLookA=5
+                   --expect-mean-below 28:0.135)
+  add_test(NAME pairs_off_identity
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pairsoff.rgb --context filter
+                   --set cropToGate=0 --set topIntensity=0 --set sideIntensity=0 --expect-identity-at 28:Source)
+  set_tests_properties(top_look_preset look_blend pairs_independent pairs_off_identity
+                       PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(flare_start_later flare_start_earlier PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(character_off character_heavy film_composite_never_clips other_composites add_composite_log
                        PROPERTIES FIXTURES_REQUIRED clip)

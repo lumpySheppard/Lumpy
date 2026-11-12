@@ -1,8 +1,11 @@
 // gate_cli: preview the gate flare outside Resolve on raw rgb24 video.
 //
 //   ffmpeg -i in.mov -f rawvideo -pix_fmt rgb24 - |
-//     gate_cli 1920 1080 --crop 6 --intensity 1 |
+//     gate_cli 1920 1080 --look-top 1 --look-side 5 |
 //     ffmpeg -f rawvideo -pix_fmt rgb24 -s 1920x1080 -r 24 -i - -pix_fmt yuv420p out.mp4
+//
+// Looks: 0 Custom (the custom flags below), 1 Soft Haze, 2 Thin Streak,
+// 3 Cool Column, 4 Blue Blade, 5 Side Blast.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -14,9 +17,13 @@
 
 static void usage() {
     std::fprintf(stderr,
-                 "usage: gate_cli W H [--crop PCT] [--threshold F] [--knee F] [--intensity F] [--reach PCT]\n"
-                 "                [--depth PCT] [--spread PCT] [--fan F] [--edge-glow F] [--source-colour F]\n"
-                 "                [--encoding N] [--show-gate 1] [--no-crop 1]\n");
+                 "usage: gate_cli W H [options]\n"
+                 "  edges: --look-top N --look-top-b N --blend-top F --look-side N --look-side-b N --blend-side F\n"
+                 "  custom look: --shape N --intensity F --flare-start PCT --reach PCT --depth PCT --spread PCT\n"
+                 "               --fan F --edge-glow F --blade-angle DEG --blade-softness PCT --streaks F\n"
+                 "               --streak-detail F --shimmer F --shimmer-speed F --core F --fringe F --source-colour F\n"
+                 "  sources: --threshold F --knee F --isolate F --light-size PCT\n"
+                 "  other: --crop PCT --no-crop 1 --show-gate 1 --encoding N --composite N --seed N\n");
     std::exit(2);
 }
 
@@ -26,26 +33,37 @@ int main(int argc, char** argv) {
     if (w <= 0 || h <= 0) usage();
     gate::Settings s;
     s.upSign = -1;  // rgb24 rows are top-down
-    float showGate = 0, noCrop = 0, enc = 0, shapeF = 0, compF = 0;
+    gate::Look c;
+    float showGate = 0, noCrop = 0, enc = 0, comp = 0, shape = 0, seed = 1;
+    float lookTop = 0, lookTopB = 1, blendTop = 0, lookSide = 0, lookSideB = 1, blendSide = 0;
     std::map<std::string, float*> f = {
-        {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate}, {"--streaks", &s.streaks}, {"--streak-detail", &s.streakDetail},
-        {"--shimmer", &s.shimmer}, {"--shimmer-speed", &s.shimmerSpeed}, {"--core", &s.core},
-        {"--fringe", &s.fringe}, {"--blade-angle", &s.bladeAngle}, {"--blade-softness", &s.bladeSoftness},
-        {"--shape", &shapeF}, {"--composite", &compF}, {"--light-size", &s.lightSize},
-        {"--intensity", &s.intensity}, {"--reach", &s.reach}, {"--flare-start", &s.flareStart}, {"--depth", &s.depth},
-        {"--spread", &s.spread}, {"--fan", &s.fan}, {"--edge-glow", &s.edgeGlow},
-        {"--source-colour", &s.sourceColour}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
-        {"--encoding", &enc}};
+        {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate},
+        {"--light-size", &s.lightSize}, {"--intensity", &c.intensity}, {"--flare-start", &c.flareStart},
+        {"--reach", &c.reach}, {"--depth", &c.depth}, {"--spread", &c.spread}, {"--fan", &c.fan},
+        {"--edge-glow", &c.edgeGlow}, {"--blade-angle", &c.bladeAngle}, {"--blade-softness", &c.bladeSoftness},
+        {"--streaks", &c.streaks}, {"--streak-detail", &c.streakDetail}, {"--shimmer", &c.shimmer},
+        {"--shimmer-speed", &c.shimmerSpeed}, {"--core", &c.core}, {"--fringe", &c.fringe},
+        {"--source-colour", &c.sourceColour}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
+        {"--encoding", &enc}, {"--composite", &comp}, {"--shape", &shape}, {"--seed", &seed},
+        {"--look-top", &lookTop}, {"--look-top-b", &lookTopB}, {"--blend-top", &blendTop},
+        {"--look-side", &lookSide}, {"--look-side-b", &lookSideB}, {"--blend-side", &blendSide}};
     for (int i = 3; i < argc; ++i) {
         std::string a = argv[i];
         if (i + 1 >= argc || !f.count(a)) usage();
         *f[a] = float(std::atof(argv[++i]));
     }
+    c.shape = int(shape);
     s.showGate = showGate != 0;
     s.cropOutput = noCrop == 0;
     s.encoding = int(enc);
-    s.shape = int(shapeF);
-    s.composite = int(compF);
+    s.composite = int(comp);
+    s.seed = unsigned(seed);
+    s.pair[0].a = gate::presetLook(int(lookTop), c);
+    s.pair[0].b = gate::presetLook(int(lookTopB), c);
+    s.pair[0].blend = blendTop;
+    s.pair[1].a = gate::presetLook(int(lookSide), c);
+    s.pair[1].b = gate::presetLook(int(lookSideB), c);
+    s.pair[1].blend = blendSide;
     const size_t fb = size_t(w) * h * 3;
     std::vector<unsigned char> buf(fb);
     gate::Image img(w, h), out;

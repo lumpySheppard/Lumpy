@@ -28,12 +28,17 @@ const char* const kPluginId = "com.lumpy.GateFlare";
 
 enum P {
     P_CROP, P_CROPOUT, P_SHOWGATE,
-    P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE, P_COMPOSITE,
-    P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE, P_SEED,
-    P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE, P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW,
-    P_SRCCOL, P_TINT,
+    // per edge pair
+    P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TTINT,
+    P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_STINT,
+    // custom look
+    P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
+    P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT,
+    P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE,
+    // sources
+    P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE,
     P_TOP, P_BOTTOM, P_LEFT, P_RIGHT,
-    P_ENCODING,
+    P_COMPOSITE, P_ENCODING, P_SEED,
     P_COUNT
 };
 enum PType { kDbl, kBool, kChoice, kRGB, kInt };
@@ -50,117 +55,127 @@ struct PDef {
     std::vector<const char*> options = {};  // choices (empty: the encodings list)
 };
 
+const std::vector<const char*> kLookOptions = {"Custom", "Soft Haze", "Thin Streak", "Cool Column", "Blue Blade",
+                                               "Side Blast"};
+const char* const kLookHint =
+    "Custom: the Custom Look controls below. Soft Haze: a soft, streaky plume in the lights' own colour. "
+    "Thin Streak: a long, thin streak straight in (a light leaving the side, Road to Perdition). Cool "
+    "Column: a cool column straight in. Blue Blade: a hard-edged blue wedge. Side Blast: a wide, streaky "
+    "blue fan that blasts in just after the light has gone (Gummo).";
+
 const std::vector<PDef>& defs() {
     static const std::vector<PDef> d = {
         {P_CROP, "gateCrop", kDbl, nullptr, "Gate Crop (%)",
-         "How much of the picture lies beyond the gate. The shot is zoomed in by this much; "
-         "bright things in the cropped-off margin flare in from the edge before they enter "
-         "and after they leave.",
+         "How much of the picture lies beyond the gate. The shot is zoomed in by this much; bright things "
+         "in the cropped-off margin flare in from the edge before they enter and after they leave.",
          {6}, 0, 40, 0, 15},
         {P_CROPOUT, "cropToGate", kBool, nullptr, "Crop to Gate",
-         "Scale the gate up to fill the frame. Turn off to keep the full picture (and crop it "
-         "yourself).",
+         "Scale the gate up to fill the frame. Turn off to keep the full picture (and crop it yourself).",
          {1}, 0, 1, 0, 1},
         {P_SHOWGATE, "showGate", kBool, nullptr, "Show Gate & Sources",
-         "Shows the whole picture with the gate in red, the margin darkened, and the bright "
-         "sources that will flare in magenta. For setting up; turn off to render.",
+         "Shows the whole picture with the gate in red, the margin darkened, and the lights that will "
+         "flare in magenta. For setting up; turn off to render.",
          {0}, 0, 1, 0, 1},
 
-        {P_SHAPE, "shape", kChoice, "grpFlare", "Shape",
-         "Plume: a fan that widens into the frame. Beam: a narrow, straight column in from the "
-         "edge (Road to Perdition's streak). Blade: a hard-edged wedge that can lean (Angle).",
+        {P_TLOOKA, "topLookA", kChoice, "grpTop", "Look A", kLookHint, {0}, 0, 5, 0, 5, kLookOptions},
+        {P_TLOOKB, "topLookB", kChoice, "grpTop", "Look B", kLookHint, {1}, 0, 5, 0, 5, kLookOptions},
+        {P_TBLEND, "topBlend", kDbl, "grpTop", "Blend A > B", "0 = all Look A, 1 = all Look B, between = a mix.",
+         {0}, 0, 1, 0, 1},
+        {P_TINT_T, "topIntensity", kDbl, "grpTop", "Intensity", "Strength of the top and bottom flares.", {1}, 0,
+         10, 0, 3},
+        {P_TSTART, "topStartOffset", kDbl, "grpTop", "Flare Start Offset (%)",
+         "Added to the looks' Flare Start: negative = flare later (only once the light is past the edge).",
+         {0}, -20, 10, -5, 3},
+        {P_TTINT, "topTint", kRGB, "grpTop", "Tint", "Colours the top and bottom flares.", {1, 1, 1}, 0, 2, 0, 1},
+
+        {P_SLOOKA, "sideLookA", kChoice, "grpSide", "Look A", kLookHint, {0}, 0, 5, 0, 5, kLookOptions},
+        {P_SLOOKB, "sideLookB", kChoice, "grpSide", "Look B", kLookHint, {5}, 0, 5, 0, 5, kLookOptions},
+        {P_SBLEND, "sideBlend", kDbl, "grpSide", "Blend A > B", "0 = all Look A, 1 = all Look B, between = a mix.",
+         {0}, 0, 1, 0, 1},
+        {P_SINT, "sideIntensity", kDbl, "grpSide", "Intensity", "Strength of the left and right flares.", {1}, 0,
+         10, 0, 3},
+        {P_SSTART, "sideStartOffset", kDbl, "grpSide", "Flare Start Offset (%)",
+         "Added to the looks' Flare Start: negative = flare later (only once the light is past the edge).",
+         {0}, -20, 10, -5, 3},
+        {P_STINT, "sideTint", kRGB, "grpSide", "Tint", "Colours the left and right flares.", {1, 1, 1}, 0, 2, 0, 1},
+
+        {P_SHAPE, "shape", kChoice, "grpCustom", "Shape",
+         "Plume: a fan that widens into the frame. Beam: a narrow, straight column in from the edge. "
+         "Blade: a hard-edged wedge that can lean (Angle).",
          {0}, 0, 2, 0, 2, {"Plume (fan)", "Beam (straight column)", "Blade (hard-edged wedge)"}},
-        {P_BLADEANGLE, "bladeAngle", kDbl, "grpFlare", "Blade Angle",
-         "Blade: degrees it leans away from straight in (negative leans the other way).", {15}, -75,
-         75, -45, 45},
-        {P_BLADESOFT, "bladeSoftness", kDbl, "grpFlare", "Blade Softness (%)",
+        {P_BLADEANGLE, "bladeAngle", kDbl, "grpCustom", "Blade Angle",
+         "Blade: degrees it leans away from straight in (negative leans the other way).", {15}, -75, 75, -45,
+         45},
+        {P_BLADESOFT, "bladeSoftness", kDbl, "grpCustom", "Blade Softness (%)",
          "Blade: how soft its sides are, as % of frame height. 0 = razor sharp.", {0.3}, 0, 10, 0, 3},
-        {P_COLOURMODE, "flareColour", kChoice, "grpFlare", "Flare Colour",
-         "Source: the colour of the lights causing it. Cool Blue / Cyan / Warm: the tinted flares "
-         "of coated lenses and gates. Custom: white, coloured by Tint. Tint applies on top of all "
-         "of them.",
+        {P_COLOURMODE, "flareColour", kChoice, "grpCustom", "Flare Colour",
+         "Source: the lights' own colour. Cool Blue / Cyan / Warm: tinted flares. Custom: white, coloured by "
+         "Tint.",
          {0}, 0, 4, 0, 4, {"Source", "Cool Blue", "Cyan", "Warm", "Custom (Tint)"}},
-        {P_COMPOSITE, "composite", kChoice, "grpFlare", "Composite",
-         "Film: the flare is extra exposure on the negative, through a soft shoulder: it glows "
-         "into the highlights and never clips. Screen: brighter, but strong flares flatten to "
-         "white. Add: plain linear add, for log / scene-linear footage that goes through an "
-         "output transform afterwards.",
-         {0}, 0, 2, 0, 2, {"Film (soft shoulder)", "Screen", "Add (linear)"}},
-        {P_THRESH, "threshold", kDbl, "grpFlare", "Source Threshold",
-         "How bright (as encoded) something must be to flare. Lower = more things flare. Use "
-         "Show Gate & Sources to see what's picked up.",
-         {0.9}, 0, 1.5, 0.3, 1.1},
-        {P_KNEE, "knee", kDbl, "grpFlare", "Softness", "Softens the threshold.", {0.05}, 0, 0.6, 0,
-         0.3},
-        {P_ISOLATE, "isolateLights", kDbl, "grpFlare", "Isolate Lights",
-         "1 = only small things much brighter than their surroundings flare (lamps, practicals, "
-         "speculars); big bright areas like lit walls don't. 0 = anything over the threshold "
-         "flares, including windows and walls.",
-         {1}, 0, 1, 0, 1},
-        {P_LIGHTSIZE, "lightSize", kDbl, "grpFlare", "Light Size (%)",
-         "With Isolate Lights: the biggest thing that still counts as a light, as % of frame "
-         "height. Raise it for big practicals or windows.",
-         {3}, 0.2, 50, 0.5, 20},
-        {P_INTENSITY, "intensity", kDbl, "grpFlare", "Intensity",
-         "Strength of the flare. (Lights are usually clipped in the footage, so they get a "
-         "built-in boost that tapers off for lights that are genuinely very bright in "
-         "scene-linear footage.)",
+        {P_INTENSITY, "intensity", kDbl, "grpCustom", "Intensity",
+         "Strength of the flare. (Lights are usually clipped in the footage, so they get a built-in boost "
+         "that tapers off for lights that are genuinely very bright in scene-linear footage.)",
          {1}, 0, 20, 0, 4},
-        {P_START, "flareStart", kDbl, "grpFlare", "Flare Start (%)",
-         "How far from the gate edge a light starts to flare, as % of frame height. 0 = as it "
-         "reaches the edge. Positive = earlier, while it's still inside the frame. Negative = "
-         "later, only once it's past the edge.",
+        {P_START, "flareStart", kDbl, "grpCustom", "Flare Start (%)",
+         "How far from the gate edge a light starts to flare, as % of frame height. 0 = as it reaches the "
+         "edge. Positive = earlier, while it's still inside the frame. Negative = later, once it's past the "
+         "edge (only as far as Gate Crop leaves room for).",
          {0}, -20, 10, -6, 4},
-        {P_REACH, "reach", kDbl, "grpFlare", "Reach (%)",
-         "How far beyond the gate edge a light keeps flaring (it fades out over this), as % of "
-         "frame height.", {6}, 0.5,
-         40, 1, 15},
-        {P_DEPTH, "depth", kDbl, "grpFlare", "Depth (%)",
-         "How far the flare reaches into the frame from the edge, as % of frame height.", {14},
-         1, 100, 2, 50},
-        {P_SPREAD, "spread", kDbl, "grpFlare", "Spread (%)",
-         "Width of the flare along the edge where it starts, as % of frame height.", {2.5}, 0, 30,
-         0, 10},
-        {P_FAN, "fan", kDbl, "grpFlare", "Fan",
-         "How much wider the flare gets as it travels into the frame.", {0.6}, 0, 4, 0, 2},
-        {P_GLOW, "edgeGlow", kDbl, "grpFlare", "Edge Glow",
-         "A thin glow right along the gate edge, where the light hits it.", {0.35}, 0, 5, 0, 2},
-        {P_SRCCOL, "sourceColour", kDbl, "grpFlare", "Source Colour",
-         "1 = the flare takes the colour of the lights causing it; 0 = white.", {1}, 0, 1, 0, 1},
-        {P_TINT, "tint", kRGB, "grpFlare", "Tint", "Colours the flare.", {1, 1, 1}, 0, 2, 0, 1},
+        {P_REACH, "reach", kDbl, "grpCustom", "Reach (%)",
+         "How far beyond the gate edge a light keeps flaring (it fades out over this).", {6}, 0.5, 40, 1, 15},
+        {P_DEPTH, "depth", kDbl, "grpCustom", "Depth (%)", "How far the flare reaches into the frame.", {14}, 1,
+         100, 2, 50},
+        {P_SPREAD, "spread", kDbl, "grpCustom", "Spread (%)", "Width of the flare along the edge where it starts.",
+         {2.5}, 0, 30, 0, 10},
+        {P_FAN, "fan", kDbl, "grpCustom", "Fan", "How much wider it gets as it travels into the frame.", {0.6}, 0,
+         4, 0, 2},
+        {P_GLOW, "edgeGlow", kDbl, "grpCustom", "Edge Glow", "A thin glow right along the gate edge.", {0.35}, 0,
+         5, 0, 2},
+        {P_SRCCOL, "sourceColour", kDbl, "grpCustom", "Source Colour",
+         "With Flare Colour = Source: 1 = the lights' colour, 0 = white.", {1}, 0, 1, 0, 1},
+        {P_TINT, "tint", kRGB, "grpCustom", "Tint", "Colours the flare.", {1, 1, 1}, 0, 2, 0, 1},
+        {P_STREAKS, "streaks", kDbl, "grpCustom", "Streaks",
+         "Striations from the gate edge's nicks and roughness, radiating from the light. 0 = smooth.", {0.5}, 0,
+         2, 0, 1},
+        {P_STREAKDETAIL, "streakDetail", kDbl, "grpCustom", "Streak Detail", "0 = broad streaks, 1 = fine ones.",
+         {0.5}, 0, 1, 0, 1},
+        {P_SHIMMER, "shimmer", kDbl, "grpCustom", "Shimmer",
+         "How much the streaks and the flare change from frame to frame. 0 = still.", {0.3}, 0, 1, 0, 1},
+        {P_SHIMMERSPEED, "shimmerSpeed", kDbl, "grpCustom", "Shimmer Speed", "How fast it shimmers.", {1}, 0, 10,
+         0, 4},
+        {P_CORE, "core", kDbl, "grpCustom", "Core",
+         "A hot, tight core at the edge with a long subtle tail (1), versus one even falloff (0).", {0.4}, 0, 1,
+         0, 1},
+        {P_FRINGE, "fringe", kDbl, "grpCustom", "Fringe", "Colour fringing: red scatters a little wider than blue.",
+         {0.3}, 0, 2, 0, 1},
 
-        {P_STREAKS, "streaks", kDbl, "grpCharacter", "Streaks",
-         "Striations in the flare from the gate edge's nicks and roughness, running in the "
-         "flare's direction. 0 = a smooth glow.",
-         {0.5}, 0, 2, 0, 1},
-        {P_STREAKDETAIL, "streakDetail", kDbl, "grpCharacter", "Streak Detail",
-         "0 = broad streaks, 1 = fine ones.", {0.5}, 0, 1, 0, 1},
-        {P_SHIMMER, "shimmer", kDbl, "grpCharacter", "Shimmer",
-         "How much the streaks and the flare change from frame to frame, like light catching a "
-         "rough edge as it moves. 0 = still.",
-         {0.3}, 0, 1, 0, 1},
-        {P_SHIMMERSPEED, "shimmerSpeed", kDbl, "grpCharacter", "Shimmer Speed", "How fast it shimmers.",
-         {1}, 0, 10, 0, 4},
-        {P_CORE, "core", kDbl, "grpCharacter", "Core",
-         "A hot, tight core right at the edge with a long subtle tail (1), versus one even falloff "
-         "(0).",
-         {0.4}, 0, 1, 0, 1},
-        {P_FRINGE, "fringe", kDbl, "grpCharacter", "Fringe",
-         "Colour fringing: red scatters a little wider than blue.", {0.3}, 0, 2, 0, 1},
-        {P_SEED, "seed", kInt, "grpCharacter", "Seed", "A different streak pattern.", {1}, 0, 100000,
-         0, 100},
+        {P_THRESH, "threshold", kDbl, "grpSources", "Source Threshold",
+         "How bright (as encoded) something must be to flare. Use Show Gate & Sources to see what's picked "
+         "up.",
+         {0.9}, 0, 1.5, 0.3, 1.1},
+        {P_KNEE, "knee", kDbl, "grpSources", "Softness", "Softens the threshold.", {0.05}, 0, 0.6, 0, 0.3},
+        {P_ISOLATE, "isolateLights", kDbl, "grpSources", "Isolate Lights",
+         "1 = only small things much brighter than their surroundings flare (lamps, practicals); big bright "
+         "areas like lit walls don't. 0 = anything over the threshold flares.",
+         {1}, 0, 1, 0, 1},
+        {P_LIGHTSIZE, "lightSize", kDbl, "grpSources", "Light Size (%)",
+         "With Isolate Lights: the biggest thing that still counts as a light, as % of frame height.", {3}, 0.2,
+         50, 0.5, 20},
+
         {P_TOP, "edgeTop", kBool, "grpEdges", "Top", "Flare from the top edge.", {1}, 0, 1, 0, 1},
-        {P_BOTTOM, "edgeBottom", kBool, "grpEdges", "Bottom", "Flare from the bottom edge.", {1}, 0,
-         1, 0, 1},
+        {P_BOTTOM, "edgeBottom", kBool, "grpEdges", "Bottom", "Flare from the bottom edge.", {1}, 0, 1, 0, 1},
         {P_LEFT, "edgeLeft", kBool, "grpEdges", "Left", "Flare from the left edge.", {1}, 0, 1, 0, 1},
-        {P_RIGHT, "edgeRight", kBool, "grpEdges", "Right", "Flare from the right edge.", {1}, 0, 1, 0,
-         1},
+        {P_RIGHT, "edgeRight", kBool, "grpEdges", "Right", "Flare from the right edge.", {1}, 0, 1, 0, 1},
 
+        {P_COMPOSITE, "composite", kChoice, "grpInput", "Composite",
+         "Film: the flare is extra exposure on the negative, through a soft shoulder: it glows into the "
+         "highlights and never clips. Screen: brighter, but strong flares flatten to white. Add: plain linear "
+         "add, for log / scene-linear footage that goes through an output transform afterwards.",
+         {0}, 0, 2, 0, 2, {"Film (soft shoulder)", "Screen", "Add (linear)"}},
         {P_ENCODING, "encoding", kChoice, "grpInput", "Input Encoding",
-         "How the images arriving here are encoded, so the flare is added in linear light. "
-         "Rec.709 for a standard timeline; DaVinci Intermediate for DaVinci Wide Gamut; the "
-         "camera log if the effect sees log footage.",
-         {0}, 0, encodings::kEncodingCount - 1, 0, encodings::kEncodingCount - 1},
+         "How the images arriving here are encoded, so the flare is added in linear light.", {0}, 0,
+         encodings::kEncodingCount - 1, 0, encodings::kEncodingCount - 1},
+        {P_SEED, "seed", kInt, "grpInput", "Seed", "A different streak pattern.", {1}, 0, 100000, 0, 100},
     };
     return d;
 }
@@ -170,7 +185,9 @@ struct GDef {
     const char* label;
     bool open;
 };
-const GDef kGroups[] = {{"grpFlare", "Flare", true}, {"grpCharacter", "Character", true}, {"grpEdges", "Edges", false}, {"grpInput", "Input", false}};
+const GDef kGroups[] = {{"grpTop", "Top & Bottom", true},     {"grpSide", "Left & Right", true},
+                        {"grpCustom", "Custom Look", false},  {"grpSources", "Sources", false},
+                        {"grpEdges", "Edges", false},         {"grpInput", "Composite & Input", false}};
 
 const OfxPropertySuiteV1* gProp = nullptr;
 const OfxImageEffectSuiteV1* gFx = nullptr;
@@ -202,51 +219,80 @@ gate::Settings read(Instance* in, double t) {
             if (gParam->paramGetValueAtTime(in->h[d.id], t, &x) == kOfxStatOK) v[d.id][0] = x;
         }
     }
+    auto f = [&](P p, int i = 0) { return float(v[p][i]); };
     gate::Settings s;
-    s.crop = float(v[P_CROP][0]);
+    s.crop = f(P_CROP);
     s.cropOutput = v[P_CROPOUT][0] != 0;
     s.showGate = v[P_SHOWGATE][0] != 0;
-    s.threshold = float(v[P_THRESH][0]);
-    s.knee = float(v[P_KNEE][0]);
-    s.isolate = float(v[P_ISOLATE][0]);
-    s.lightSize = float(v[P_LIGHTSIZE][0]);
-    s.intensity = float(v[P_INTENSITY][0]);
-    s.reach = float(v[P_REACH][0]);
-    s.flareStart = float(v[P_START][0]);
-    s.depth = float(v[P_DEPTH][0]);
-    s.spread = float(v[P_SPREAD][0]);
-    s.fan = float(v[P_FAN][0]);
-    s.edgeGlow = float(v[P_GLOW][0]);
-    s.sourceColour = float(v[P_SRCCOL][0]);
-    for (int i = 0; i < 3; ++i) s.tint[i] = float(v[P_TINT][i]);
+    s.threshold = f(P_THRESH);
+    s.knee = f(P_KNEE);
+    s.isolate = f(P_ISOLATE);
+    s.lightSize = f(P_LIGHTSIZE);
     s.edges[0] = v[P_TOP][0] != 0;
     s.edges[1] = v[P_BOTTOM][0] != 0;
     s.edges[2] = v[P_LEFT][0] != 0;
     s.edges[3] = v[P_RIGHT][0] != 0;
     s.encoding = std::min(std::max(int(v[P_ENCODING][0]), 0), int(encodings::kEncodingCount) - 1);
-    s.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 2);
     s.composite = std::min(std::max(int(v[P_COMPOSITE][0]), 0), 2);
-    s.bladeAngle = float(v[P_BLADEANGLE][0]);
-    s.bladeSoftness = float(v[P_BLADESOFT][0]);
-    s.streaks = float(v[P_STREAKS][0]);
-    s.streakDetail = float(v[P_STREAKDETAIL][0]);
-    s.shimmer = float(v[P_SHIMMER][0]);
-    s.shimmerSpeed = float(v[P_SHIMMERSPEED][0]);
-    s.core = float(v[P_CORE][0]);
-    s.fringe = float(v[P_FRINGE][0]);
     s.seed = unsigned(std::max(0, int(v[P_SEED][0])));
     s.time = float(t);
+    s.upSign = +1;  // OFX images are bottom-up
+
+    // The Custom Look.
+    gate::Look c;
+    c.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 2);
+    c.intensity = f(P_INTENSITY);
+    c.flareStart = f(P_START);
+    c.reach = f(P_REACH);
+    c.depth = f(P_DEPTH);
+    c.spread = f(P_SPREAD);
+    c.fan = f(P_FAN);
+    c.edgeGlow = f(P_GLOW);
+    c.bladeAngle = f(P_BLADEANGLE);
+    c.bladeSoftness = f(P_BLADESOFT);
+    c.streaks = f(P_STREAKS);
+    c.streakDetail = f(P_STREAKDETAIL);
+    c.shimmer = f(P_SHIMMER);
+    c.shimmerSpeed = f(P_SHIMMERSPEED);
+    c.core = f(P_CORE);
+    c.fringe = f(P_FRINGE);
+    c.sourceColour = f(P_SRCCOL);
+    for (int i = 0; i < 3; ++i) c.tint[i] = f(P_TINT, i);
     // Flare Colour presets: replace the source's colour, then Tint on top.
     static const float presets[5][3] = {{1, 1, 1}, {0.55f, 0.72f, 1.f}, {0.55f, 0.95f, 1.f}, {1.f, 0.75f, 0.5f}, {1, 1, 1}};
     const int cm = std::min(std::max(int(v[P_COLOURMODE][0]), 0), 4);
-    if (cm != 0) s.sourceColour = 0.f;
-    for (int i = 0; i < 3; ++i) s.tint[i] *= presets[cm][i];
-    s.upSign = +1;  // OFX images are bottom-up
+    if (cm != 0) c.sourceColour = 0.f;
+    for (int i = 0; i < 3; ++i) c.tint[i] *= presets[cm][i];
+
+    // Each edge pair: two looks, a blend, and its own strength / timing / tint.
+    struct PairP { P a, b, blend, inten, start, tint; };
+    const PairP pp[2] = {{P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TTINT},
+                         {P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_STINT}};
+    for (int k = 0; k < 2; ++k) {
+        gate::EdgePair& ep = s.pair[k];
+        auto finish = [&](gate::Look L) {
+            L.intensity *= f(pp[k].inten);
+            L.edgeGlow *= f(pp[k].inten);
+            L.flareStart += f(pp[k].start);
+            for (int i = 0; i < 3; ++i) L.tint[i] *= f(pp[k].tint, i);
+            return L;
+        };
+        ep.a = finish(gate::presetLook(int(v[pp[k].a][0]), c));
+        ep.b = finish(gate::presetLook(int(v[pp[k].b][0]), c));
+        ep.blend = f(pp[k].blend);
+    }
     return s;
 }
 
 bool identity(const gate::Settings& s) {
-    const bool noFlare = s.intensity <= 0.f && s.edgeGlow <= 0.f;
+    bool noFlare = true;
+    for (int k = 0; k < 2; ++k) {
+        const gate::EdgePair& ep = s.pair[k];
+        const bool edgesOn = k == 0 ? (s.edges[0] || s.edges[1]) : (s.edges[2] || s.edges[3]);
+        if (!edgesOn) continue;
+        if (ep.blend < 1.f && (ep.a.intensity > 0.f || ep.a.edgeGlow > 0.f)) noFlare = false;
+        if (ep.blend > 0.f && (ep.b.intensity > 0.f || ep.b.edgeGlow > 0.f)) noFlare = false;
+    }
     const bool noCrop = s.crop <= 0.f || !s.cropOutput;
     return noFlare && noCrop && !s.showGate;
 }
@@ -464,7 +510,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 5, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 6, setHost, mainEntry};
 
 }  // namespace
 
