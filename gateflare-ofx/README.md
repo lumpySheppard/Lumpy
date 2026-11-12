@@ -56,7 +56,8 @@ Then:
 | Isolate Lights | 1 (default): only small things much brighter than their surroundings flare, such as lamps, practicals and speculars. Big bright areas like lit walls don't. 0: anything over the threshold flares, windows and walls included |
 | Light Size (%) | With Isolate Lights: the biggest thing that still counts as a light. Raise it for big practicals or windows |
 | Intensity | Strength of the flare. Lights are usually clipped in the footage, so they get a built-in boost (about 6×) that tapers off for lights that are genuinely very bright in scene-linear footage |
-| Reach (%) | How far beyond the edge a source still flares (% of frame height) |
+| Flare Start (%) | How far from the gate edge a light starts to flare. **0** (default): as it reaches the edge. **Positive**: earlier, while it's still inside the frame. **Negative**: later, only once it's past the edge |
+| Reach (%) | How far beyond the edge a light keeps flaring; it fades out over this distance (% of frame height) |
 | Depth (%) | How far the flare reaches into the frame |
 | Spread (%) / Fan | Width of the flare along the edge (beam and blade width), and how much wider it gets as it goes in (plume and blade; a beam never widens) |
 | Edge Glow | A thin glow right along the gate edge |

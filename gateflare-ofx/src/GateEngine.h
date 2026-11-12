@@ -70,6 +70,8 @@ struct Settings {
     float lightSize = 3.f;     // how big a "light" can be, % of frame height
     float intensity = 1.f;
     float reach = 6.f;         // how far beyond the edge sources still count, % of frame height
+    float flareStart = 0.f;    // how far from the edge a light starts to flare, % of frame height:
+                               // + while still inside the frame, - only once past the edge
     float depth = 14.f;        // how far the plume reaches into the frame, % of frame height
     float spread = 2.5f;       // plume width along the edge at the edge, % of frame height
     float fan = 0.6f;          // how much wider it gets per unit of depth

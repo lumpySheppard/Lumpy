@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
         {"--shimmer", &s.shimmer}, {"--shimmer-speed", &s.shimmerSpeed}, {"--core", &s.core},
         {"--fringe", &s.fringe}, {"--blade-angle", &s.bladeAngle}, {"--blade-softness", &s.bladeSoftness},
         {"--shape", &shapeF}, {"--composite", &compF}, {"--light-size", &s.lightSize},
-        {"--intensity", &s.intensity}, {"--reach", &s.reach}, {"--depth", &s.depth},
+        {"--intensity", &s.intensity}, {"--reach", &s.reach}, {"--flare-start", &s.flareStart}, {"--depth", &s.depth},
         {"--spread", &s.spread}, {"--fan", &s.fan}, {"--edge-glow", &s.edgeGlow},
         {"--source-colour", &s.sourceColour}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
         {"--encoding", &enc}};

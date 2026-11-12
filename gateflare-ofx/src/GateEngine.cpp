@@ -176,6 +176,8 @@ void render(const Image& in, const Settings& s, Image& out) {
     const float gx0 = w * f / 2, gx1 = w - gx0, gy0 = h * f / 2, gy1 = h - gy0;
     const float unit = h / 100.f;  // percentages of frame height
     const float reachPx = std::max(1.f, s.reach * unit);
+    const float startPx = s.flareStart * unit;          // + inside the frame, - beyond the edge
+    const float rampPx = std::max(1.f, 0.2f * reachPx);  // how quickly it comes up once it starts
     const float depthPx = std::max(1.f, s.depth * unit);
     const float spreadPx = std::max(0.f, s.spread * unit);
 
@@ -212,15 +214,20 @@ void render(const Image& in, const Settings& s, Image& out) {
         const int inward = (e == kTop || e == kLeft) ? 1 : -1;  // +1: frame is at larger coordinates
         const int span = horiz ? h : w;
         std::vector<float> prof(size_t(n) * 3, 0.f);
-        const int v0 = -int(std::ceil(reachPx * 1.5f)), v1 = int(std::ceil(reachPx * 0.3f));
+        // A light starts to flare once it's within Flare Start of the edge
+        // (positive: still inside the frame; negative: already past it), ramps
+        // up over a short distance, and fades out over Reach beyond the edge.
+        const int v0 = std::min(-int(std::ceil(reachPx * 1.5f)), int(std::floor(startPx - rampPx)) - 1);
+        const int v1 = std::max(0, int(std::ceil(startPx)) + 1);
         parallelFor(n, [&](int u) {
             float acc[3] = {0, 0, 0};
             for (int v = v0; v <= v1; ++v) {
                 const int q = int(std::floor(edgePos + float(v * inward)));
                 if (q < 0 || q >= span) continue;
-                // Mostly from just beyond the edge; a little from just inside.
-                const float wgt = v < 0 ? std::exp(float(v) / (0.5f * reachPx))
-                                        : std::exp(-float(v) / (0.08f * reachPx + 1.f));
+                const float fv = float(v);
+                const float onset = 1.f - smoothstep(startPx - rampPx, startPx, fv);
+                const float beyond = std::min(fv, 0.f) - std::min(startPx - rampPx, 0.f);  // distance past where it peaks
+                const float wgt = onset * std::exp(std::min(beyond, 0.f) / (0.5f * reachPx));
                 const size_t i = horiz ? (size_t(q) * w + u) * 3 : (size_t(u) * w + q) * 3;
                 for (int c = 0; c < 3; ++c) acc[c] += S[i + c] * wgt;
             }

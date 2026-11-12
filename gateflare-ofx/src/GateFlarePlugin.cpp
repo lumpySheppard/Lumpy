@@ -30,7 +30,7 @@ enum P {
     P_CROP, P_CROPOUT, P_SHOWGATE,
     P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE, P_COMPOSITE,
     P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE, P_SEED,
-    P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE, P_INTENSITY, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW,
+    P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE, P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW,
     P_SRCCOL, P_TINT,
     P_TOP, P_BOTTOM, P_LEFT, P_RIGHT,
     P_ENCODING,
@@ -106,8 +106,14 @@ const std::vector<PDef>& defs() {
          "built-in boost that tapers off for lights that are genuinely very bright in "
          "scene-linear footage.)",
          {1}, 0, 20, 0, 4},
+        {P_START, "flareStart", kDbl, "grpFlare", "Flare Start (%)",
+         "How far from the gate edge a light starts to flare, as % of frame height. 0 = as it "
+         "reaches the edge. Positive = earlier, while it's still inside the frame. Negative = "
+         "later, only once it's past the edge.",
+         {0}, -20, 10, -6, 4},
         {P_REACH, "reach", kDbl, "grpFlare", "Reach (%)",
-         "How far beyond the gate edge a source still flares, as % of frame height.", {6}, 0.5,
+         "How far beyond the gate edge a light keeps flaring (it fades out over this), as % of "
+         "frame height.", {6}, 0.5,
          40, 1, 15},
         {P_DEPTH, "depth", kDbl, "grpFlare", "Depth (%)",
          "How far the flare reaches into the frame from the edge, as % of frame height.", {14},
@@ -206,6 +212,7 @@ gate::Settings read(Instance* in, double t) {
     s.lightSize = float(v[P_LIGHTSIZE][0]);
     s.intensity = float(v[P_INTENSITY][0]);
     s.reach = float(v[P_REACH][0]);
+    s.flareStart = float(v[P_START][0]);
     s.depth = float(v[P_DEPTH][0]);
     s.spread = float(v[P_SPREAD][0]);
     s.fan = float(v[P_FAN][0]);
@@ -457,7 +464,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 4, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 5, setHost, mainEntry};
 
 }  // namespace
 
