@@ -26,9 +26,10 @@ int main(int argc, char** argv) {
     if (w <= 0 || h <= 0) usage();
     gate::Settings s;
     s.upSign = -1;  // rgb24 rows are top-down
-    float showGate = 0, noCrop = 0, enc = 0;
+    float showGate = 0, noCrop = 0, enc = 0, shapeF = 0;
     std::map<std::string, float*> f = {
-        {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate}, {"--light-size", &s.lightSize},
+        {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate}, {"--blade-angle", &s.bladeAngle}, {"--blade-softness", &s.bladeSoftness},
+        {"--ring-size", &s.ringSize}, {"--ring-width", &s.ringWidth}, {"--shape", &shapeF}, {"--light-size", &s.lightSize},
         {"--intensity", &s.intensity}, {"--reach", &s.reach}, {"--depth", &s.depth},
         {"--spread", &s.spread}, {"--fan", &s.fan}, {"--edge-glow", &s.edgeGlow},
         {"--source-colour", &s.sourceColour}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},
@@ -41,6 +42,7 @@ int main(int argc, char** argv) {
     s.showGate = showGate != 0;
     s.cropOutput = noCrop == 0;
     s.encoding = int(enc);
+    s.shape = int(shapeF);
     const size_t fb = size_t(w) * h * 3;
     std::vector<unsigned char> buf(fb);
     gate::Image img(w, h), out;

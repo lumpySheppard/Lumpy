@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.1.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -89,6 +89,14 @@ if(NOT WIN32)
                    --set encoding=7 --set gateCrop=8 --set fan=2 --set sourceColour=0)
   add_test(NAME show_gate
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/show.rgb --context filter --set showGate=1)
+  # Each shape (Beam, Blade, Ring) flares from the margin too, with a colour preset.
+  foreach(SHAPE 1 2 3)
+    add_test(NAME shape_${SHAPE}
+             COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/shape${SHAPE}.rgb --context filter
+                     --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set shape=${SHAPE}
+                     --set flareColour=${SHAPE} --expect-mean-above 28:0.128 --max-below 1.0000001)
+    set_tests_properties(shape_${SHAPE} PROPERTIES FIXTURES_REQUIRED clip)
+  endforeach()
   set_tests_properties(off_is_identity flare_from_margin no_flare_baseline crop_and_options show_gate
                        isolate_ignores_big_areas
                        PROPERTIES FIXTURES_REQUIRED clip)

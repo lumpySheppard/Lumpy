@@ -33,8 +33,20 @@ struct Image {
     const float* row(int y) const { return px.data() + size_t(y) * w * 4; }
 };
 
+enum Shape {
+    kPlume = 0,  // soft fan that widens into the frame
+    kBeam = 1,   // narrow, parallel-sided column straight in from the edge
+    kBlade = 2,  // hard-edged wedge, can be angled
+    kRing = 3,   // ghost ring/arc centred on the light beyond the edge
+};
+
 struct Settings {
     int encoding = 0;          // see shared/Encodings.h
+    int shape = kPlume;
+    float bladeAngle = 15.f;   // degrees the blade leans away from straight-in
+    float bladeSoftness = 0.3f;  // blade edge softness, % of frame height
+    float ringSize = 25.f;     // ring radius, % of frame height
+    float ringWidth = 1.2f;    // ring line width, % of frame height
     float crop = 6.f;          // % of the picture beyond the gate (zoom-in amount)
     bool cropOutput = true;    // scale the gate up to fill the frame
     float threshold = 0.9f;    // encoded value a source must exceed to flare

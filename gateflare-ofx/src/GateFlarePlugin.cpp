@@ -28,6 +28,7 @@ const char* const kPluginId = "com.lumpy.GateFlare";
 
 enum P {
     P_CROP, P_CROPOUT, P_SHOWGATE,
+    P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_RINGSIZE, P_RINGWIDTH, P_COLOURMODE,
     P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE, P_INTENSITY, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW,
     P_SRCCOL, P_TINT,
     P_TOP, P_BOTTOM, P_LEFT, P_RIGHT,
@@ -45,6 +46,7 @@ struct PDef {
     const char* hint;
     double def[3];
     double lo, hi, dlo, dhi;
+    std::vector<const char*> options = {};  // choices (empty: the encodings list)
 };
 
 const std::vector<PDef>& defs() {
@@ -63,6 +65,25 @@ const std::vector<PDef>& defs() {
          "sources that will flare in magenta. For setting up; turn off to render.",
          {0}, 0, 1, 0, 1},
 
+        {P_SHAPE, "shape", kChoice, "grpFlare", "Shape",
+         "Plume: a soft fan that widens into the frame. Beam: a narrow, straight column in from "
+         "the edge (Road to Perdition's streak). Blade: a hard-edged wedge that can lean "
+         "(Angle). Ring: a faint ghost arc around the light beyond the edge (A Clockwork Orange).",
+         {0}, 0, 3, 0, 3, {"Plume (soft fan)", "Beam (straight column)", "Blade (hard-edged wedge)", "Ring (ghost arc)"}},
+        {P_BLADEANGLE, "bladeAngle", kDbl, "grpFlare", "Blade Angle",
+         "Blade: degrees it leans away from straight in (negative leans the other way).", {15}, -75,
+         75, -45, 45},
+        {P_BLADESOFT, "bladeSoftness", kDbl, "grpFlare", "Blade Softness (%)",
+         "Blade: how soft its sides are, as % of frame height. 0 = razor sharp.", {0.3}, 0, 10, 0, 3},
+        {P_RINGSIZE, "ringSize", kDbl, "grpFlare", "Ring Size (%)",
+         "Ring: radius, as % of frame height.", {25}, 2, 150, 5, 80},
+        {P_RINGWIDTH, "ringWidth", kDbl, "grpFlare", "Ring Width (%)",
+         "Ring: thickness of the line, as % of frame height.", {1.2}, 0.1, 20, 0.2, 6},
+        {P_COLOURMODE, "flareColour", kChoice, "grpFlare", "Flare Colour",
+         "Source: the colour of the lights causing it. Cool Blue / Cyan / Warm: the tinted flares "
+         "of coated lenses and gates. Custom: white, coloured by Tint. Tint applies on top of all "
+         "of them.",
+         {0}, 0, 4, 0, 4, {"Source", "Cool Blue", "Cyan", "Warm", "Custom (Tint)"}},
         {P_THRESH, "threshold", kDbl, "grpFlare", "Source Threshold",
          "How bright (as encoded) something must be to flare. Lower = more things flare. Use "
          "Show Gate & Sources to see what's picked up.",
@@ -174,6 +195,16 @@ gate::Settings read(Instance* in, double t) {
     s.edges[2] = v[P_LEFT][0] != 0;
     s.edges[3] = v[P_RIGHT][0] != 0;
     s.encoding = std::min(std::max(int(v[P_ENCODING][0]), 0), int(encodings::kEncodingCount) - 1);
+    s.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 3);
+    s.bladeAngle = float(v[P_BLADEANGLE][0]);
+    s.bladeSoftness = float(v[P_BLADESOFT][0]);
+    s.ringSize = float(v[P_RINGSIZE][0]);
+    s.ringWidth = float(v[P_RINGWIDTH][0]);
+    // Flare Colour presets: replace the source's colour, then Tint on top.
+    static const float presets[5][3] = {{1, 1, 1}, {0.55f, 0.72f, 1.f}, {0.55f, 0.95f, 1.f}, {1.f, 0.75f, 0.5f}, {1, 1, 1}};
+    const int cm = std::min(std::max(int(v[P_COLOURMODE][0]), 0), 4);
+    if (cm != 0) s.sourceColour = 0.f;
+    for (int i = 0; i < 3; ++i) s.tint[i] *= presets[cm][i];
     s.upSign = +1;  // OFX images are bottom-up
     return s;
 }
@@ -257,8 +288,12 @@ OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle) {
                 gProp->propSetInt(p, kOfxParamPropDefault, 0, int(d.def[0]));
                 break;
             case kChoice:
-                for (int i = 0; i < encodings::kEncodingCount; ++i)
-                    gProp->propSetString(p, kOfxParamPropChoiceOption, i, encodings::names()[i]);
+                if (d.options.empty())
+                    for (int i = 0; i < encodings::kEncodingCount; ++i)
+                        gProp->propSetString(p, kOfxParamPropChoiceOption, i, encodings::names()[i]);
+                else
+                    for (size_t i = 0; i < d.options.size(); ++i)
+                        gProp->propSetString(p, kOfxParamPropChoiceOption, int(i), d.options[i]);
                 gProp->propSetInt(p, kOfxParamPropDefault, 0, int(d.def[0]));
                 gProp->propSetInt(p, kOfxParamPropAnimates, 0, 0);
                 break;
@@ -385,7 +420,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 1, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 2, setHost, mainEntry};
 
 }  // namespace
 

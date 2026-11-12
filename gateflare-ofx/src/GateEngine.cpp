@@ -149,14 +149,25 @@ void render(const Image& in, const Settings& s, Image& out) {
 
     // Per edge: profile along it, at several blur widths (the plume fans out).
     const int K = 6;
+    const float ringR = std::max(2.f, s.ringSize * unit);
+    const float ringW = std::max(0.5f, s.ringWidth * unit);
+    const float ringC = 0.6f * ringR;  // ring centre sits this far beyond the edge: an arc shows
+    const float bladeTan = std::tan(std::min(std::max(s.bladeAngle, -75.f), 75.f) * 3.14159265f / 180.f);
+    const float bladeHw0 = std::max(1.f, spreadPx * 0.5f);
     // The plume is computed out to 5x Depth (exp(-5) < 1%) and faded to zero
     // over the last stretch, so it never ends in a visible line.
-    const float maxD = depthPx * 5.f;
+    const float maxD = s.shape == kRing ? std::max(depthPx * 5.f, ringR * 1.2f) : depthPx * 5.f;
+    struct Seg {
+        float u;      // centre along the edge
+        float e[3];   // energy
+    };
     struct EdgeData {
         bool on = false;
         int n = 0;
-        std::vector<std::vector<float>> levels;  // K profiles
+        std::vector<std::vector<float>> levels;  // K profiles (plume / beam)
         std::vector<float> glow;
+        std::vector<float> cum;   // prefix sums of the (softened) profile, (n+1)*3 (blade)
+        std::vector<Seg> segs;    // individual lights along the edge (ring)
     };
     EdgeData ed[4];
     for (int e = 0; e < 4; ++e) {
@@ -183,9 +194,39 @@ void render(const Image& in, const Settings& s, Image& out) {
         });
         ed[e].on = true;
         ed[e].n = n;
-        for (int k = 0; k < K; ++k) {
-            const float d = maxD * k / (K - 1);
-            ed[e].levels.push_back(blurProfile(prof, n, spreadPx + s.fan * d));
+        if (s.shape == kPlume || s.shape == kBeam) {
+            const float fan = s.shape == kBeam ? 0.f : s.fan;  // a beam doesn't widen
+            for (int k = 0; k < K; ++k) {
+                const float d = maxD * k / (K - 1);
+                ed[e].levels.push_back(blurProfile(prof, n, spreadPx + fan * d));
+            }
+        }
+        if (s.shape == kBlade) {
+            const std::vector<float> soft = blurProfile(prof, n, std::max(0.f, s.bladeSoftness * unit));
+            ed[e].cum.assign(size_t(n + 1) * 3, 0.f);
+            for (int u = 0; u < n; ++u)
+                for (int c = 0; c < 3; ++c)
+                    ed[e].cum[size_t(u + 1) * 3 + c] = ed[e].cum[size_t(u) * 3 + c] + soft[size_t(u) * 3 + c];
+        }
+        if (s.shape == kRing) {
+            // Split the profile into separate lights; each casts its own ring.
+            float mx = 0.f;
+            for (int u = 0; u < n; ++u) mx = std::max(mx, prof[size_t(u) * 3 + 1]);
+            const float eps = std::max(1e-4f, 0.02f * mx);
+            for (int u = 0; u < n;) {
+                if (prof[size_t(u) * 3 + 1] <= eps) { ++u; continue; }
+                Seg sg{0.f, {0.f, 0.f, 0.f}};
+                float wsum = 0.f;
+                for (; u < n && prof[size_t(u) * 3 + 1] > eps; ++u) {
+                    for (int c = 0; c < 3; ++c) sg.e[c] += prof[size_t(u) * 3 + c];
+                    sg.u += u * prof[size_t(u) * 3 + 1];
+                    wsum += prof[size_t(u) * 3 + 1];
+                }
+                sg.u /= std::max(wsum, 1e-9f);
+                ed[e].segs.push_back(sg);
+            }
+            std::sort(ed[e].segs.begin(), ed[e].segs.end(), [](const Seg& a, const Seg& b) { return a.e[1] > b.e[1]; });
+            if (ed[e].segs.size() > 24) ed[e].segs.resize(24);
         }
         ed[e].glow = blurProfile(prof, n, std::max(1.f, spreadPx * 0.4f));
     }
@@ -208,15 +249,49 @@ void render(const Image& in, const Settings& s, Image& out) {
                     const float v = e == kTop ? yv - gy0 : e == kBottom ? gy1 - 1 - yv : e == kLeft ? x - gx0 : gx1 - 1 - x;
                     if (v > maxD) continue;
                     const int u = (e == kTop || e == kBottom) ? x : yv;
-                    const float fk = v / maxD * (K - 1);
-                    const int k0 = std::min(int(fk), K - 2);
-                    const float t = fk - k0;
-                    const float plume = std::exp(-v / depthPx) * s.intensity * (1.f - smoothstep(0.6f * maxD, maxD, v));
+                    const float fade = 1.f - smoothstep(0.6f * maxD, maxD, v);
                     const float glow = std::exp(-v / glowFall) * s.edgeGlow;
-                    const float* a = &ed[e].levels[k0][size_t(u) * 3];
-                    const float* b = &ed[e].levels[k0 + 1][size_t(u) * 3];
                     const float* g = &ed[e].glow[size_t(u) * 3];
-                    for (int c = 0; c < 3; ++c) add[c] += (a[c] + (b[c] - a[c]) * t) * plume + g[c] * glow;
+                    for (int c = 0; c < 3; ++c) add[c] += g[c] * glow;
+                    if (s.shape == kPlume || s.shape == kBeam) {
+                        const float fk = v / maxD * (K - 1);
+                        const int k0 = std::min(int(fk), K - 2);
+                        const float t = fk - k0;
+                        const float plume = std::exp(-v / depthPx) * s.intensity * fade;
+                        const float* a = &ed[e].levels[k0][size_t(u) * 3];
+                        const float* b = &ed[e].levels[k0 + 1][size_t(u) * 3];
+                        for (int c = 0; c < 3; ++c) add[c] += (a[c] + (b[c] - a[c]) * t) * plume;
+                    } else if (s.shape == kBlade) {
+                        // A box along the edge, widening with Fan and leaning with
+                        // Angle: uniform inside, crisp (Blade Softness) at the sides.
+                        const int n = ed[e].n;
+                        const float hw = bladeHw0 + s.fan * 0.5f * v;
+                        const float centre = u - v * bladeTan;
+                        auto cumAt = [&](float q, int c) {
+                            q = std::min(std::max(q, 0.f), float(n));
+                            const int q0 = std::min(int(q), n - 1);
+                            const float tq = q - q0;
+                            const float a0 = ed[e].cum[size_t(q0) * 3 + c], a1 = ed[e].cum[size_t(q0 + 1) * 3 + c];
+                            return a0 + (a1 - a0) * tq;
+                        };
+                        const float amp = std::exp(-v / depthPx) * s.intensity * fade / (2.f * bladeHw0) *
+                                          std::sqrt(bladeHw0 / hw);
+                        for (int c = 0; c < 3; ++c)
+                            add[c] += (cumAt(centre + hw + 0.5f, c) - cumAt(centre - hw + 0.5f, c)) * amp;
+                    } else {
+                        // Ring: each light casts a ring centred just beyond the edge.
+                        // Faint, and fading away from the edge, like a ghost of the gate.
+                        const float amp = s.intensity * fade * 0.12f / (ringW * 1.7725f) *
+                                          std::exp(-v / (depthPx * 2.f));
+                        for (const Seg& sg : ed[e].segs) {
+                            const float du = u - sg.u, dv = v + ringC;
+                            const float r = std::sqrt(du * du + dv * dv);
+                            const float q = (r - ringR) / ringW;
+                            if (q * q > 9.f) continue;
+                            const float k = std::exp(-q * q) * amp;
+                            for (int c = 0; c < 3; ++c) add[c] += sg.e[c] * k;
+                        }
+                    }
                 }
                 // Take the sources' colour, or go white, then tint.
                 const float lum = 0.2126f * add[0] + 0.7152f * add[1] + 0.0722f * add[2];
