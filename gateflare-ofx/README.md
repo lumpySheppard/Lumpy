@@ -69,7 +69,7 @@ Top & Bottom and **Side Blast** for Left & Right, so you can raise
 | Thin Streak | *Road to Perdition* | A long, thin, faint streak straight in, for a light leaving the side |
 | Cool Column | Stills | A cool column straight down from the top |
 | Blue Blade | Stills, *A Clockwork Orange* | A hard-edged blue wedge, leaning slightly |
-| Side Blast | *Gummo*, matched frame by frame | A long, narrow wedge of fine filaments converging on a hot point at the edge, aimed where the gate edge reflects the light. It builds up, then shortens as the light goes further out, turning violet, blue, cyan, then teal, and its filaments re-form every frame |
+| Side Blast | *Gummo*, matched frame by frame | Once the light and its glow have left the frame, a thin violet streak builds over a few frames into a long wedge of rays converging on a hot point at the edge, aimed where the gate edge reflects the light; then it shortens and goes teal. Its direction, length, width and rays change every frame. Needs room beyond the gate: Gate Crop 12-16% |
 
 
 Side Blast starts after the light has left the frame (Flare Start −0.8%).
@@ -95,7 +95,7 @@ Used wherever a pair's Look A or B is **Custom**.
 | Aim | Pinch: 1 = each flare points where the gate edge reflects its light. Light from the lens reaches the edge travelling outward from the frame's centre; the edge reflects it back in, so the flare tilts away from the centre line (by its offset along the edge over half the frame across) and swings as the light moves. 0 = straight in |
 | Evolve | Pinch: the flare grows as its light gets clear of the edge, then shortens and narrows as the light goes further out |
 | Hue Drift | Pinch: degrees the colour turns over the flare's life. Negative: violet, blue, cyan, green (Side Blast) |
-| Wait for Exit | 1: a light doesn't flare while it, or its glow, still touches the inside of the edge; the flare comes once it has gone (Gummo). Needs Gate Crop room beyond the edge (about 12% for Side Blast) |
+| Wait for Exit | 1: a light doesn't flare while it, or its glow, still shows inside the edge. The flare then builds up over **Onset** of travel, measured from when the glow clears the edge, and its life (Evolve, Hue Drift) runs from there until the light leaves the picture. Needs Gate Crop room beyond the edge |
 | Saturation | The flare's colour saturation (also per edge pair, multiplying the look's) |
 | Onset (%) | How gradually a light's flare comes in once it passes Flare Start: small switches on, large builds over a few frames |
 | Pinch Length (%) / Lean | Pinch: how far in the focal point is, and how many degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and bottom) |
@@ -118,7 +118,7 @@ Used wherever a pair's Look A or B is **Custom**.
 | Prism Edges | 1: the rainbow only on the rays' edges, as thin spectral lines |
 | Streaks | Striations from the gate edge's nicks and roughness, radiating from the light and softening as they go in. 0 = a smooth glow |
 | Streak Detail | Broad (0) to fine (1) streaks |
-| Shimmer / Shimmer Speed | The streaks, and gently the flare's strength, change from frame to frame, like light catching a rough edge as it moves. 0 = still |
+| Shimmer / Shimmer Speed | How much the flare changes from frame to frame: the streaks re-form, its strength flickers, and (Pinch) its direction, length and width move, like light catching a rough edge. 0 = still |
 | Core | A hot, tight core right at the edge with a long subtle tail (1), versus one even falloff (0) |
 | Fringe | Colour fringing: red scatters a little wider than blue |
 

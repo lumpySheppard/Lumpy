@@ -160,8 +160,9 @@ const std::vector<PDef>& defs() {
          "Small = it switches on; large = it builds up over a few frames.",
          {0.5}, 0.1, 20, 0.1, 6},
         {P_WAIT, "waitForExit", kDbl, "grpCustom", "Wait for Exit",
-         "1: a light doesn't flare while any of it is still inside the frame; the flare comes once it has "
-         "gone (Gummo). 0: it can flare while still partly in frame.",
+         "1: a light doesn't flare while it, or its glow, still shows inside the frame. The flare then builds "
+         "up over Onset of travel, measured from when the glow clears the edge (Gummo). 0: it can flare "
+         "while still partly in frame.",
          {0}, 0, 1, 0, 1},
         {P_REACH, "reach", kDbl, "grpCustom", "Reach (%)",
          "How far beyond the gate edge a light keeps flaring (it fades out over this).", {6}, 0.5, 40, 1, 15},
@@ -193,7 +194,8 @@ const std::vector<PDef>& defs() {
         {P_STREAKDETAIL, "streakDetail", kDbl, "grpCustom", "Streak Detail", "0 = broad streaks, 1 = fine ones.",
          {0.5}, 0, 1, 0, 1},
         {P_SHIMMER, "shimmer", kDbl, "grpCustom", "Shimmer",
-         "How much the streaks and the flare change from frame to frame. 0 = still.", {0.3}, 0, 1, 0, 1},
+         "How much the flare changes from frame to frame: the streaks re-form, its strength flickers, and a "
+         "Pinch's direction, length and width move. 0 = still.", {0.3}, 0, 1, 0, 1},
         {P_SHIMMERSPEED, "shimmerSpeed", kDbl, "grpCustom", "Shimmer Speed", "How fast it shimmers.", {1}, 0, 10,
          0, 4},
         {P_CORE, "core", kDbl, "grpCustom", "Core",
@@ -602,7 +604,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 13, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 14, setHost, mainEntry};
 
 }  // namespace
 

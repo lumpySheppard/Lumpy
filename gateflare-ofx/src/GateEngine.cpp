@@ -139,7 +139,7 @@ std::vector<float> blur1(const std::vector<float>& p, int n, float radius) {
 void slidingMax1(std::vector<float>& a, int n, int r) {
     std::vector<float> o(a.size());
     for (int i = 0; i < n; ++i) {
-        float m = 0.f;
+        float m = -1e30f;
         for (int j = std::max(0, i - r); j <= std::min(n - 1, i + r); ++j) m = std::max(m, a[size_t(j)]);
         o[size_t(i)] = m;
     }
@@ -300,7 +300,7 @@ struct Flare {
             out[c] = col[c] * L.tint[c] * (1.f + (L.farTint[c] - 1.f) * m) * (1.f + (L.exitTint[c] - 1.f) * xf);
         // Hue Drift: the colour turns over the flare's life (as its light goes out).
         if (L.hueDrift != 0.f) {
-            const float th = L.hueDrift * (exitF - 0.6f) * 3.14159265f / 180.f;
+            const float th = L.hueDrift * (exitF - 0.5f) * 3.14159265f / 180.f;
             const float cA = std::cos(th), sA = std::sin(th), k = (1.f - cA) / 3.f, r3 = 0.57735027f * sA;
             const float e0 = out[0], e1 = out[1], e2 = out[2];
             out[0] = std::max(0.f, (cA + k) * e0 + (k - r3) * e1 + (k + r3) * e2);
@@ -411,52 +411,72 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
     fl.flicker = 1.f + 0.25f * sh * (2.f * valueNoise2(time * L.shimmerSpeed * 0.5f, float(g.e), seed + 99u) - 1.f);
 
     // The light along this edge: from Flare Start (ramping up) out to Reach beyond.
-    std::vector<float> prof(size_t(n) * 3, 0.f), exitRaw(size_t(n), 0.f), inside(size_t(n), 0.f);
+    std::vector<float> prof(size_t(n) * 3, 0.f), exitRaw(size_t(n), 0.f), edgePhase(size_t(n), 0.f);
     const int v0 = std::min(-int(std::ceil(reachPx * 1.5f)), int(std::floor(startPx - rampPx)) - 1);
     const int v1 = std::max(0, int(std::ceil(startPx)) + 1);
     const bool horiz = g.e == kTop || g.e == kBottom;
-    parallelFor(n, [&](int u) {
-        float acc[3] = {0, 0, 0}, accL = 0.f, accX = 0.f;
-        // Wait for Exit: is the light, or its glow, still showing just inside the edge?
-        float inG = 0.f;
-        if (L.waitExit > 0.f && g.glowMask) {
-            const int band = std::max(2, int(std::ceil(2.f * unit)));
-            for (int v = 0; v < band; ++v) {
+    const bool wait = L.waitExit > 0.f && g.glowMask;
+    // With Wait for Exit the build-up (Onset) is measured from when the light's
+    // glow clears the edge, so each pixel just switches in at Flare Start.
+    const float pixRamp = wait ? std::max(1.f, 0.5f * unit) : rampPx;
+    // How much picture there is beyond this edge, and the last stretch of it:
+    // a light about to leave the picture is at the end of its flare's life.
+    const float marginPx = g.inward > 0 ? g.edgePos : float(g.span) - g.edgePos;
+    const float tailPx = std::max(1.f, std::min(0.5f * marginPx, 6.f * unit));
+
+    // Wait for Exit: each light's clearance, how far the innermost part of its
+    // glow is beyond the edge (<= 0 while it still shows inside the frame).
+    std::vector<float> clear;
+    if (wait) {
+        clear.assign(size_t(n), 1e9f);
+        const int vin = std::max(2, int(std::ceil(3.f * unit)));
+        parallelFor(n, [&](int u) {
+            for (int v = vin; v >= v0; --v) {
                 const int q = int(std::floor(g.edgePos + float(v * g.inward)));
                 if (q < 0 || q >= g.span) continue;
-                inG += (*g.glowMask)[horiz ? size_t(q) * g.w + u : size_t(u) * g.w + q];
+                if ((*g.glowMask)[horiz ? size_t(q) * g.w + u : size_t(u) * g.w + q] > 0.5f) {
+                    clear[size_t(u)] = float(-v);
+                    break;
+                }
             }
-            inG /= float(band);
-        }
+        });
+        // A light is one thing: the least clearance anywhere near it along the edge.
+        for (float& c : clear) c = -c;
+        slidingMax1(clear, n, std::max(2, int(3.f * unit)));
+        for (float& c : clear) c = -c;
+    }
+
+    parallelFor(n, [&](int u) {
+        float acc[3] = {0, 0, 0}, accL = 0.f, accX = 0.f, accB = 0.f;
         for (int v = v0; v <= v1; ++v) {
             const int q = int(std::floor(g.edgePos + float(v * g.inward)));
             if (q < 0 || q >= g.span) continue;
             const float fv = float(v);
-            const float onset = 1.f - smoothstep(startPx - rampPx, startPx, fv);
-            const float beyond = std::min(fv, 0.f) - std::min(startPx - rampPx, 0.f);
+            const float onset = 1.f - smoothstep(startPx - pixRamp, startPx, fv);
+            const float beyond = std::min(fv, 0.f) - std::min(startPx - pixRamp, 0.f);
             const float wgt = onset * std::exp(std::min(beyond, 0.f) / (0.5f * reachPx));
             const size_t i = horiz ? (size_t(q) * g.w + u) * 3 : (size_t(u) * g.w + q) * 3;
             for (int c = 0; c < 3; ++c) acc[c] += S[i + c] * wgt;
             const float ls = (0.2126f * S[i] + 0.7152f * S[i + 1] + 0.0722f * S[i + 2]) * wgt;
             accL += ls;
             accX += ls * std::max(startPx - fv, 0.f);  // how far past where it starts to flare
+            accB += ls * (1.f - std::min(std::max((marginPx + fv) / tailPx, 0.f), 1.f));
         }
         for (int c = 0; c < 3; ++c) prof[size_t(u) * 3 + c] = acc[c] / (0.5f * reachPx);
-        inside[size_t(u)] = inG;
         exitRaw[size_t(u)] = accL > 0.f ? std::min(accX / accL / (0.7f * reachPx), 1.f) : 0.f;
+        edgePhase[size_t(u)] = accL > 0.f ? accB / accL : 0.f;
     });
 
-    if (L.waitExit > 0.f) {
-        // A light still partly in the frame doesn't flare yet: hold back by the
-        // share of it that's inside (spread a little along the edge, so a light
-        // is treated as a whole).
-        // (a light's flare stays held while its glow touches the edge anywhere near it)
-        std::vector<float> in2 = inside;
-        slidingMax1(in2, n, std::max(2, int(3.f * unit)));
+    if (wait) {
+        // The flare builds up over Onset of travel once the glow has cleared the
+        // edge. Its life runs from there to the light leaving the picture.
         const float we = std::min(L.waitExit, 1.f);
+        const float lifePx = rampPx + 0.5f * reachPx;
         for (int u = 0; u < n; ++u) {
-            const float keep = 1.f - we * smoothstep(0.02f, 0.2f, in2[u]);
-            for (int c = 0; c < 3; ++c) prof[size_t(u) * 3 + c] *= keep;
+            const float c = clear[size_t(u)];
+            const float keep = 1.f - we * (1.f - smoothstep(0.f, rampPx, c));
+            for (int k = 0; k < 3; ++k) prof[size_t(u) * 3 + k] *= keep;
+            exitRaw[size_t(u)] = std::max(std::min(std::max(c / lifePx, 0.f), 1.f), edgePhase[size_t(u)]);
         }
     }
     const float fan = L.shape == kBeam ? 0.f : L.fan;  // a beam doesn't widen
@@ -527,11 +547,12 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
             // the edge, so the flare tilts away from the centre line by
             // (offset along the edge) / (half the frame across).
             sr.lean = fl.leanTan + L.aim * (0.5f * float(n) - sr.cen) / fl.halfPerp;
-            // Evolve: grows as the light gets clear of the edge, then shortens
-            // and narrows as it goes further out.
+            // Evolve: starts thin and short, grows as the light gets clear of the
+            // edge, then shortens and narrows at the end of its life.
             const float ev = std::min(std::max(L.evolve, 0.f), 1.f), x = sr.exit;
-            sr.len = 1.f + ev * (-0.4f + 0.4f * smoothstep(0.f, 0.3f, x) - 0.35f * smoothstep(0.5f, 1.f, x));
-            sr.wid = 1.f - ev * 0.35f * smoothstep(0.5f, 1.f, x);
+            const float dying = smoothstep(0.6f, 1.f, x);
+            sr.len = 1.f + ev * ((0.5f + 0.5f * smoothstep(0.f, 0.4f, x)) * (1.f - 0.5f * dying) - 1.f);
+            sr.wid = 1.f + ev * ((0.45f + 0.55f * smoothstep(0.f, 0.35f, x)) * (1.f - 0.35f * dying) - 1.f);
             fl.srcs.push_back(sr);
         }
         std::sort(fl.srcs.begin(), fl.srcs.end(), [](const Flare::Src& a, const Flare::Src& b) {
@@ -545,6 +566,16 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
             ex += e * sr.exit;
         }
         fl.meanExit = ew > 0.f ? ex / ew : 0.f;
+        // Shimmer also moves the flare itself: every frame is a fresh exposure
+        // off a rough edge, so its direction, length and width never sit still.
+        const float tw = time * L.shimmerSpeed * 0.5f;
+        for (size_t i = 0; i < fl.srcs.size(); ++i) {
+            Flare::Src& sr = fl.srcs[i];
+            const float y = 7.f * float(i) + 10.f * float(g.e) + 0.5f;
+            sr.lean += sh * 0.1f * (2.f * valueNoise2(tw, y, seed + 211u) - 1.f);
+            sr.len *= 1.f + sh * 0.3f * (2.f * valueNoise2(tw + 31.7f, y, seed + 212u) - 1.f);
+            sr.wid *= 1.f + sh * 0.3f * (2.f * valueNoise2(tw + 77.3f, y, seed + 213u) - 1.f);
+        }
         if (L.streaks > 0.f) {
             // A few big rays (Streak Detail 0) to many fine ones (1), shimmering.
             const float lobes = 3.f + 30.f * std::min(std::max(L.streakDetail, 0.f), 1.f);
@@ -639,14 +670,6 @@ void render(const Image& in, const Settings& s, Image& out) {
         slidingExtreme(opened, w, h, r, true);
     }
     std::vector<float> Wt(size_t(w) * h);  // how much each pixel counts as a source
-    // Anything glowing (lights and their bloom): a lower threshold, no Isolate.
-    std::vector<float> glowM(size_t(w) * h);
-    parallelFor(h, [&](int yv) {
-        for (int x = 0; x < w; ++x) {
-            const size_t j = size_t(yv) * w + x;
-            glowM[j] = smoothstep(0.6f * s.threshold, 0.8f * s.threshold, V[j]);
-        }
-    });
     parallelFor(h, [&](int yv) {
         for (int x = 0; x < w; ++x) {
             const size_t j = size_t(yv) * w + x;
@@ -664,6 +687,27 @@ void render(const Image& in, const Settings& s, Image& out) {
             for (int c = 0; c < 3; ++c) S[j * 3 + c] = std::max(L[j * 3 + c], 0.f) * k * boost;
         }
     });
+
+    // A light's glow: anything still fairly bright close to a light (its bloom
+    // and halo), for Wait for Exit.
+    std::vector<float> glowM(size_t(w) * h, 0.f);
+    {
+        bool need = false;
+        for (int k = 0; k < 2; ++k)
+            need = need || (s.pair[k].blend < 1.f && s.pair[k].a.waitExit > 0.f) ||
+                   (s.pair[k].blend > 0.f && s.pair[k].b.waitExit > 0.f);
+        if (need) {
+            std::vector<float> nearLight = Wt;
+            slidingExtreme(nearLight, w, h, std::max(2, int(std::lround(std::max(s.lightSize, 4.f) * 2.f * h / 100.f))), true);
+            parallelFor(h, [&](int yv) {
+                for (int x = 0; x < w; ++x) {
+                    const size_t j = size_t(yv) * w + x;
+                    glowM[j] = smoothstep(0.1f, 0.4f, nearLight[j]) *
+                               smoothstep(0.3f * s.threshold, 0.45f * s.threshold, V[j]);
+                }
+            });
+        }
+    }
 
     // The gate, in visual pixel coordinates.
     const float f = std::min(std::max(s.crop, 0.f), 60.f) / 100.f;
@@ -817,12 +861,12 @@ Look presetLook(int preset, const Look& custom) {
             L.bladeAngle = 8.f;
             L.bladeSoftness = 0.4f;
             break;
-        case kSideBlast:  // Gummo, matched frame by frame: a long, narrow wedge of fine filaments
-                          // converging on a hot point at the edge, aimed where the edge reflects the
-                          // light, once the light is clear of the frame; it builds up, then shortens;
-                          // violet -> blue -> cyan -> teal; it shimmers every frame
-            set(L, kPinch, 0.3f, -3.5f, 5.f, 16.f, 3.f, 0.75f, 0.f, 1.1f, 0.45f, 0.8f, 0.45f, 0.2f, 0.1f, 0.18f, 1.f, 0.f);
-            L.onset = 2.5f;
+        case kSideBlast:  // Gummo, matched frame by frame: once the light and its glow have left the
+                          // frame, a thin violet streak builds over a few frames into a long wedge of
+                          // rays converging on a hot point at the edge, aimed where the edge reflects
+                          // the light; then it shortens and goes teal. It never sits still.
+            set(L, kPinch, 1.2f, 0.f, 10.f, 20.f, 3.f, 0.75f, 0.f, 1.5f, 0.3f, 0.8f, 0.6f, 0.2f, 0.08f, 0.5f, 1.f, 0.f);
+            L.onset = 7.f;
             L.waitExit = 1.f;
             L.pinch = 1.5f;
             L.lean = 0.f;
