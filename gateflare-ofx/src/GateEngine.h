@@ -56,6 +56,7 @@ struct Look {
     float intensity = 1.f;
     float flareStart = 0.f;    // where a light starts to flare: + still inside the frame, - past the edge
     float reach = 6.f;         // how far beyond the edge a light keeps flaring
+    float onset = 0.5f;        // how gradually a light comes in as it passes Flare Start
     float depth = 14.f;        // how far the flare reaches into the frame
     float spread = 2.5f;       // width along the edge, where it starts
     float fan = 0.6f;          // how much wider it gets per unit of depth (plume, blade)
@@ -74,6 +75,11 @@ struct Look {
     float exitTint[3] = {1.f, 1.f, 1.f}; // colour it shifts toward as the light goes further out of frame
     float pinch = 15.f;        // pinch: length of the tight neck before it fans out
     float lean = 0.f;          // pinch: degrees the fan leans (+ = up on the sides, left on top/bottom)
+    float aim = 1.f;           // pinch: 1 = each flare points where the gate edge reflects its light (it
+                               // tilts away from the frame's centre line and swings as the light moves)
+    float evolve = 1.f;        // pinch: the flare grows, then shortens and narrows as its light goes out
+    float hueDrift = 0.f;      // pinch: degrees the hue turns over the flare's life (e.g. -80: violet ->
+                               // blue -> cyan -> green)
     // Organic veiling-flare character.
     float falloff = 0.f;       // 0 = fades gradually from the edge, 1 = holds its strength, then drops away
     float curve = 0.f;         // bends the flare as it goes in (+ the same way as Lean)

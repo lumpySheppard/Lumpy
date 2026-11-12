@@ -154,9 +154,9 @@ struct Flare {
     std::vector<float> glow;                  // RGB
     std::vector<float> cum;                   // RGB prefix sums (blade)
     // Pinch: each light collapsed to where it is and how much light it has.
-    struct Src { float cen; float e[3]; float exit; };
+    struct Src { float cen; float e[3]; float exit; float lean, len, wid; };
     std::vector<Src> srcs;
-    float pinchPx = 0, leanTan = 0, neckHw = 1, farFall = 1;
+    float pinchPx = 0, leanTan = 0, neckHw = 1, farFall = 1, halfPerp = 1, meanExit = 0;
     std::vector<float> rays;                  // ray texture across the fan, rho in [-2, 2]
     std::vector<float> veil;                  // RGB, the edge profile blurred very wide
     std::vector<float> exitProf;              // how far out of frame the light feeding each point is (0..1)
@@ -199,7 +199,8 @@ struct Flare {
         // as the flare widens, so the streaks fan out like rays.
         float mod = 1.f;
         float streakVal = 0.5f;
-        float exitF = exitProf.empty() ? 0.f : exitProf[size_t(u)];
+        // (outside a pinch's cone, e.g. in its veil: the lights' average)
+        float exitF = L.shape == kPinch ? meanExit : exitProf.empty() ? 0.f : exitProf[size_t(u)];
         // Where across the flare this point is (for the rainbow bands).
         float rayCoord = float(u) / std::max(spreadPx, 2.f);
         if (!streak.empty()) {
@@ -223,7 +224,7 @@ struct Flare {
         }
 
         if (L.shape == kPinch) {
-            evalPinch(u, v, fall, rgb, rayCoord, streakVal, exitF);
+            evalPinch(u, v, L.intensity * fade * flicker, rgb, rayCoord, streakVal, exitF);
         } else if (L.shape == kPlume || L.shape == kBeam) {
             const float* a = &levels[k0][size_t(u) * 3];
             const float* b = &levels[k0 + 1][size_t(u) * 3];
@@ -282,8 +283,19 @@ struct Flare {
         // as it dies).
         const float m = 1.f - std::exp(-v / farFall);
         const float xf = smoothstep(0.f, 1.f, exitF);
+        float out[3];
         for (int c = 0; c < 3; ++c)
-            add[c] += weight * col[c] * L.tint[c] * (1.f + (L.farTint[c] - 1.f) * m) * (1.f + (L.exitTint[c] - 1.f) * xf);
+            out[c] = col[c] * L.tint[c] * (1.f + (L.farTint[c] - 1.f) * m) * (1.f + (L.exitTint[c] - 1.f) * xf);
+        // Hue Drift: the colour turns over the flare's life (as its light goes out).
+        if (L.hueDrift != 0.f) {
+            const float th = L.hueDrift * (exitF - 0.6f) * 3.14159265f / 180.f;
+            const float cA = std::cos(th), sA = std::sin(th), k = (1.f - cA) / 3.f, r3 = 0.57735027f * sA;
+            const float e0 = out[0], e1 = out[1], e2 = out[2];
+            out[0] = std::max(0.f, (cA + k) * e0 + (k - r3) * e1 + (k + r3) * e2);
+            out[1] = std::max(0.f, (k + r3) * e0 + (cA + k) * e1 + (k - r3) * e2);
+            out[2] = std::max(0.f, (k - r3) * e0 + (k + r3) * e1 + (cA + k) * e2);
+        }
+        for (int c = 0; c < 3; ++c) add[c] += weight * out[c];
     }
 
     // Pinch: a real focus. Each light's rays come in from the edge, converge
@@ -294,20 +306,29 @@ struct Flare {
     // it opens. The rays break up along their length, carry fine filaments
     // and have ragged edges, and blur together at the focus, where they all
     // cross.
-    void evalPinch(int u, float v, float fall, float* rgb, float& rayCoord, float& streakVal, float& exitF) const {
+    void evalPinch(int u, float v, float amp, float* rgb, float& rayCoord, float& streakVal, float& exitF) const {
         if (srcs.empty()) return;
         float wsum = 0.f, rsum = 0.f, ssum = 0.f, xsum = 0.f;
         const float dv = v - pinchPx;
-        const float slope = std::max(0.5f * L.fan, 0.01f);
-        const float z0 = neckHw / slope;  // how far either side of the focus it stays tight
-        const float hw = std::sqrt(neckHw * neckHw + slope * slope * dv * dv);
-        const float cross = dv / std::sqrt(dv * dv + z0 * z0);  // -1 before the focus, +1 after
         const float sh = std::min(std::max(L.shimmer, 0.f), 1.f);
         const float tSh = time * L.shimmerSpeed * 0.3f * sh;
         const float lobes = 3.f + 30.f * std::min(std::max(L.streakDetail, 0.f), 1.f);
         const float alongScale = std::max(1.f, 0.15f * depthPx);
+        const float core = std::min(std::max(L.core, 0.f), 1.f);
+        const float fo = std::min(std::max(L.falloff, 0.f), 1.f);
         for (const Src& sr : srcs) {
-            const float c0 = sr.cen - leanTan * dv;
+            // This light's flare: its length and width over its life.
+            const float dPx = depthPx * sr.len;
+            const float vd = v / dPx;
+            const float body = fo > 0.f ? std::exp(-std::pow(vd, 1.f + 3.f * fo)) : std::exp(-vd);
+            const float fall = ((1.f - core) * body + core * 2.2f * std::exp(-std::fabs(dv) / (0.2f * dPx))) * amp;
+            if (fall < 1e-6f) continue;
+            const float nh = neckHw * sr.wid;
+            const float slope = std::max(0.5f * L.fan * sr.wid, 0.01f);
+            const float z0 = nh / slope;  // how far either side of the focus it stays tight
+            const float hw = std::sqrt(nh * nh + slope * slope * dv * dv);
+            const float cross = dv / std::sqrt(dv * dv + z0 * z0);  // -1 before the focus, +1 after
+            const float c0 = sr.cen - sr.lean * dv;
             const float rho = (float(u) - c0) / hw;
             if (std::fabs(rho) > 2.2f) continue;
             const float rr = rho * cross;  // which ray (rays swap sides through the focus)
@@ -316,8 +337,12 @@ struct Flare {
                 const float q = std::min(std::max((rr + 2.f) * 0.25f * (kRays - 1), 0.f), float(kRays - 1));
                 // Big rays, broken up along their length, plus fine filaments.
                 const float big = at1(rays, q, kRays);
-                const float brk = valueNoise2(rr * lobes * 0.5f + 50.f, v / alongScale - tSh, seed + 77u);
-                const float fine = valueNoise2(rr * lobes * 4.f + 9.f, v / (2.5f * alongScale) - tSh, seed + 78u);
+                // (the filaments re-form as they shimmer, rather than just sliding)
+                const float brk =
+                    valueNoise2(rr * lobes * 0.5f + 50.f + 1.7f * tSh, v / (2.f * alongScale) - tSh, seed + 77u);
+                // long, fine filaments along the rays
+                const float fine =
+                    valueNoise2(rr * lobes * 4.f + 9.f - 2.3f * tSh, v / (8.f * alongScale) - tSh, seed + 78u);
                 tv = 0.6f * big + 0.4f * brk + 0.25f * (fine - 0.5f);
             }
             const float mod = std::max(0.f, 1.f + 2.f * L.streaks * std::fabs(cross) * (tv - 0.5f));
@@ -355,7 +380,7 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
     const float unit = g.unit;
     const float reachPx = std::max(1.f, L.reach * unit);
     const float startPx = L.flareStart * unit;          // + inside the frame, - beyond the edge
-    const float rampPx = std::max(1.f, 0.5f * unit);     // comes up quickly once it starts
+    const float rampPx = std::max(1.f, L.onset * unit);  // how gradually it comes in once it starts
     fl.depthPx = std::max(1.f, L.depth * unit);
     fl.spreadPx = std::max(0.f, L.spread * unit);
     fl.maxD = fl.depthPx * 5.f;  // exp(-5) < 1%, then faded to zero: never a visible end line
@@ -433,6 +458,7 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
         fl.pinchPx = std::max(0.f, L.pinch * unit);
         fl.leanTan = std::tan(std::min(std::max(L.lean, -60.f), 60.f) * 3.14159265f / 180.f);
         fl.neckHw = std::max(1.f, 0.5f * fl.spreadPx);
+        fl.halfPerp = std::max(1.f, 0.5f * float(g.span));
         // Lights along the edge: runs of the profile, merged when closer than the neck.
         float mx = 0.f;
         for (int u = 0; u < n; ++u) mx = std::max(mx, lum[u]);
@@ -440,7 +466,7 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
         const int gap = std::max(1, int(fl.neckHw));
         for (int u = 0; u < n;) {
             if (lum[u] <= thr) { ++u; continue; }
-            Flare::Src sr{0.f, {0.f, 0.f, 0.f}, 0.f};
+            Flare::Src sr{0.f, {0.f, 0.f, 0.f}, 0.f, 0.f, 1.f, 1.f};
             float sl = 0.f, slu = 0.f, slx = 0.f;
             int last = u;
             for (; u < n && u - last <= gap; ++u) {
@@ -454,12 +480,29 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
             if (sl <= 0.f) continue;
             sr.cen = slu / sl;
             sr.exit = slx / sl;
+            // Aim: light from the lens reaches the edge travelling outward from the
+            // frame's centre; the edge reflects it back in, keeping its travel along
+            // the edge, so the flare tilts away from the centre line by
+            // (offset along the edge) / (half the frame across).
+            sr.lean = fl.leanTan + L.aim * (0.5f * float(n) - sr.cen) / fl.halfPerp;
+            // Evolve: grows as the light gets clear of the edge, then shortens
+            // and narrows as it goes further out.
+            const float ev = std::min(std::max(L.evolve, 0.f), 1.f), x = sr.exit;
+            sr.len = 1.f + ev * (-0.4f + 0.4f * smoothstep(0.f, 0.3f, x) - 0.35f * smoothstep(0.5f, 1.f, x));
+            sr.wid = 1.f - ev * 0.35f * smoothstep(0.5f, 1.f, x);
             fl.srcs.push_back(sr);
         }
         std::sort(fl.srcs.begin(), fl.srcs.end(), [](const Flare::Src& a, const Flare::Src& b) {
             return a.e[0] + a.e[1] + a.e[2] > b.e[0] + b.e[1] + b.e[2];
         });
         if (fl.srcs.size() > 16) fl.srcs.resize(16);
+        float ew = 0.f, ex = 0.f;
+        for (const Flare::Src& sr : fl.srcs) {
+            const float e = sr.e[0] + sr.e[1] + sr.e[2];
+            ew += e;
+            ex += e * sr.exit;
+        }
+        fl.meanExit = ew > 0.f ? ex / ew : 0.f;
         if (L.streaks > 0.f) {
             // A few big rays (Streak Detail 0) to many fine ones (1), shimmering.
             const float lobes = 3.f + 30.f * std::min(std::max(L.streakDetail, 0.f), 1.f);
@@ -712,16 +755,20 @@ Look presetLook(int preset, const Look& custom) {
             L.bladeAngle = 8.f;
             L.bladeSoftness = 0.4f;
             break;
-        case kSideBlast:  // Gummo: the light comes to a focus just inside the edge, crosses and opens
-                          // into a soft, broken-up blue cone that turns green-teal as the light goes
-                          // further out, just after the light has gone
-            set(L, kPinch, 1.f, -0.8f, 10.f, 20.f, 1.2f, 0.35f, 0.05f, 1.f, 0.3f, 0.5f, 0.35f, 0.3f, 0.8f, 0.9f, 1.f, 0.f);
-            L.pinch = 12.f;
-            L.lean = 0.f;
-            L.farTint[0] = 0.35f; L.farTint[1] = 0.6f; L.farTint[2] = 1.f;
-            L.exitTint[0] = 0.8f; L.exitTint[1] = 1.15f; L.exitTint[2] = 0.45f;
-            L.veil = 0.3f;
-            L.shimmerSpeed = 1.5f;
+        case kSideBlast:  // Gummo, matched frame by frame: a long, narrow wedge of fine filaments
+                          // converging on a hot point at the edge, aimed where the edge reflects the
+                          // light; it builds up, then shortens; violet -> blue -> cyan -> teal; it
+                          // shimmers every frame
+            set(L, kPinch, 0.3f, -0.8f, 5.f, 16.f, 3.f, 0.6f, 0.f, 1.2f, 0.45f, 0.8f, 0.45f, 0.2f, 0.1f, 0.22f, 1.f, 0.f);
+            L.onset = 3.f;
+            L.pinch = 1.5f;
+            L.lean = 4.f;
+            L.aim = 1.f;
+            L.evolve = 1.f;
+            L.hueDrift = -100.f;
+            L.farTint[0] = 0.5f; L.farTint[1] = 0.55f; L.farTint[2] = 1.f;
+            L.veil = 0.2f;
+            L.shimmerSpeed = 4.f;
             break;
         default:
             return custom;

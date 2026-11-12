@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.10.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.11.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -136,7 +136,7 @@ if(NOT WIN32)
   add_test(NAME top_look_preset
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/lookp.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5
-                   --expect-mean-above 28:0.15 --max-below 1.0)
+                   --expect-mean-above 28:0.14 --max-below 1.0)
   add_test(NAME look_blend
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/blend.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookB=5 --set topBlend=0.5

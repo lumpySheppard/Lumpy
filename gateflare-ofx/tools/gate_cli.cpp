@@ -43,11 +43,12 @@ int main(int argc, char** argv) {
     std::map<std::string, float*> f = {
         {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate},
         {"--light-size", &s.lightSize}, {"--intensity", &c.intensity}, {"--flare-start", &c.flareStart},
-        {"--reach", &c.reach}, {"--depth", &c.depth}, {"--spread", &c.spread}, {"--fan", &c.fan},
+        {"--reach", &c.reach}, {"--onset", &c.onset}, {"--depth", &c.depth}, {"--spread", &c.spread}, {"--fan", &c.fan},
         {"--edge-glow", &c.edgeGlow}, {"--blade-angle", &c.bladeAngle}, {"--blade-softness", &c.bladeSoftness},
         {"--streaks", &c.streaks}, {"--streak-detail", &c.streakDetail}, {"--shimmer", &c.shimmer},
         {"--shimmer-speed", &c.shimmerSpeed}, {"--core", &c.core}, {"--fringe", &c.fringe},
         {"--source-colour", &c.sourceColour}, {"--pinch", &c.pinch}, {"--lean", &c.lean},
+        {"--aim", &c.aim}, {"--evolve", &c.evolve}, {"--hue-drift", &c.hueDrift},
         {"--falloff", &c.falloff}, {"--curve", &c.curve}, {"--veil", &c.veil}, {"--iridescence", &c.iridescence}, {"--bands", &c.rainbowBands},
         {"--along", &c.rainbowAlong}, {"--edges", &c.prismEdges},
         {"--tint-r", &c.tint[0]}, {"--tint-g", &c.tint[1]}, {"--tint-b", &c.tint[2]},

@@ -32,8 +32,8 @@ enum P {
     P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TFOCUS, P_TTINT,
     P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_SFOCUS, P_STINT,
     // custom look
-    P_SHAPE, P_PINCH, P_LEAN, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
-    P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT, P_FARTINT, P_EXITTINT,
+    P_SHAPE, P_PINCH, P_LEAN, P_AIM, P_EVOLVE, P_HUEDRIFT, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
+    P_INTENSITY, P_START, P_ONSET, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT, P_FARTINT, P_EXITTINT,
     P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE,
     P_FALLOFF, P_CURVE, P_VEIL, P_IRID, P_BANDS, P_ALONG, P_EDGES,
     // sources
@@ -121,6 +121,18 @@ const std::vector<PDef>& defs() {
          "Pinch: degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and "
          "bottom).",
          {0}, -60, 60, -30, 30},
+        {P_AIM, "aim", kDbl, "grpCustom", "Aim",
+         "Pinch: 1 = each flare points where the gate edge reflects its light: it tilts away from the frame's "
+         "centre line and swings as the light moves along the edge. 0 = straight in (plus Lean).",
+         {1}, 0, 2, 0, 1},
+        {P_EVOLVE, "evolve", kDbl, "grpCustom", "Evolve",
+         "Pinch: the flare grows as its light gets clear of the edge, then shortens and narrows as the light "
+         "goes further out. 0 = same shape throughout.",
+         {1}, 0, 1, 0, 1},
+        {P_HUEDRIFT, "hueDrift", kDbl, "grpCustom", "Hue Drift",
+         "Degrees the colour turns over the flare's life, as its light goes out. Negative: violet, then blue, "
+         "cyan, green (Gummo); positive the other way.",
+         {0}, -180, 180, -120, 120},
         {P_BLADEANGLE, "bladeAngle", kDbl, "grpCustom", "Blade Angle",
          "Blade: degrees it leans away from straight in (negative leans the other way).", {15}, -75, 75, -45,
          45},
@@ -139,6 +151,10 @@ const std::vector<PDef>& defs() {
          "edge. Positive = earlier, while it's still inside the frame. Negative = later, once it's past the "
          "edge (only as far as Gate Crop leaves room for).",
          {0}, -20, 10, -6, 4},
+        {P_ONSET, "onset", kDbl, "grpCustom", "Onset (%)",
+         "How gradually a light's flare comes in once it passes Flare Start (% of frame height of travel). "
+         "Small = it switches on; large = it builds up over a few frames.",
+         {0.5}, 0.1, 20, 0.1, 6},
         {P_REACH, "reach", kDbl, "grpCustom", "Reach (%)",
          "How far beyond the gate edge a light keeps flaring (it fades out over this).", {6}, 0.5, 40, 1, 15},
         {P_DEPTH, "depth", kDbl, "grpCustom", "Depth (%)", "How far the flare reaches into the frame.", {14}, 1,
@@ -290,6 +306,9 @@ gate::Settings read(Instance* in, double t) {
     c.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 3);
     c.pinch = f(P_PINCH);
     c.lean = f(P_LEAN);
+    c.aim = f(P_AIM);
+    c.evolve = f(P_EVOLVE);
+    c.hueDrift = f(P_HUEDRIFT);
     for (int i = 0; i < 3; ++i) c.farTint[i] = f(P_FARTINT, i);
     for (int i = 0; i < 3; ++i) c.exitTint[i] = f(P_EXITTINT, i);
     c.falloff = f(P_FALLOFF);
@@ -301,6 +320,7 @@ gate::Settings read(Instance* in, double t) {
     c.prismEdges = f(P_EDGES);
     c.intensity = f(P_INTENSITY);
     c.flareStart = f(P_START);
+    c.onset = f(P_ONSET);
     c.reach = f(P_REACH);
     c.depth = f(P_DEPTH);
     c.spread = f(P_SPREAD);
@@ -569,7 +589,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 10, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 11, setHost, mainEntry};
 
 }  // namespace
 

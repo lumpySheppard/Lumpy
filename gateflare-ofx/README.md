@@ -69,7 +69,7 @@ Top & Bottom and **Side Blast** for Left & Right, so you can raise
 | Thin Streak | *Road to Perdition* | A long, thin, faint streak straight in, for a light leaving the side |
 | Cool Column | Stills | A cool column straight down from the top |
 | Blue Blade | Stills, *A Clockwork Orange* | A hard-edged blue wedge, leaning slightly |
-| Side Blast | *Gummo* | A **Pinch**: the light comes to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone, turning green-teal as the light goes further out of frame |
+| Side Blast | *Gummo*, matched frame by frame | A long, narrow wedge of fine filaments converging on a hot point at the edge, aimed where the gate edge reflects the light. It builds up, then shortens as the light goes further out, turning violet, blue, cyan, then teal, and its filaments re-form every frame |
 
 
 Side Blast starts after the light has left the frame (Flare Start −0.8%).
@@ -92,6 +92,10 @@ Used wherever a pair's Look A or B is **Custom**.
 | Control | What it does |
 | --- | --- |
 | Shape | **Plume**: a fan that widens into the frame. **Beam**: a narrow, parallel-sided column straight in from the edge. **Blade**: a hard-edged wedge that can lean. **Pinch**: a real focus. Each light's rays converge from the edge to a focal point Pinch Length in, cross there and diverge again at the same angle (Fan); Spread sets how tight the focus is. The rays break up along their length, carry fine filaments, have ragged edges and blur together at the focus |
+| Aim | Pinch: 1 = each flare points where the gate edge reflects its light. Light from the lens reaches the edge travelling outward from the frame's centre; the edge reflects it back in, so the flare tilts away from the centre line (by its offset along the edge over half the frame across) and swings as the light moves. 0 = straight in |
+| Evolve | Pinch: the flare grows as its light gets clear of the edge, then shortens and narrows as the light goes further out |
+| Hue Drift | Pinch: degrees the colour turns over the flare's life. Negative: violet, blue, cyan, green (Side Blast) |
+| Onset (%) | How gradually a light's flare comes in once it passes Flare Start: small switches on, large builds over a few frames |
 | Pinch Length (%) / Lean | Pinch: how far in the focal point is, and how many degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and bottom) |
 | Blade Angle / Blade Softness | Blade: how far it leans from straight in, and how soft its sides are (0 = razor sharp) |
 | Flare Colour | **Source** (the lights' own colour), **Cool Blue**, **Cyan**, **Warm**, or **Custom** (white coloured by Tint). Tint applies on top of all of them |
