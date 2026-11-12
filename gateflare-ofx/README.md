@@ -43,6 +43,24 @@ Then:
    in, and **Source Threshold** until the right things are magenta.
 3. Turn Show Gate & Sources off and shape the flare.
 
+The controls run in setup order: **Presets**, **Sources**, **Composite &
+Input**, **Gate**, then the looks (**Top & Bottom**, **Left & Right**,
+**Custom Look**) and **Edges**.
+
+### Presets
+
+| Control | What it does |
+| --- | --- |
+| Preset | Choosing one sets the controls to it. **Gummo Side Blast**: the side flare matched to the *Gummo* shot, loaded into the Custom Look controls so you can adjust it (Left & Right use Custom, Top & Bottom Soft Haze, Gate Crop 16, Light Size 8). It renders exactly like the Side Blast look. **Defaults**: everything back to how it starts. **User 1-8**: your own |
+| Apply Preset | Sets the controls to the chosen preset again |
+| Save To / Save Preset | Saves every control as it is now to that user slot |
+
+A preset doesn't change Show Gate & Sources. The Gummo preset also leaves
+Source Threshold, Input Encoding and Seed alone, since they depend on the
+footage. User presets are small text files, shared by all projects, in
+`~/Library/Application Support/Lumpy/GateFlare/` (`user1.gfpreset` ...);
+copy them to another machine to share them.
+
 ### Looks, and top/bottom vs left/right
 
 Flares from the side edges often look different from those at the top
@@ -77,7 +95,7 @@ A light can only flare as far past the edge as **Gate Crop** leaves picture
 for, so on footage with a small margin, raise Gate Crop or the Flare Start
 Offset if Side Blast doesn't fire.
 
-### General
+### Gate
 
 | Control | What it does |
 | --- | --- |

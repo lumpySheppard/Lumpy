@@ -714,6 +714,13 @@ int main(int argc, char** argv) {
 
     // Pass 2: fresh instance, shuffled order (like scrubbing); must match.
     auto fx2 = makeInstance(descCtx, sets);
+    // (RGB params have three components; a button press or preset may have set them all)
+    for (auto& n : fx->params.order) {
+        auto it = fx2->params.params.find(n);
+        if (it == fx2->params.params.end()) continue;
+        it->second->value2 = fx->params.params[n]->value2;
+        it->second->value3 = fx->params.params[n]->value3;
+    }
     std::vector<int> order(N);
     for (int i = 0; i < N; ++i) order[i] = i;
     std::shuffle(order.begin(), order.end(), std::mt19937(1234));
@@ -724,6 +731,14 @@ int main(int argc, char** argv) {
     }
     std::printf("shuffled render max difference vs sequential: %g\n", worst);
     if (worst > 1e-5) die("shuffled render differs from sequential render");
+
+    // Every rendered value must be a real number (hosts draw NaN as white or black).
+    for (int t = 0; t < N; ++t)
+        for (size_t i = 0; i < seq[t].size(); ++i)
+            if (!std::isfinite(seq[t][i])) {
+                std::fprintf(stderr, "frame %d pixel %zu channel %zu is not finite\n", t, i / 4, i % 4);
+                die("output has non-finite values");
+            }
 
     // Optional checks on the rendered frames.
     auto sourceFrame = [&](const std::string& clip, int t) {

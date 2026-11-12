@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.14.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.15.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -59,6 +59,9 @@ if(NOT WIN32)
   set(GF $<TARGET_FILE:GateFlare>)
   set(CLIP ${CMAKE_BINARY_DIR}/bar.rgb)
   add_test(NAME make_clip COMMAND make_test_clip 192 108 ${CLIP})
+  set(SIDECLIP ${CMAKE_BINARY_DIR}/side.rgb)
+  add_test(NAME make_side_clip COMMAND make_test_clip 192 108 ${SIDECLIP} side)
+  set_tests_properties(make_side_clip PROPERTIES FIXTURES_SETUP sideclip)
   set_tests_properties(make_clip PROPERTIES FIXTURES_SETUP clip)
   # Nothing to do (no flare, no crop): the picture comes back untouched.
   add_test(NAME off_is_identity
@@ -168,6 +171,54 @@ if(NOT WIN32)
                    --set rainbowAlong=0.5 --set prismEdges=0.5 --set curve=1 --set falloff=1
                    --expect-mean-above 28:0.14 --max-below 1.0)
   set_tests_properties(organic_controls PROPERTIES FIXTURES_REQUIRED clip)
+  # A fractional Falloff used to turn the first row / column inside the bottom
+  # and right gate edges into NaN (a white line in Resolve). The test host
+  # fails on any non-finite value.
+  add_test(NAME fractional_falloff_is_clean
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/nan.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set falloff=0.4 --set shape=3
+                   --max-below 1.0)
+  set_tests_properties(fractional_falloff_is_clean PROPERTIES FIXTURES_REQUIRED sideclip)
+
+  # Presets. Gummo Side Blast loads the Side Blast look into the Custom Look
+  # controls: the render must be identical to using the Side Blast look itself.
+  add_test(NAME preset_gummo
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/gummo_preset.rgb --context filter
+                   --set cropToGate=0 --set isolateLights=0 --set preset=1 --press preset@0
+                   --expect shape=3 --expect gateCrop=16 --expect sideLookA=0)
+  add_test(NAME preset_gummo_reference
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/gummo_look.rgb --context filter
+                   --set cropToGate=0 --set isolateLights=0 --set gateCrop=16 --set lightSize=8 --set sideLookA=5
+                   --set topLookA=1)
+  add_test(NAME preset_gummo_matches_look
+           COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/gummo_preset.rgb
+                   ${CMAKE_BINARY_DIR}/gummo_look.rgb)
+  set_tests_properties(preset_gummo preset_gummo_reference PROPERTIES FIXTURES_REQUIRED sideclip FIXTURES_SETUP gummo)
+  set_tests_properties(preset_gummo_matches_look PROPERTIES FIXTURES_REQUIRED gummo)
+  # A user preset: save one, then load it into a fresh instance: same render.
+  add_test(NAME preset_user_save
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/user_saved.rgb --context filter
+                   --set cropToGate=0 --set isolateLights=0 --set gateCrop=14 --set shape=3 --set intensity=2.5
+                   --set pinchLength=6 --set hueDrift=-30 --set savePresetTo=2 --press savePreset@0
+                   --expect preset=5)
+  add_test(NAME preset_user_load
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/user_loaded.rgb --context filter
+                   --set preset=5 --press applyPreset@0 --expect intensity=2.5 --expect gateCrop=14)
+  add_test(NAME preset_user_round_trip
+           COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/user_saved.rgb
+                   ${CMAKE_BINARY_DIR}/user_loaded.rgb)
+  set_tests_properties(preset_user_save PROPERTIES FIXTURES_REQUIRED sideclip FIXTURES_SETUP usersaved)
+  set_tests_properties(preset_user_load PROPERTIES FIXTURES_REQUIRED "sideclip;usersaved" FIXTURES_SETUP userloaded)
+  set_tests_properties(preset_user_round_trip PROPERTIES FIXTURES_REQUIRED userloaded)
+  set_tests_properties(preset_user_save preset_user_load PROPERTIES
+                       ENVIRONMENT "GATEFLARE_PRESET_DIR=${CMAKE_BINARY_DIR}/presets")
+  # Defaults puts everything back.
+  add_test(NAME preset_defaults
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/defaults.rgb --context filter
+                   --set intensity=7 --set gateCrop=20 --set preset=2 --press applyPreset@0
+                   --expect intensity=1 --expect gateCrop=6)
+  set_tests_properties(preset_defaults PROPERTIES FIXTURES_REQUIRED clip)
+
   set_tests_properties(top_look_preset look_blend pairs_independent pairs_off_identity
                        PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(flare_start_later flare_start_earlier PROPERTIES FIXTURES_REQUIRED clip)

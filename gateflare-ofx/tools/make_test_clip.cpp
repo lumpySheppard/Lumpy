@@ -1,8 +1,10 @@
 // make_test_clip: a dark, textured 48-frame rgb24 clip with a bright bar that
-// drifts up and out through the top edge (for the GateFlare tests).
+// drifts up and out through the top edge, or with a 4th argument "side",
+// right and out through the right edge (for the GateFlare tests).
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 int main(int argc, char** argv) {
@@ -10,6 +12,7 @@ int main(int argc, char** argv) {
     const int w = std::atoi(argv[1]), h = std::atoi(argv[2]);
     FILE* f = std::fopen(argv[3], "wb");
     if (!f) return 1;
+    const bool side = argc > 4 && std::string(argv[4]) == "side";
     std::vector<unsigned char> buf(size_t(w) * h * 3);
     for (int t = 0; t < 48; ++t) {
         const float barY = h * 0.3f - t * h * 0.01f;  // top-down; leaves the frame around t = 30
@@ -17,7 +20,9 @@ int main(int argc, char** argv) {
             for (int x = 0; x < w; ++x) {
                 unsigned char* p = &buf[(size_t(y) * w + x) * 3];
                 float v = 0.12f + 0.04f * std::sin(x * 0.3f) * std::cos(y * 0.2f);
-                const bool bar = std::fabs(y - barY) < h * 0.02f && std::fabs(x - w * 0.5f) < w * 0.12f;
+                const float barX = w * 0.8f + t * h * 0.01f;  // side: leaves the frame around t = 25
+                const bool bar = side ? std::fabs(x - barX) < h * 0.02f && std::fabs(y - h * 0.4f) < h * 0.06f
+                                      : std::fabs(y - barY) < h * 0.02f && std::fabs(x - w * 0.5f) < w * 0.12f;
                 for (int c = 0; c < 3; ++c) p[c] = (unsigned char)(255.f * (bar ? (c == 2 ? 0.9f : 1.f) : v));
             }
         std::fwrite(buf.data(), 1, buf.size(), f);

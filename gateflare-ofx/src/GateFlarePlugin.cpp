@@ -6,7 +6,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <locale>
+#include <sstream>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "Encodings.h"
@@ -27,6 +34,7 @@ namespace {
 const char* const kPluginId = "com.lumpy.GateFlare";
 
 enum P {
+    P_PRESET, P_APPLYPRESET, P_SAVETO, P_SAVEPRESET,
     P_CROP, P_CROPOUT, P_SHOWGATE,
     // per edge pair
     P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TFOCUS, P_TSAT, P_TTINT,
@@ -42,7 +50,7 @@ enum P {
     P_COMPOSITE, P_ENCODING, P_SEED,
     P_COUNT
 };
-enum PType { kDbl, kBool, kChoice, kRGB, kInt };
+enum PType { kDbl, kBool, kChoice, kRGB, kInt, kButton };
 
 struct PDef {
     P id;
@@ -64,16 +72,62 @@ const char* const kLookHint =
     "Column: a cool column straight in. Blue Blade: a hard-edged blue wedge. Side Blast: the light comes "
     "to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone (Gummo).";
 
+// Presets: built-in ones, then user slots saved to disk.
+enum { kPresetNone = 0, kPresetGummo = 1, kPresetDefaults = 2, kPresetFirstUser = 3, kUserSlots = 8 };
+const std::vector<const char*> kPresetOptions = {"-",      "Gummo Side Blast", "Defaults", "User 1", "User 2", "User 3",
+                                                 "User 4", "User 5",           "User 6",   "User 7", "User 8"};
+const std::vector<const char*> kSlotOptions = {"User 1", "User 2", "User 3", "User 4",
+                                               "User 5", "User 6", "User 7", "User 8"};
+
 const std::vector<PDef>& defs() {
     static const std::vector<PDef> d = {
-        {P_CROP, "gateCrop", kDbl, nullptr, "Gate Crop (%)",
+        {P_PRESET, "preset", kChoice, "grpPreset", "Preset",
+         "Choosing a preset sets the controls to it. Gummo Side Blast: the side flare matched to the Gummo "
+         "shot, loaded into the Custom Look controls so you can adjust it (Left & Right use Custom, Top & "
+         "Bottom Soft Haze, Gate Crop 16, Light Size 8). Defaults: everything back to how it starts. User "
+         "1-8: your own, saved with Save Preset.",
+         {0}, 0, 10, 0, 10, kPresetOptions},
+        {P_APPLYPRESET, "applyPreset", kButton, "grpPreset", "Apply Preset",
+         "Sets the controls to the chosen preset again.", {0}, 0, 0, 0, 0},
+        {P_SAVETO, "savePresetTo", kChoice, "grpPreset", "Save To", "Which user preset Save Preset writes.", {0}, 0,
+         7, 0, 7, kSlotOptions},
+        {P_SAVEPRESET, "savePreset", kButton, "grpPreset", "Save Preset",
+         "Saves every control as it is now to the Save To slot (a small text file on this computer, shared by "
+         "all projects).",
+         {0}, 0, 0, 0, 0},
+
+        {P_THRESH, "threshold", kDbl, "grpSources", "Source Threshold",
+         "How bright (as encoded) something must be to flare. Use Show Gate & Sources to see what's picked "
+         "up.",
+         {0.9}, 0, 1.5, 0.3, 1.1},
+        {P_KNEE, "knee", kDbl, "grpSources", "Softness", "Softens the threshold.", {0.05}, 0, 0.6, 0, 0.3},
+        {P_ISOLATE, "isolateLights", kDbl, "grpSources", "Isolate Lights",
+         "1 = only small things much brighter than their surroundings flare (lamps, practicals); big bright "
+         "areas like lit walls don't. 0 = anything over the threshold flares.",
+         {1}, 0, 1, 0, 1},
+        {P_LIGHTSIZE, "lightSize", kDbl, "grpSources", "Light Size (%)",
+         "With Isolate Lights: the biggest thing that still counts as a light, as % of frame height.", {3}, 0.2,
+         50, 0.5, 20},
+
+
+        {P_COMPOSITE, "composite", kChoice, "grpInput", "Composite",
+         "Film: the flare is extra exposure on the negative, through a soft shoulder: it glows into the "
+         "highlights and never clips. Screen: brighter, but strong flares flatten to white. Add: plain linear "
+         "add, for log / scene-linear footage that goes through an output transform afterwards.",
+         {0}, 0, 2, 0, 2, {"Film (soft shoulder)", "Screen", "Add (linear)"}},
+        {P_ENCODING, "encoding", kChoice, "grpInput", "Input Encoding",
+         "How the images arriving here are encoded, so the flare is added in linear light.", {0}, 0,
+         encodings::kEncodingCount - 1, 0, encodings::kEncodingCount - 1},
+        {P_SEED, "seed", kInt, "grpInput", "Seed", "A different streak pattern.", {1}, 0, 100000, 0, 100},
+
+        {P_CROP, "gateCrop", kDbl, "grpGate", "Gate Crop (%)",
          "How much of the picture lies beyond the gate. The shot is zoomed in by this much; bright things "
          "in the cropped-off margin flare in from the edge before they enter and after they leave.",
          {6}, 0, 40, 0, 15},
-        {P_CROPOUT, "cropToGate", kBool, nullptr, "Crop to Gate",
+        {P_CROPOUT, "cropToGate", kBool, "grpGate", "Crop to Gate",
          "Scale the gate up to fill the frame. Turn off to keep the full picture (and crop it yourself).",
          {1}, 0, 1, 0, 1},
-        {P_SHOWGATE, "showGate", kBool, nullptr, "Show Gate & Sources",
+        {P_SHOWGATE, "showGate", kBool, "grpGate", "Show Gate & Sources",
          "Shows the whole picture with the gate in red, the margin darkened, and the lights that will "
          "flare in magenta. For setting up; turn off to render.",
          {0}, 0, 1, 0, 1},
@@ -224,33 +278,10 @@ const std::vector<PDef>& defs() {
          "1: the rainbow only on the rays' edges, as thin spectral lines (a prism). 0: everywhere.", {0}, 0, 1, 0,
          1},
 
-        {P_THRESH, "threshold", kDbl, "grpSources", "Source Threshold",
-         "How bright (as encoded) something must be to flare. Use Show Gate & Sources to see what's picked "
-         "up.",
-         {0.9}, 0, 1.5, 0.3, 1.1},
-        {P_KNEE, "knee", kDbl, "grpSources", "Softness", "Softens the threshold.", {0.05}, 0, 0.6, 0, 0.3},
-        {P_ISOLATE, "isolateLights", kDbl, "grpSources", "Isolate Lights",
-         "1 = only small things much brighter than their surroundings flare (lamps, practicals); big bright "
-         "areas like lit walls don't. 0 = anything over the threshold flares.",
-         {1}, 0, 1, 0, 1},
-        {P_LIGHTSIZE, "lightSize", kDbl, "grpSources", "Light Size (%)",
-         "With Isolate Lights: the biggest thing that still counts as a light, as % of frame height.", {3}, 0.2,
-         50, 0.5, 20},
-
         {P_TOP, "edgeTop", kBool, "grpEdges", "Top", "Flare from the top edge.", {1}, 0, 1, 0, 1},
         {P_BOTTOM, "edgeBottom", kBool, "grpEdges", "Bottom", "Flare from the bottom edge.", {1}, 0, 1, 0, 1},
         {P_LEFT, "edgeLeft", kBool, "grpEdges", "Left", "Flare from the left edge.", {1}, 0, 1, 0, 1},
         {P_RIGHT, "edgeRight", kBool, "grpEdges", "Right", "Flare from the right edge.", {1}, 0, 1, 0, 1},
-
-        {P_COMPOSITE, "composite", kChoice, "grpInput", "Composite",
-         "Film: the flare is extra exposure on the negative, through a soft shoulder: it glows into the "
-         "highlights and never clips. Screen: brighter, but strong flares flatten to white. Add: plain linear "
-         "add, for log / scene-linear footage that goes through an output transform afterwards.",
-         {0}, 0, 2, 0, 2, {"Film (soft shoulder)", "Screen", "Add (linear)"}},
-        {P_ENCODING, "encoding", kChoice, "grpInput", "Input Encoding",
-         "How the images arriving here are encoded, so the flare is added in linear light.", {0}, 0,
-         encodings::kEncodingCount - 1, 0, encodings::kEncodingCount - 1},
-        {P_SEED, "seed", kInt, "grpInput", "Seed", "A different streak pattern.", {1}, 0, 100000, 0, 100},
     };
     return d;
 }
@@ -260,9 +291,10 @@ struct GDef {
     const char* label;
     bool open;
 };
-const GDef kGroups[] = {{"grpTop", "Top & Bottom", true},     {"grpSide", "Left & Right", true},
-                        {"grpCustom", "Custom Look", false},  {"grpSources", "Sources", false},
-                        {"grpEdges", "Edges", false},         {"grpInput", "Composite & Input", false}};
+const GDef kGroups[] = {{"grpPreset", "Presets", true},      {"grpSources", "Sources", true},
+                        {"grpInput", "Composite & Input", true}, {"grpGate", "Gate", true},
+                        {"grpTop", "Top & Bottom", true},     {"grpSide", "Left & Right", true},
+                        {"grpCustom", "Custom Look", false},  {"grpEdges", "Edges", false}};
 
 const OfxPropertySuiteV1* gProp = nullptr;
 const OfxImageEffectSuiteV1* gFx = nullptr;
@@ -286,7 +318,7 @@ gate::Settings read(Instance* in, double t) {
     double v[P_COUNT][3] = {};
     for (const PDef& d : defs()) {
         for (int i = 0; i < 3; ++i) v[d.id][i] = d.def[i];
-        if (!in->h[d.id]) continue;
+        if (!in->h[d.id] || d.type == kButton) continue;
         if (d.type == kDbl) gParam->paramGetValueAtTime(in->h[d.id], t, &v[d.id][0]);
         else if (d.type == kRGB) gParam->paramGetValueAtTime(in->h[d.id], t, &v[d.id][0], &v[d.id][1], &v[d.id][2]);
         else {
@@ -444,7 +476,7 @@ OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle) {
             openGroup = d.group;
         }
         static const char* const types[] = {kOfxParamTypeDouble, kOfxParamTypeBoolean, kOfxParamTypeChoice,
-                                            kOfxParamTypeRGB, kOfxParamTypeInteger};
+                                            kOfxParamTypeRGB,    kOfxParamTypeInteger, kOfxParamTypePushButton};
         OfxPropertySetHandle p;
         gParam->paramDefine(ps, types[d.type], d.name, &p);
         gProp->propSetString(p, kOfxPropLabel, 0, d.label);
@@ -484,6 +516,8 @@ OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle) {
             case kRGB:
                 gProp->propSetDoubleN(p, kOfxParamPropDefault, 3, d.def);
                 break;
+            case kButton:
+                break;
         }
     }
     return kOfxStatOK;
@@ -509,6 +543,184 @@ OfxStatus destroyInstance(OfxImageEffectHandle effect) {
     gFx->getPropertySet(effect, &props);
     gProp->propSetPointer(props, kOfxPropInstanceData, 0, nullptr);
     return kOfxStatOK;
+}
+
+// ----------------------------------------------------------------- presets
+
+struct PVal {
+    P id;
+    double v[3];
+};
+
+void setParam(Instance* in, const PDef& d, const double* v) {
+    OfxParamHandle h = in->h[d.id];
+    if (!h) return;
+    if (d.type == kDbl) gParam->paramSetValue(h, v[0]);
+    else if (d.type == kRGB) gParam->paramSetValue(h, v[0], v[1], v[2]);
+    else if (d.type != kButton) gParam->paramSetValue(h, int(std::lround(v[0])));
+}
+
+const PDef* defOf(P id) {
+    for (const PDef& d : defs())
+        if (d.id == id) return &d;
+    return nullptr;
+}
+
+// The controls a preset doesn't touch: the preset controls themselves and the setup view.
+bool presetSkips(const PDef& d) {
+    return d.type == kButton || d.id == P_PRESET || d.id == P_SAVETO || d.id == P_SHOWGATE;
+}
+
+// A Look as Custom Look control values.
+std::vector<PVal> lookValues(const gate::Look& L) {
+    return {
+        {P_SHAPE, {double(L.shape)}},        {P_PINCH, {L.pinch}},
+        {P_LEAN, {L.lean}},                  {P_AIM, {L.aim}},
+        {P_EVOLVE, {L.evolve}},              {P_HUEDRIFT, {L.hueDrift}},
+        {P_BLADEANGLE, {L.bladeAngle}},      {P_BLADESOFT, {L.bladeSoftness}},
+        {P_COLOURMODE, {0}},                 {P_INTENSITY, {L.intensity}},
+        {P_START, {L.flareStart}},           {P_ONSET, {L.onset}},
+        {P_WAIT, {L.waitExit}},              {P_REACH, {L.reach}},
+        {P_DEPTH, {L.depth}},                {P_SPREAD, {L.spread}},
+        {P_FAN, {L.fan}},                    {P_GLOW, {L.edgeGlow}},
+        {P_SRCCOL, {L.sourceColour}},        {P_SAT, {L.saturation}},
+        {P_TINT, {L.tint[0], L.tint[1], L.tint[2]}},
+        {P_FARTINT, {L.farTint[0], L.farTint[1], L.farTint[2]}},
+        {P_EXITTINT, {L.exitTint[0], L.exitTint[1], L.exitTint[2]}},
+        {P_STREAKS, {L.streaks}},            {P_STREAKDETAIL, {L.streakDetail}},
+        {P_SHIMMER, {L.shimmer}},            {P_SHIMMERSPEED, {L.shimmerSpeed}},
+        {P_CORE, {L.core}},                  {P_FRINGE, {L.fringe}},
+        {P_FALLOFF, {L.falloff}},            {P_CURVE, {L.curve}},
+        {P_VEIL, {L.veil}},                  {P_IRID, {L.iridescence}},
+        {P_BANDS, {L.rainbowBands}},         {P_ALONG, {L.rainbowAlong}},
+        {P_EDGES, {L.prismEdges}},
+    };
+}
+
+std::string presetDir() {
+    if (const char* e = std::getenv("GATEFLARE_PRESET_DIR")) return e;
+    const char* home = std::getenv("HOME");
+    if (!home) return std::string();
+#if defined(__APPLE__)
+    return std::string(home) + "/Library/Application Support/Lumpy/GateFlare";
+#else
+    return std::string(home) + "/.config/Lumpy/GateFlare";
+#endif
+}
+
+std::string userPresetPath(int slot) {
+    const std::string dir = presetDir();
+    return dir.empty() ? dir : dir + "/user" + std::to_string(slot + 1) + ".gfpreset";
+}
+
+// One line per control: its name, then its value(s). Written and read with
+// the classic locale, whatever the host's is.
+bool saveUserPreset(Instance* in, int slot) {
+    const std::string path = userPresetPath(slot);
+    if (path.empty()) return false;
+    std::error_code ec;
+    std::filesystem::create_directories(presetDir(), ec);
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out.precision(9);
+    out << "GateFlare preset 1\n";
+    for (const PDef& d : defs()) {
+        if (presetSkips(d) || !in->h[d.id]) continue;
+        double v[3] = {d.def[0], d.def[1], d.def[2]};
+        if (d.type == kDbl) gParam->paramGetValue(in->h[d.id], &v[0]);
+        else if (d.type == kRGB) gParam->paramGetValue(in->h[d.id], &v[0], &v[1], &v[2]);
+        else {
+            int x = int(d.def[0]);
+            gParam->paramGetValue(in->h[d.id], &x);
+            v[0] = x;
+        }
+        out << d.name << ' ' << v[0];
+        if (d.type == kRGB) out << ' ' << v[1] << ' ' << v[2];
+        out << '\n';
+    }
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f << out.str();
+    return bool(f);
+}
+
+bool loadUserPreset(Instance* in, int slot) {
+    const std::string path = userPresetPath(slot);
+    std::ifstream f(path, std::ios::binary);
+    if (path.empty() || !f) return false;
+    std::string line;
+    std::getline(f, line);  // header
+    while (std::getline(f, line)) {
+        std::istringstream ls(line);
+        ls.imbue(std::locale::classic());
+        std::string name;
+        double v[3] = {0, 0, 0};
+        if (!(ls >> name >> v[0])) continue;
+        ls >> v[1] >> v[2];
+        for (const PDef& d : defs())
+            if (name == d.name && !presetSkips(d)) {
+                v[0] = std::min(std::max(v[0], d.lo), d.hi);  // (RGB shares one range)
+                if (d.type == kRGB)
+                    for (int i = 1; i < 3; ++i) v[i] = std::min(std::max(v[i], d.lo), d.hi);
+                setParam(in, d, v);
+            }
+    }
+    return true;
+}
+
+void applyPreset(Instance* in, int preset) {
+    if (preset == kPresetDefaults) {
+        for (const PDef& d : defs())
+            if (!presetSkips(d)) setParam(in, d, d.def);
+    } else if (preset == kPresetGummo) {
+        // The Side Blast look, as Custom Look values, on the left and right edges.
+        std::vector<PVal> vals = lookValues(gate::presetLook(gate::kSideBlast, gate::Look()));
+        const PVal more[] = {
+            {P_SLOOKA, {0}},   {P_SLOOKB, {5}},  {P_SBLEND, {0}},  {P_SINT, {1}},   {P_SSTART, {0}},
+            {P_SFOCUS, {0}},   {P_SSAT, {1}},    {P_STINT, {1, 1, 1}},
+            {P_TLOOKA, {1}},   {P_TBLEND, {0}},  {P_CROP, {16}},   {P_LIGHTSIZE, {8}}, {P_COMPOSITE, {0}},
+            {P_LEFT, {1}},     {P_RIGHT, {1}},
+        };
+        vals.insert(vals.end(), std::begin(more), std::end(more));
+        for (const PVal& pv : vals)
+            if (const PDef* d = defOf(pv.id)) setParam(in, *d, pv.v);
+    } else if (preset >= kPresetFirstUser && preset < kPresetFirstUser + kUserSlots) {
+        loadUserPreset(in, preset - kPresetFirstUser);
+    }
+}
+
+OfxStatus instanceChanged(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
+    char* type = nullptr;
+    char* name = nullptr;
+    char* reason = nullptr;
+    gProp->propGetString(inArgs, kOfxPropType, 0, &type);
+    gProp->propGetString(inArgs, kOfxPropName, 0, &name);
+    gProp->propGetString(inArgs, kOfxPropChangeReason, 0, &reason);
+    // Only when the user did it: loading a project, or this code setting the
+    // controls, must not apply a preset over them.
+    if (!type || !name || !reason || std::strcmp(type, kOfxTypeParameter) || std::strcmp(reason, kOfxChangeUserEdited))
+        return kOfxStatReplyDefault;
+    Instance* in = getInstance(effect);
+    if (!in) return kOfxStatReplyDefault;
+    OfxParamSetHandle ps = nullptr;
+    gFx->getParamSet(effect, &ps);
+    auto choice = [&](P p) {
+        int x = 0;
+        if (in->h[p]) gParam->paramGetValue(in->h[p], &x);
+        return x;
+    };
+    if (!std::strcmp(name, "preset") || !std::strcmp(name, "applyPreset")) {
+        if (ps && gParam->paramEditBegin) gParam->paramEditBegin(ps, "GateFlare preset");
+        applyPreset(in, choice(P_PRESET));
+        if (ps && gParam->paramEditEnd) gParam->paramEditEnd(ps);
+        return kOfxStatOK;
+    }
+    if (!std::strcmp(name, "savePreset")) {
+        const int slot = std::min(std::max(choice(P_SAVETO), 0), int(kUserSlots) - 1);
+        if (saveUserPreset(in, slot) && in->h[P_PRESET]) gParam->paramSetValue(in->h[P_PRESET], int(kPresetFirstUser) + slot);
+        return kOfxStatOK;
+    }
+    return kOfxStatReplyDefault;
 }
 
 OfxStatus isIdentity(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs, OfxPropertySetHandle outArgs) {
@@ -592,6 +804,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
         if (!std::strcmp(action, kOfxImageEffectActionDescribeInContext)) return describeInContext(effect, inArgs);
         if (!std::strcmp(action, kOfxActionCreateInstance)) return createInstance(effect);
         if (!std::strcmp(action, kOfxActionDestroyInstance)) return destroyInstance(effect);
+        if (!std::strcmp(action, kOfxActionInstanceChanged)) return instanceChanged(effect, inArgs);
         if (!std::strcmp(action, kOfxImageEffectActionIsIdentity)) return isIdentity(effect, inArgs, outArgs);
         if (!std::strcmp(action, kOfxImageEffectActionRender)) return render(effect, inArgs);
         return kOfxStatReplyDefault;
@@ -604,7 +817,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 14, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 15, setHost, mainEntry};
 
 }  // namespace
 

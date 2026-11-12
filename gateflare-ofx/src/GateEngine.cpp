@@ -184,6 +184,7 @@ struct Flare {
     }
 
     void eval(int u, float v, float* add) const {
+        v = std::max(v, 0.f);
         if (v > maxD) return;
         // Curve: the flare that starts at u bends sideways as it goes in.
         if (L.curve != 0.f)
@@ -751,7 +752,10 @@ void render(const Image& in, const Settings& s, Image& out) {
             if (inside) {
                 for (int e = 0; e < 4; ++e) {
                     if (flares[e].empty()) continue;
-                    const float v = e == kTop ? yv - gy0 : e == kBottom ? gy1 - 1 - yv : e == kLeft ? x - gx0 : gx1 - 1 - x;
+                    // (the gate's edges fall between pixels: the first row or column
+                    // inside the bottom / right edge would otherwise come out negative)
+                    const float v = std::max(
+                        0.f, e == kTop ? yv - gy0 : e == kBottom ? gy1 - 1 - yv : e == kLeft ? x - gx0 : gx1 - 1 - x);
                     const int u = (e == kTop || e == kBottom) ? x : yv;
                     for (const Flare& fl : flares[e]) fl.eval(u, v, add);
                 }
@@ -769,7 +773,7 @@ void render(const Image& in, const Settings& s, Image& out) {
             }
             for (int c = 0; c < 3; ++c) {
                 float l = L[i + c];
-                const float a = std::max(add[c], 0.f);
+                const float a = add[c] > 0.f && std::isfinite(add[c]) ? add[c] : 0.f;
                 if (s.composite == kFilm) {
                     // The flare is extra exposure on the negative: added in odds
                     // space and brought back through a soft shoulder, so it glows
