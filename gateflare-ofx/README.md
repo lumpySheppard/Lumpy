@@ -95,6 +95,8 @@ Used wherever a pair's Look A or B is **Custom**.
 | Aim | Pinch: 1 = each flare points where the gate edge reflects its light. Light from the lens reaches the edge travelling outward from the frame's centre; the edge reflects it back in, so the flare tilts away from the centre line (by its offset along the edge over half the frame across) and swings as the light moves. 0 = straight in |
 | Evolve | Pinch: the flare grows as its light gets clear of the edge, then shortens and narrows as the light goes further out |
 | Hue Drift | Pinch: degrees the colour turns over the flare's life. Negative: violet, blue, cyan, green (Side Blast) |
+| Wait for Exit | 1: a light doesn't flare while it, or its glow, still touches the inside of the edge; the flare comes once it has gone (Gummo). Needs Gate Crop room beyond the edge (about 12% for Side Blast) |
+| Saturation | The flare's colour saturation (also per edge pair, multiplying the look's) |
 | Onset (%) | How gradually a light's flare comes in once it passes Flare Start: small switches on, large builds over a few frames |
 | Pinch Length (%) / Lean | Pinch: how far in the focal point is, and how many degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and bottom) |
 | Blade Angle / Blade Softness | Blade: how far it leans from straight in, and how soft its sides are (0 = razor sharp) |
@@ -131,7 +133,7 @@ the same way.
 | Isolate Lights | 1 (default): only small things much brighter than their surroundings flare, such as lamps, practicals and speculars. Big bright areas like lit walls don't. 0: anything over the threshold flares, windows and walls included |
 | Light Size (%) | With Isolate Lights: the biggest thing that still counts as a light. Raise it for big practicals or windows |
 | Edges | Which edges flare |
-| Composite | **Film** (default): the flare is extra exposure on the negative. It's added in odds space and brought back through a soft shoulder, so it glows into the highlights and never flattens into clipped white. **Screen**: brighter, but strong flares hit white. **Add**: plain linear add, for log or scene-linear footage that goes through an output transform afterwards |
+| Composite | **Film** (default): the flare is extra exposure on the negative, and like film, the brighter it gets the whiter it gets (the dye layers bleed into each other) rather than staying a saturated colour. It's added in odds space and brought back through a soft shoulder, so it glows into the highlights and never flattens into clipped white. **Screen**: brighter, but strong flares hit white. **Add**: plain linear add, for log or scene-linear footage that goes through an output transform afterwards |
 | Input Encoding | How the images are encoded, so the flare is added in linear light. Same list as FilmFlash: Rec.709, DaVinci Intermediate, Cineon, camera logs (LogC3/4, S-Log3, V-Log, Log3G10, Apple Log, BMD Film Gen 5) and HLG (iPhone footage) |
 | Seed | A different streak pattern |
 

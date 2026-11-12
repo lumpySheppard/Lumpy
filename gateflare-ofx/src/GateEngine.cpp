@@ -135,9 +135,21 @@ std::vector<float> blur1(const std::vector<float>& p, int n, float radius) {
     return a;
 }
 
+// Running max over a (2r+1) window (simple, n is a frame side).
+void slidingMax1(std::vector<float>& a, int n, int r) {
+    std::vector<float> o(a.size());
+    for (int i = 0; i < n; ++i) {
+        float m = 0.f;
+        for (int j = std::max(0, i - r); j <= std::min(n - 1, i + r); ++j) m = std::max(m, a[size_t(j)]);
+        o[size_t(i)] = m;
+    }
+    a.swap(o);
+}
+
 struct FlareGeom {
     int e = 0, n = 0, span = 0, inward = 1, w = 0, h = 0;
     float edgePos = 0, unit = 1;
+    const std::vector<float>* glowMask = nullptr;  // anything glowing (lights and their bloom), 0..1
 };
 
 const int K = 6;  // depth levels (the flare widens and softens with depth)
@@ -295,6 +307,11 @@ struct Flare {
             out[1] = std::max(0.f, (k + r3) * e0 + (cA + k) * e1 + (k - r3) * e2);
             out[2] = std::max(0.f, (k - r3) * e0 + (k + r3) * e1 + (cA + k) * e2);
         }
+        // Saturation.
+        if (L.saturation != 1.f) {
+            const float lo = 0.2126f * out[0] + 0.7152f * out[1] + 0.0722f * out[2];
+            for (int c = 0; c < 3; ++c) out[c] = std::max(0.f, lo + (out[c] - lo) * std::max(L.saturation, 0.f));
+        }
         for (int c = 0; c < 3; ++c) add[c] += weight * out[c];
     }
 
@@ -394,12 +411,23 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
     fl.flicker = 1.f + 0.25f * sh * (2.f * valueNoise2(time * L.shimmerSpeed * 0.5f, float(g.e), seed + 99u) - 1.f);
 
     // The light along this edge: from Flare Start (ramping up) out to Reach beyond.
-    std::vector<float> prof(size_t(n) * 3, 0.f), exitRaw(size_t(n), 0.f);
+    std::vector<float> prof(size_t(n) * 3, 0.f), exitRaw(size_t(n), 0.f), inside(size_t(n), 0.f);
     const int v0 = std::min(-int(std::ceil(reachPx * 1.5f)), int(std::floor(startPx - rampPx)) - 1);
     const int v1 = std::max(0, int(std::ceil(startPx)) + 1);
     const bool horiz = g.e == kTop || g.e == kBottom;
     parallelFor(n, [&](int u) {
         float acc[3] = {0, 0, 0}, accL = 0.f, accX = 0.f;
+        // Wait for Exit: is the light, or its glow, still showing just inside the edge?
+        float inG = 0.f;
+        if (L.waitExit > 0.f && g.glowMask) {
+            const int band = std::max(2, int(std::ceil(2.f * unit)));
+            for (int v = 0; v < band; ++v) {
+                const int q = int(std::floor(g.edgePos + float(v * g.inward)));
+                if (q < 0 || q >= g.span) continue;
+                inG += (*g.glowMask)[horiz ? size_t(q) * g.w + u : size_t(u) * g.w + q];
+            }
+            inG /= float(band);
+        }
         for (int v = v0; v <= v1; ++v) {
             const int q = int(std::floor(g.edgePos + float(v * g.inward)));
             if (q < 0 || q >= g.span) continue;
@@ -414,9 +442,23 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
             accX += ls * std::max(startPx - fv, 0.f);  // how far past where it starts to flare
         }
         for (int c = 0; c < 3; ++c) prof[size_t(u) * 3 + c] = acc[c] / (0.5f * reachPx);
+        inside[size_t(u)] = inG;
         exitRaw[size_t(u)] = accL > 0.f ? std::min(accX / accL / (0.7f * reachPx), 1.f) : 0.f;
     });
 
+    if (L.waitExit > 0.f) {
+        // A light still partly in the frame doesn't flare yet: hold back by the
+        // share of it that's inside (spread a little along the edge, so a light
+        // is treated as a whole).
+        // (a light's flare stays held while its glow touches the edge anywhere near it)
+        std::vector<float> in2 = inside;
+        slidingMax1(in2, n, std::max(2, int(3.f * unit)));
+        const float we = std::min(L.waitExit, 1.f);
+        for (int u = 0; u < n; ++u) {
+            const float keep = 1.f - we * smoothstep(0.02f, 0.2f, in2[u]);
+            for (int c = 0; c < 3; ++c) prof[size_t(u) * 3 + c] *= keep;
+        }
+    }
     const float fan = L.shape == kBeam ? 0.f : L.fan;  // a beam doesn't widen
     std::vector<float> lum(n), lumU(n);
     for (int u = 0; u < n; ++u) {
@@ -597,6 +639,14 @@ void render(const Image& in, const Settings& s, Image& out) {
         slidingExtreme(opened, w, h, r, true);
     }
     std::vector<float> Wt(size_t(w) * h);  // how much each pixel counts as a source
+    // Anything glowing (lights and their bloom): a lower threshold, no Isolate.
+    std::vector<float> glowM(size_t(w) * h);
+    parallelFor(h, [&](int yv) {
+        for (int x = 0; x < w; ++x) {
+            const size_t j = size_t(yv) * w + x;
+            glowM[j] = smoothstep(0.6f * s.threshold, 0.8f * s.threshold, V[j]);
+        }
+    });
     parallelFor(h, [&](int yv) {
         for (int x = 0; x < w; ++x) {
             const size_t j = size_t(yv) * w + x;
@@ -636,6 +686,7 @@ void render(const Image& in, const Settings& s, Image& out) {
         g.w = w;
         g.unit = unit;
         g.h = h;
+        g.glowMask = &glowM;
         if (b < 1.f) flares[e].push_back(buildFlare(pr.a, 1.f - b, g, S, s.time, s.seed));
         if (b > 0.f) flares[e].push_back(buildFlare(pr.b, b, g, S, s.time, s.seed + 7919u));
     }
@@ -659,6 +710,17 @@ void render(const Image& in, const Settings& s, Image& out) {
                     const float v = e == kTop ? yv - gy0 : e == kBottom ? gy1 - 1 - yv : e == kLeft ? x - gx0 : gx1 - 1 - x;
                     const int u = (e == kTop || e == kBottom) ? x : yv;
                     for (const Flare& fl : flares[e]) fl.eval(u, v, add);
+                }
+                if (s.composite == kFilm) {
+                    // On film, a brighter flare is a whiter one: as the exposure climbs,
+                    // the dye layers bleed into each other and the colour washes out
+                    // toward white, rather than staying a saturated, crunchy colour.
+                    const float la = 0.2126f * add[0] + 0.7152f * add[1] + 0.0722f * add[2];
+                    if (la > 0.f) {
+                        const float ao = scene ? la / filmW : la;  // in odds, like the negative
+                        const float keep = 1.f / (1.f + ao / 0.35f);
+                        for (int c = 0; c < 3; ++c) add[c] = std::max(0.f, la + (add[c] - la) * keep);
+                    }
                 }
             }
             for (int c = 0; c < 3; ++c) {
@@ -757,15 +819,17 @@ Look presetLook(int preset, const Look& custom) {
             break;
         case kSideBlast:  // Gummo, matched frame by frame: a long, narrow wedge of fine filaments
                           // converging on a hot point at the edge, aimed where the edge reflects the
-                          // light; it builds up, then shortens; violet -> blue -> cyan -> teal; it
-                          // shimmers every frame
-            set(L, kPinch, 0.3f, -0.8f, 5.f, 16.f, 3.f, 0.6f, 0.f, 1.2f, 0.45f, 0.8f, 0.45f, 0.2f, 0.1f, 0.22f, 1.f, 0.f);
-            L.onset = 3.f;
+                          // light, once the light is clear of the frame; it builds up, then shortens;
+                          // violet -> blue -> cyan -> teal; it shimmers every frame
+            set(L, kPinch, 0.3f, -3.5f, 5.f, 16.f, 3.f, 0.75f, 0.f, 1.1f, 0.45f, 0.8f, 0.45f, 0.2f, 0.1f, 0.18f, 1.f, 0.f);
+            L.onset = 2.5f;
+            L.waitExit = 1.f;
             L.pinch = 1.5f;
-            L.lean = 4.f;
-            L.aim = 1.f;
+            L.lean = 0.f;
+            L.aim = 0.6f;
             L.evolve = 1.f;
-            L.hueDrift = -100.f;
+            L.hueDrift = -50.f;
+            L.saturation = 0.8f;
             L.farTint[0] = 0.5f; L.farTint[1] = 0.55f; L.farTint[2] = 1.f;
             L.veil = 0.2f;
             L.shimmerSpeed = 4.f;

@@ -57,6 +57,7 @@ struct Look {
     float flareStart = 0.f;    // where a light starts to flare: + still inside the frame, - past the edge
     float reach = 6.f;         // how far beyond the edge a light keeps flaring
     float onset = 0.5f;        // how gradually a light comes in as it passes Flare Start
+    float waitExit = 0.f;      // 1 = no flare while any of the light is still inside the frame
     float depth = 14.f;        // how far the flare reaches into the frame
     float spread = 2.5f;       // width along the edge, where it starts
     float fan = 0.6f;          // how much wider it gets per unit of depth (plume, blade)
@@ -71,6 +72,7 @@ struct Look {
     float fringe = 0.3f;       // red scatters wider than blue
     float tint[3] = {1.f, 1.f, 1.f};
     float sourceColour = 1.f;  // 1 = the lights' own colour, 0 = white (then tinted)
+    float saturation = 1.f;    // the flare's colour saturation
     float farTint[3] = {1.f, 1.f, 1.f};  // colour it shifts toward as it goes into the frame
     float exitTint[3] = {1.f, 1.f, 1.f}; // colour it shifts toward as the light goes further out of frame
     float pinch = 15.f;        // pinch: length of the tight neck before it fans out
