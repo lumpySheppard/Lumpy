@@ -23,7 +23,8 @@ enum Encoding {
     kLog3G10 = 11,
     kAppleLog = 12,
     kBMDFilmGen5 = 13,
-    kEncodingCount = 14,
+    kHLG = 14,        // Rec.2100 HLG (scene-referred, 1.0 = peak)
+    kEncodingCount = 15,
 };
 
 inline bool isSceneReferred(int enc) { return enc >= kLinearScene; }
@@ -33,7 +34,7 @@ inline const char* const* names() {
     static const char* const n[] = {"Rec.709 / Gamma 2.4", "sRGB", "Gamma 2.2", "Linear (display)",
                                     "Linear (scene)", "DaVinci Intermediate", "Cineon Log", "ARRI LogC3",
                                     "ARRI LogC4", "Sony S-Log3", "Panasonic V-Log", "RED Log3G10",
-                                    "Apple Log", "Blackmagic Film Gen 5"};
+                                    "Apple Log", "Blackmagic Film Gen 5", "HLG (Rec.2100)"};
     return n;
 }
 
@@ -71,8 +72,15 @@ inline const float A = 0.08692876065491224f, B = 0.005494072432257808f, C = 0.53
 inline const float LOG_CUT = D * LIN_CUT + E;
 }
 
+namespace hlg {
+inline const float a = 0.17883277f, b = 0.28466892f, c = 0.55991073f;
+}
+
 inline float decode(float v, int enc) {
     switch (enc) {
+        case kHLG:
+            v = std::max(v, 0.f);
+            return v <= 0.5f ? v * v / 3.f : (std::exp((v - hlg::c) / hlg::a) + hlg::b) / 12.f;
         case kLogC3:
             return v > logc3::e * logc3::cut + logc3::f
                        ? (std::pow(10.f, (v - logc3::d) / logc3::c) - logc3::b) / logc3::a
@@ -109,6 +117,9 @@ inline float decode(float v, int enc) {
 
 inline float encode(float l, int enc) {
     switch (enc) {
+        case kHLG:
+            l = std::max(l, 0.f);
+            return l <= 1.f / 12.f ? std::sqrt(3.f * l) : hlg::a * std::log(12.f * l - hlg::b) + hlg::c;
         case kLogC3:
             return l > logc3::cut ? logc3::c * std::log10(logc3::a * l + logc3::b) + logc3::d
                                   : logc3::e * l + logc3::f;

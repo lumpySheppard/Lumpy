@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.0.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -70,8 +70,14 @@ if(NOT WIN32)
   # gate is brighter than the plain frame. Display encoding: never past white.
   add_test(NAME flare_from_margin
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/flare.rgb --context filter
-                   --set cropToGate=0 --set gateCrop=10 --set intensity=3
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0
                    --expect-mean-above 28:0.175 --max-below 1.0000001)
+  # Isolate Lights with a small Light Size: the bar is bigger than a "light",
+  # so it doesn't flare (like a lit wall).
+  add_test(NAME isolate_ignores_big_areas
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/iso.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=1 --set lightSize=1
+                   --expect-mean-below 28:0.135)
   # Same frame with the flare off, for comparison (the check above must fail here).
   add_test(NAME no_flare_baseline
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/base.rgb --context filter
@@ -84,5 +90,6 @@ if(NOT WIN32)
   add_test(NAME show_gate
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/show.rgb --context filter --set showGate=1)
   set_tests_properties(off_is_identity flare_from_margin no_flare_baseline crop_and_options show_gate
+                       isolate_ignores_big_areas
                        PROPERTIES FIXTURES_REQUIRED clip)
 endif()

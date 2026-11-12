@@ -161,10 +161,10 @@ const std::vector<PDef>& defs() {
          "How the images arriving here are encoded, so stops are real stops. Rec.709 / Gamma "
          "2.4 for a standard timeline; DaVinci Intermediate for a DaVinci Wide Gamut timeline; "
          "the camera's log if the effect sees log footage (before any LUT or CST).",
-         {0}, 0, 13, 0, 13,
+         {0}, 0, 14, 0, 14,
          {"Rec.709 / Gamma 2.4", "sRGB", "Gamma 2.2", "Linear (display)", "Linear (scene)",
           "DaVinci Intermediate", "Cineon Log", "ARRI LogC3", "ARRI LogC4", "Sony S-Log3",
-          "Panasonic V-Log", "RED Log3G10", "Apple Log", "Blackmagic Film Gen 5"}},
+          "Panasonic V-Log", "RED Log3G10", "Apple Log", "Blackmagic Film Gen 5", "HLG (Rec.2100)"}},
         {P_EXPMODE, "exposureMode", kChoice, kBoth, "grpFilm", "Exposure",
          "Film Negative: a soft shoulder, rolls into white and never clips. Gain: true stops "
          "in linear light (on log footage that's a log offset, like printer lights); "

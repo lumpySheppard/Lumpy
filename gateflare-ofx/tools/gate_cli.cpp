@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
     s.upSign = -1;  // rgb24 rows are top-down
     float showGate = 0, noCrop = 0, enc = 0;
     std::map<std::string, float*> f = {
-        {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee},
+        {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate}, {"--light-size", &s.lightSize},
         {"--intensity", &s.intensity}, {"--reach", &s.reach}, {"--depth", &s.depth},
         {"--spread", &s.spread}, {"--fan", &s.fan}, {"--edge-glow", &s.edgeGlow},
         {"--source-colour", &s.sourceColour}, {"--show-gate", &showGate}, {"--no-crop", &noCrop},

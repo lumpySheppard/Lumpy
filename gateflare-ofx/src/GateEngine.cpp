@@ -54,6 +54,34 @@ std::vector<float> blurProfile(const std::vector<float>& p, int n, float radius)
     return a;
 }
 
+// Running min (or max) over a (2r+1) window along rows, then columns (a
+// square window). Monotonic deque, O(1) per pixel.
+void slidingExtreme(std::vector<float>& p, int w, int h, int r, bool takeMax) {
+    auto better = [takeMax](float a, float b) { return takeMax ? a >= b : a <= b; };
+    auto run = [&](int n, auto get, auto set) {
+        std::vector<int> dq(size_t(n) + 1);
+        std::vector<float> out(n);
+        int head = 0, tail = 0, next = 0;
+        for (int i = 0; i < n; ++i) {
+            const int hi = std::min(n - 1, i + r);
+            for (; next <= hi; ++next) {
+                while (tail > head && better(get(next), get(dq[tail - 1]))) --tail;
+                dq[tail++] = next;
+            }
+            while (dq[head] < i - r) ++head;
+            out[i] = get(dq[head]);
+        }
+        for (int i = 0; i < n; ++i) set(i, out[i]);
+    };
+    parallelFor(h, [&](int y) {
+        float* row = &p[size_t(y) * w];
+        run(w, [&](int i) { return row[i]; }, [&](int i, float v) { row[i] = v; });
+    });
+    parallelFor(w, [&](int x) {
+        run(h, [&](int i) { return p[size_t(i) * w + x]; }, [&](int i, float v) { p[size_t(i) * w + x] = v; });
+    });
+}
+
 enum Edge { kTop, kBottom, kLeft, kRight };
 
 }  // namespace
@@ -67,8 +95,8 @@ void render(const Image& in, const Settings& s, Image& out) {
     const bool scene = encodings::isSceneReferred(s.encoding);
     const auto vis = [&](int row) { return s.upSign > 0 ? h - 1 - row : row; };  // row -> visual y (0 = top)
 
-    // Linear light, and the bright sources in it.
-    std::vector<float> L(size_t(w) * h * 3), S(size_t(w) * h * 3);
+    // Linear light, and the brightness (as encoded) of each pixel.
+    std::vector<float> L(size_t(w) * h * 3), S(size_t(w) * h * 3), V(size_t(w) * h);
     parallelFor(h, [&](int y) {
         const float* p = in.row(y);
         const int yv = vis(y);
@@ -76,13 +104,38 @@ void render(const Image& in, const Settings& s, Image& out) {
             float l[3];
             for (int c = 0; c < 3; ++c) l[c] = encodings::decode(p[x * 4 + c], s.encoding);
             const float lum = 0.2126f * l[0] + 0.7152f * l[1] + 0.0722f * l[2];
-            const float v = encodings::encode(std::max(lum, 0.f), s.encoding);
-            const float k = smoothstep(s.threshold - s.knee, s.threshold + s.knee, v);
             const size_t i = (size_t(yv) * w + x) * 3;  // stored in visual order
-            for (int c = 0; c < 3; ++c) {
-                L[i + c] = l[c];
-                S[i + c] = std::max(l[c], 0.f) * k;
+            for (int c = 0; c < 3; ++c) L[i + c] = l[c];
+            V[size_t(yv) * w + x] = encodings::encode(std::max(lum, 0.f), s.encoding);
+        }
+    });
+    // Isolate Lights: a morphological top-hat. Opening (min filter, then max
+    // filter, both wider than a light) removes every bright feature smaller
+    // than a light and keeps big ones, walls included, right up to their
+    // edges. What the opening removed is what counts as a light.
+    std::vector<float> opened;
+    if (s.isolate > 0.f) {
+        opened = V;
+        const int r = std::max(1, int(std::lround(s.lightSize * h / 200.f)));
+        slidingExtreme(opened, w, h, r, false);
+        slidingExtreme(opened, w, h, r, true);
+    }
+    std::vector<float> Wt(size_t(w) * h);  // how much each pixel counts as a source
+    parallelFor(h, [&](int yv) {
+        for (int x = 0; x < w; ++x) {
+            const size_t j = size_t(yv) * w + x;
+            float k = smoothstep(s.threshold - s.knee, s.threshold + s.knee, V[j]);
+            if (!opened.empty()) {
+                const float tophat = V[j] - opened[j];  // how much it stands out as a small light
+                k *= 1.f - s.isolate + s.isolate * smoothstep(0.03f, 0.15f, tophat);
             }
+            Wt[j] = k;
+            // Clipped lights have lost most of their real brightness: give a
+            // source about 6x, tapering off for genuinely bright scene-linear
+            // lights that still have theirs.
+            const float lum = 0.2126f * L[j * 3] + 0.7152f * L[j * 3 + 1] + 0.0722f * L[j * 3 + 2];
+            const float boost = 6.f / (1.f + std::max(lum, 0.f) / 16.f);
+            for (int c = 0; c < 3; ++c) S[j * 3 + c] = std::max(L[j * 3 + c], 0.f) * k * boost;
         }
     });
 
@@ -175,8 +228,10 @@ void render(const Image& in, const Settings& s, Image& out) {
                 else l = 1.f - (1.f - std::min(std::max(l, 0.f), 1.f)) * (1.f - std::min(std::max(add[c], 0.f), 1.f));
                 if (s.showGate) {
                     if (!inside) l *= 0.35f;
-                    const float sv = S[i] + S[i + 1] + S[i + 2];
-                    if (sv > 0.f) { l = c == 1 ? l * 0.3f : std::max(l, 0.8f); }  // sources in magenta
+                    // Sources in magenta, as strongly as they count.
+                    const float kk = Wt[size_t(yv) * w + x];
+                    const float mag = c == 1 ? 0.05f : 0.9f;
+                    l += (mag - l) * std::min(kk * 1.2f, 1.f);
                     const bool border = std::fabs(x - gx0) < 1.5f || std::fabs(x - gx1) < 1.5f ||
                                         std::fabs(yv - gy0) < 1.5f || std::fabs(yv - gy1) < 1.5f;
                     if (border) l = c == 0 ? 1.f : 0.f;

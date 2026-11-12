@@ -51,7 +51,8 @@ enum Encoding {
     kLog3G10 = 11,    // RED Log3G10
     kAppleLog = 12,   // Apple Log
     kBMDFilmGen5 = 13,  // Blackmagic Film Gen 5
-    kEncodingCount = 14,
+    kHLG = 14,          // Rec.2100 HLG
+    kEncodingCount = 15,
 };
 
 inline bool isSceneReferred(int enc) {

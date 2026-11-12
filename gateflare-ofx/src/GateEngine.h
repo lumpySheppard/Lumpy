@@ -37,8 +37,11 @@ struct Settings {
     int encoding = 0;          // see shared/Encodings.h
     float crop = 6.f;          // % of the picture beyond the gate (zoom-in amount)
     bool cropOutput = true;    // scale the gate up to fill the frame
-    float threshold = 0.8f;    // encoded value a source must exceed to flare
-    float knee = 0.15f;        // soft knee width around the threshold
+    float threshold = 0.9f;    // encoded value a source must exceed to flare
+    float knee = 0.05f;        // soft knee width around the threshold
+    float isolate = 1.f;      // 0 = anything bright flares; 1 = only small lights much
+                               // brighter than their surroundings (bright walls drop out)
+    float lightSize = 3.f;     // how big a "light" can be, % of frame height
     float intensity = 1.f;
     float reach = 6.f;         // how far beyond the edge sources still count, % of frame height
     float depth = 14.f;        // how far the plume reaches into the frame, % of frame height

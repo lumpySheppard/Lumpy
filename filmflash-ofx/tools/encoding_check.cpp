@@ -14,7 +14,7 @@ int main() {
         {kSLog3, "Sony S-Log3", 420.f / 1023.f}, {kVLog, "Panasonic V-Log", 0.423311f},
         {kLog3G10, "RED Log3G10", 1.f / 3.f},  {kAppleLog, "Apple Log", -1.f},
         {kBMDFilmGen5, "Blackmagic Film Gen 5", -1.f}, {kDaVinciIntermediate, "DaVinci Intermediate", 0.336043f},
-        {kCineon, "Cineon", -1.f},
+        {kCineon, "Cineon", -1.f}, {kHLG, "HLG", -1.f},
     };
     int bad = 0;
     for (const Ref& r : refs) {

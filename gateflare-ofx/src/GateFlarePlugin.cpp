@@ -28,7 +28,7 @@ const char* const kPluginId = "com.lumpy.GateFlare";
 
 enum P {
     P_CROP, P_CROPOUT, P_SHOWGATE,
-    P_THRESH, P_KNEE, P_INTENSITY, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW,
+    P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE, P_INTENSITY, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW,
     P_SRCCOL, P_TINT,
     P_TOP, P_BOTTOM, P_LEFT, P_RIGHT,
     P_ENCODING,
@@ -64,12 +64,25 @@ const std::vector<PDef>& defs() {
          {0}, 0, 1, 0, 1},
 
         {P_THRESH, "threshold", kDbl, "grpFlare", "Source Threshold",
-         "How bright (as encoded) something must be to flare. Lower = more things flare.", {0.8},
-         0, 1.5, 0.3, 1.1},
-        {P_KNEE, "knee", kDbl, "grpFlare", "Softness", "Softens the threshold.", {0.15}, 0, 0.6, 0,
-         0.5},
-        {P_INTENSITY, "intensity", kDbl, "grpFlare", "Intensity", "Strength of the flare.", {1},
-         0, 20, 0, 4},
+         "How bright (as encoded) something must be to flare. Lower = more things flare. Use "
+         "Show Gate & Sources to see what's picked up.",
+         {0.9}, 0, 1.5, 0.3, 1.1},
+        {P_KNEE, "knee", kDbl, "grpFlare", "Softness", "Softens the threshold.", {0.05}, 0, 0.6, 0,
+         0.3},
+        {P_ISOLATE, "isolateLights", kDbl, "grpFlare", "Isolate Lights",
+         "1 = only small things much brighter than their surroundings flare (lamps, practicals, "
+         "speculars); big bright areas like lit walls don't. 0 = anything over the threshold "
+         "flares, including windows and walls.",
+         {1}, 0, 1, 0, 1},
+        {P_LIGHTSIZE, "lightSize", kDbl, "grpFlare", "Light Size (%)",
+         "With Isolate Lights: the biggest thing that still counts as a light, as % of frame "
+         "height. Raise it for big practicals or windows.",
+         {3}, 0.2, 50, 0.5, 20},
+        {P_INTENSITY, "intensity", kDbl, "grpFlare", "Intensity",
+         "Strength of the flare. (Lights are usually clipped in the footage, so they get a "
+         "built-in boost that tapers off for lights that are genuinely very bright in "
+         "scene-linear footage.)",
+         {1}, 0, 20, 0, 4},
         {P_REACH, "reach", kDbl, "grpFlare", "Reach (%)",
          "How far beyond the gate edge a source still flares, as % of frame height.", {6}, 0.5,
          40, 1, 15},
@@ -146,6 +159,8 @@ gate::Settings read(Instance* in, double t) {
     s.showGate = v[P_SHOWGATE][0] != 0;
     s.threshold = float(v[P_THRESH][0]);
     s.knee = float(v[P_KNEE][0]);
+    s.isolate = float(v[P_ISOLATE][0]);
+    s.lightSize = float(v[P_LIGHTSIZE][0]);
     s.intensity = float(v[P_INTENSITY][0]);
     s.reach = float(v[P_REACH][0]);
     s.depth = float(v[P_DEPTH][0]);
@@ -370,7 +385,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 0, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 1, setHost, mainEntry};
 
 }  // namespace
 
