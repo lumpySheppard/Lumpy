@@ -29,11 +29,11 @@ const char* const kPluginId = "com.lumpy.GateFlare";
 enum P {
     P_CROP, P_CROPOUT, P_SHOWGATE,
     // per edge pair
-    P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TTINT,
-    P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_STINT,
+    P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TFOCUS, P_TTINT,
+    P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_SFOCUS, P_STINT,
     // custom look
     P_SHAPE, P_PINCH, P_LEAN, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
-    P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT, P_FARTINT,
+    P_INTENSITY, P_START, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_TINT, P_FARTINT, P_EXITTINT,
     P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE,
     P_FALLOFF, P_CURVE, P_VEIL, P_IRID, P_BANDS, P_ALONG, P_EDGES,
     // sources
@@ -87,6 +87,10 @@ const std::vector<PDef>& defs() {
         {P_TSTART, "topStartOffset", kDbl, "grpTop", "Flare Start Offset (%)",
          "Added to the looks' Flare Start: negative = flare later (only once the light is past the edge).",
          {0}, -20, 10, -5, 3},
+        {P_TFOCUS, "topFocusOffset", kDbl, "grpTop", "Focus Offset (%)",
+         "Pinch looks (Side Blast, or Custom with Shape = Pinch): moves the convergence point further into the "
+         "frame (+) or toward the edge (-).",
+         {0}, -20, 40, -10, 20},
         {P_TTINT, "topTint", kRGB, "grpTop", "Tint", "Colours the top and bottom flares.", {1, 1, 1}, 0, 2, 0, 1},
 
         {P_SLOOKA, "sideLookA", kChoice, "grpSide", "Look A", kLookHint, {0}, 0, 5, 0, 5, kLookOptions},
@@ -98,6 +102,10 @@ const std::vector<PDef>& defs() {
         {P_SSTART, "sideStartOffset", kDbl, "grpSide", "Flare Start Offset (%)",
          "Added to the looks' Flare Start: negative = flare later (only once the light is past the edge).",
          {0}, -20, 10, -5, 3},
+        {P_SFOCUS, "sideFocusOffset", kDbl, "grpSide", "Focus Offset (%)",
+         "Pinch looks (Side Blast, or Custom with Shape = Pinch): moves the convergence point further into the "
+         "frame (+) or toward the edge (-).",
+         {0}, -20, 40, -10, 20},
         {P_STINT, "sideTint", kRGB, "grpSide", "Tint", "Colours the left and right flares.", {1, 1, 1}, 0, 2, 0, 1},
 
         {P_SHAPE, "shape", kChoice, "grpCustom", "Shape",
@@ -144,6 +152,10 @@ const std::vector<PDef>& defs() {
         {P_SRCCOL, "sourceColour", kDbl, "grpCustom", "Source Colour",
          "With Flare Colour = Source: 1 = the lights' colour, 0 = white.", {1}, 0, 1, 0, 1},
         {P_TINT, "tint", kRGB, "grpCustom", "Tint", "Colours the flare.", {1, 1, 1}, 0, 2, 0, 1},
+        {P_EXITTINT, "exitTint", kRGB, "grpCustom", "Exit Tint",
+         "The colour the flare shifts toward as the light goes further out of frame, as it dies (white = no "
+         "shift). E.g. green-teal for a blue flare that discolours as it fades, like Gummo.",
+         {1, 1, 1}, 0, 2, 0, 1},
         {P_FARTINT, "farTint", kRGB, "grpCustom", "Far Tint",
          "The colour the flare shifts toward as it goes into the frame (white = no shift). E.g. deep blue "
          "for a cyan-white core that turns blue.",
@@ -279,6 +291,7 @@ gate::Settings read(Instance* in, double t) {
     c.pinch = f(P_PINCH);
     c.lean = f(P_LEAN);
     for (int i = 0; i < 3; ++i) c.farTint[i] = f(P_FARTINT, i);
+    for (int i = 0; i < 3; ++i) c.exitTint[i] = f(P_EXITTINT, i);
     c.falloff = f(P_FALLOFF);
     c.curve = f(P_CURVE);
     c.veil = f(P_VEIL);
@@ -310,15 +323,16 @@ gate::Settings read(Instance* in, double t) {
     for (int i = 0; i < 3; ++i) c.tint[i] *= presets[cm][i];
 
     // Each edge pair: two looks, a blend, and its own strength / timing / tint.
-    struct PairP { P a, b, blend, inten, start, tint; };
-    const PairP pp[2] = {{P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TTINT},
-                         {P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_STINT}};
+    struct PairP { P a, b, blend, inten, start, focus, tint; };
+    const PairP pp[2] = {{P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TFOCUS, P_TTINT},
+                         {P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_SFOCUS, P_STINT}};
     for (int k = 0; k < 2; ++k) {
         gate::EdgePair& ep = s.pair[k];
         auto finish = [&](gate::Look L) {
             L.intensity *= f(pp[k].inten);
             L.edgeGlow *= f(pp[k].inten);
             L.flareStart += f(pp[k].start);
+            L.pinch = std::max(0.f, L.pinch + f(pp[k].focus));
             for (int i = 0; i < 3; ++i) L.tint[i] *= f(pp[k].tint, i);
             return L;
         };
@@ -555,7 +569,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 9, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 10, setHost, mainEntry};
 
 }  // namespace
 

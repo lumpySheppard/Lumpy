@@ -56,6 +56,7 @@ have their own look:
 | Blend A > B | 0 = all Look A, 1 = all Look B, between = a mix of the two flares |
 | Intensity | Strength of this pair's flares (0 turns them off) |
 | Flare Start Offset (%) | Added to the looks' Flare Start: negative = later |
+| Focus Offset (%) | Pinch looks (Side Blast, or Custom with Shape = Pinch): moves the convergence point further in (+) or toward the edge (-) |
 | Tint | Colours this pair's flares |
 
 By default both pairs use Look A = Custom. Look B is **Soft Haze** for
@@ -68,7 +69,7 @@ Top & Bottom and **Side Blast** for Left & Right, so you can raise
 | Thin Streak | *Road to Perdition* | A long, thin, faint streak straight in, for a light leaving the side |
 | Cool Column | Stills | A cool column straight down from the top |
 | Blue Blade | Stills, *A Clockwork Orange* | A hard-edged blue wedge, leaning slightly |
-| Side Blast | *Gummo* (measured on the full frame) | A small, faint teal-blue **Pinch**: about 3% of the height wide, narrowing to a soft focus ~3% in, then opening to ~8% wide and gone by ~20% in, just after the light has gone. No white core |
+| Side Blast | *Gummo* | A **Pinch**: the light comes to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone, turning green-teal as the light goes further out of frame |
 
 
 Side Blast starts after the light has left the frame (Flare Start −0.8%).
@@ -101,6 +102,7 @@ Used wherever a pair's Look A or B is **Custom**.
 | Spread (%) / Fan | Width of the flare along the edge (beam and blade width), and how much wider it gets as it goes in (plume and blade; a beam never widens) |
 | Edge Glow | A thin glow right along the gate edge |
 | Source Colour / Tint | With Flare Colour = Source: take the lights' colour (1) or go white (0). Tint colours every mode |
+| Exit Tint | The colour the flare shifts toward as the light goes further out of frame, as it dies (white = none). Side Blast goes green-teal, like Gummo |
 | Far Tint | The colour the flare shifts toward as it goes into the frame (white = none). Side Blast goes from cyan-white at the neck to deep blue, the way red drops out first in the reference |
 | Falloff | 0: the flare fades gradually from the edge. 1: it holds its strength, then drops away at about Depth (like the Gummo side flare) |
 | Curve | Bends the flare into an arc as it goes in (positive bends the same way as Lean) |

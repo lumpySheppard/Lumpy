@@ -71,6 +71,7 @@ struct Look {
     float tint[3] = {1.f, 1.f, 1.f};
     float sourceColour = 1.f;  // 1 = the lights' own colour, 0 = white (then tinted)
     float farTint[3] = {1.f, 1.f, 1.f};  // colour it shifts toward as it goes into the frame
+    float exitTint[3] = {1.f, 1.f, 1.f}; // colour it shifts toward as the light goes further out of frame
     float pinch = 15.f;        // pinch: length of the tight neck before it fans out
     float lean = 0.f;          // pinch: degrees the fan leans (+ = up on the sides, left on top/bottom)
     // Organic veiling-flare character.
