@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(GateFlare VERSION 1.3.0 LANGUAGES CXX)
+project(GateFlare VERSION 1.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -102,13 +102,26 @@ if(NOT WIN32)
   add_test(NAME character_off
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/charoff.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set streaks=0 --set shimmer=0
-                   --set core=0 --set fringe=0 --expect-mean-above 28:0.15)
+                   --set core=0 --set fringe=0 --expect-mean-above 28:0.14)
   add_test(NAME character_heavy
            COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/charheavy.rgb --context filter
                    --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set streaks=2 --set shimmer=1
                    --set shimmerSpeed=5 --set fringe=2 --set core=1 --set seed=7 --set shape=2
-                   --expect-mean-above 28:0.15 --max-below 1.0000001)
-  set_tests_properties(character_off character_heavy PROPERTIES FIXTURES_REQUIRED clip)
+                   --expect-mean-above 28:0.14 --max-below 1.0000001)
+  # Film composite (default): even a very strong flare stays strictly below
+  # white. Screen and Add composites render too.
+  add_test(NAME film_composite_never_clips
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/film.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set intensity=8 --set core=1
+                   --expect-mean-above 28:0.15 --max-below 1.0)
+  add_test(NAME other_composites
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/scr.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set composite=1)
+  add_test(NAME add_composite_log
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/add.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set composite=2 --set encoding=7)
+  set_tests_properties(character_off character_heavy film_composite_never_clips other_composites add_composite_log
+                       PROPERTIES FIXTURES_REQUIRED clip)
   set_tests_properties(off_is_identity flare_from_margin no_flare_baseline crop_and_options show_gate
                        isolate_ignores_big_areas
                        PROPERTIES FIXTURES_REQUIRED clip)

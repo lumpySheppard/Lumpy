@@ -28,7 +28,7 @@ const char* const kPluginId = "com.lumpy.GateFlare";
 
 enum P {
     P_CROP, P_CROPOUT, P_SHOWGATE,
-    P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
+    P_SHAPE, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE, P_COMPOSITE,
     P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE, P_SEED,
     P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE, P_INTENSITY, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW,
     P_SRCCOL, P_TINT,
@@ -80,6 +80,12 @@ const std::vector<PDef>& defs() {
          "of coated lenses and gates. Custom: white, coloured by Tint. Tint applies on top of all "
          "of them.",
          {0}, 0, 4, 0, 4, {"Source", "Cool Blue", "Cyan", "Warm", "Custom (Tint)"}},
+        {P_COMPOSITE, "composite", kChoice, "grpFlare", "Composite",
+         "Film: the flare is extra exposure on the negative, through a soft shoulder: it glows "
+         "into the highlights and never clips. Screen: brighter, but strong flares flatten to "
+         "white. Add: plain linear add, for log / scene-linear footage that goes through an "
+         "output transform afterwards.",
+         {0}, 0, 2, 0, 2, {"Film (soft shoulder)", "Screen", "Add (linear)"}},
         {P_THRESH, "threshold", kDbl, "grpFlare", "Source Threshold",
          "How bright (as encoded) something must be to flare. Lower = more things flare. Use "
          "Show Gate & Sources to see what's picked up.",
@@ -212,6 +218,7 @@ gate::Settings read(Instance* in, double t) {
     s.edges[3] = v[P_RIGHT][0] != 0;
     s.encoding = std::min(std::max(int(v[P_ENCODING][0]), 0), int(encodings::kEncodingCount) - 1);
     s.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 2);
+    s.composite = std::min(std::max(int(v[P_COMPOSITE][0]), 0), 2);
     s.bladeAngle = float(v[P_BLADEANGLE][0]);
     s.bladeSoftness = float(v[P_BLADESOFT][0]);
     s.streaks = float(v[P_STREAKS][0]);
@@ -450,7 +457,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 3, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 4, setHost, mainEntry};
 
 }  // namespace
 

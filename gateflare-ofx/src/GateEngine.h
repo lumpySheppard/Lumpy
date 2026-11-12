@@ -39,8 +39,16 @@ enum Shape {
     kBlade = 2,  // hard-edged wedge, can be angled
 };
 
+// How the flare is combined with the picture.
+enum Composite {
+    kFilm = 0,    // extra exposure through a soft shoulder (never clips)
+    kScreen = 1,  // screen (display encodings); hits white on strong flares
+    kAdd = 2,     // plain add in linear light (for log/scene-linear with an output transform)
+};
+
 struct Settings {
     int encoding = 0;          // see shared/Encodings.h
+    int composite = kFilm;
     int shape = kPlume;
     float bladeAngle = 15.f;   // degrees the blade leans away from straight-in
     float bladeSoftness = 0.3f;  // blade edge softness, % of frame height

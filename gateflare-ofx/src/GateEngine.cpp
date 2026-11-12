@@ -270,7 +270,9 @@ void render(const Image& in, const Settings& s, Image& out) {
         ed[e].glow = blurProfile(prof, n, std::max(1.f, spreadPx * 0.4f));
     }
 
-    // Composite in linear light.
+    // Composite in linear light. Film: scene-referred footage tops out around
+    // 6 stops over mid grey, like FilmFlash's negative.
+    const float filmW = 0.18f * 64.f;
     out = Image(w, h);
     const float glowFall = 0.004f * h + 1.f;
     Image full(w, h);
@@ -340,8 +342,24 @@ void render(const Image& in, const Settings& s, Image& out) {
             }
             for (int c = 0; c < 3; ++c) {
                 float l = L[i + c];
-                if (scene) l += add[c];
-                else l = 1.f - (1.f - std::min(std::max(l, 0.f), 1.f)) * (1.f - std::min(std::max(add[c], 0.f), 1.f));
+                const float a = std::max(add[c], 0.f);
+                if (s.composite == kFilm) {
+                    // The flare is extra exposure on the negative: added in odds
+                    // space and brought back through a soft shoulder, so it glows
+                    // into the highlights and never flattens out into clipped white.
+                    if (scene) {
+                        const float o = std::max(l, 0.f) / filmW, o2 = o + a / filmW;
+                        l = filmW * (1.f + o) * o2 / (1.f + o2);
+                    } else {
+                        const float tv = std::min(std::max(l, 0.f), 0.99995f);
+                        const float o2 = tv / (1.f - tv) + a;
+                        l = o2 / (1.f + o2);
+                    }
+                } else if (s.composite == kScreen && !scene) {
+                    l = 1.f - (1.f - std::min(std::max(l, 0.f), 1.f)) * (1.f - std::min(a, 1.f));
+                } else {
+                    l += a;  // Add (and Screen on scene-referred footage)
+                }
                 if (s.showGate) {
                     if (!inside) l *= 0.35f;
                     // Sources in magenta, as strongly as they count.

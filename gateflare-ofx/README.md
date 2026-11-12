@@ -25,9 +25,9 @@ edge:
 2. **Throw it in.** That light becomes a plume that fades with distance
    from the edge and widens as it goes. A thin glow runs right along the
    edge, where the light hits the gate.
-3. **Composite.** It's added in linear light, then the picture is cropped
-   to the gate. On display encodings it's screened in, so it never goes
-   past white.
+3. **Composite.** By default it's added as exposure on a film negative
+   (odds space, soft shoulder), so it glows into the highlights without
+   clipping. Then the picture is cropped to the gate.
 
 ## Use
 
@@ -51,6 +51,7 @@ Then:
 | Shape | **Plume**: a fan that widens into the frame. **Beam**: a narrow, parallel-sided column straight in from the edge (the streak in *Road to Perdition*, or a cool column from the top). **Blade**: a hard-edged wedge that can lean |
 | Blade Angle / Blade Softness | Blade: how far it leans from straight in, and how soft its sides are (0 = razor sharp) |
 | Flare Colour | **Source** (the lights' own colour), **Cool Blue**, **Cyan**, **Warm**, or **Custom** (white coloured by Tint). Tint applies on top of all of them |
+| Composite | **Film** (default): the flare is extra exposure on the negative. It's added in odds space and brought back through a soft shoulder, so it glows into the highlights and never flattens into clipped white. **Screen**: brighter, but strong flares hit white. **Add**: plain linear add, for log or scene-linear footage that goes through an output transform afterwards |
 | Source Threshold / Softness | How bright (as encoded) something must be to flare (default 0.9) |
 | Isolate Lights | 1 (default): only small things much brighter than their surroundings flare, such as lamps, practicals and speculars. Big bright areas like lit walls don't. 0: anything over the threshold flares, windows and walls included |
 | Light Size (%) | With Isolate Lights: the biggest thing that still counts as a light. Raise it for big practicals or windows |
