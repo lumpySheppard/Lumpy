@@ -1,0 +1,235 @@
+# FilmFlash (OpenFX transition for DaVinci Resolve)
+
+The exposure flash of a film camera running down to a stop and back up to
+speed, as a transition you drop on a cut. It also works as a plain effect.
+
+## What it imitates
+
+A film camera's exposure time per frame is shutter angle ÷ (360 × fps). As
+the motor slows at the end of a take, each frame gets more light than the
+last. The extra exposure in stops is log₂(normal fps ÷ current fps): it
+creeps up, then shoots off as the camera stops. On the next take the
+camera gets back up to speed and the flash clears.
+
+That light lands on a negative, not a sensor, so nothing clips:
+
+- **Shoulder.** Each extra stop halves the distance left to white.
+  Highlights slide into a creamy white and keep their detail longer than
+  you'd expect, while shadows gain a true stop each time.
+- **Colour.** Saturation drains as the layers converge. The layers differ
+  in speed, so the flash drifts warm (Colour Shift).
+- **Stray light.** It fogs the base, giving a milky, orange lift in the
+  shadows (Base Fog). It also halates, a red glow around bright areas
+  (Halation), and can leak in at one edge (Edge Leak).
+- **Speed.** At 1/k of normal speed the camera records 1/k as many frames
+  per real second, so played back the action runs k times fast. The
+  outgoing shot accelerates into the cut and the incoming shot starts fast
+  and settles (Speed Up).
+- **Motion blur.** The shutter stays open k times longer in real time, so
+  each frame smears k times as much motion. The plugin averages the real
+  source frames across that exposure window, in linear light (Motion Blur).
+- **Unsteady camera.** The shutter at the wrong speed lights one side more
+  than the other (Uneven Exposure), and an unsteady motor flickers
+  (Flicker).
+
+The model works in "odds" space, light ÷ (1 − light). Exposure multiplies
+it and fog and halation add to it. Converting back can approach 1.0 but
+never reach it. At 0 stops the picture is returned exactly as it came in.
+
+## Install (macOS)
+
+1. Get the `FilmFlash-macOS` artifact from the latest **OFX plugins** run
+   in GitHub Actions and unzip it.
+2. Run `bash install-macos.sh` in that folder, then restart Resolve.
+
+It's a universal binary for macOS 11 or later.
+
+## Use
+
+There are two ways to use it.
+
+### For speed-up and motion blur: the effect, on each side of a plain cut
+
+Find it in the Effects library under **OpenFX → Filters → FilmFlash**.
+Don't use **OpenFX → Transitions**. Drag it onto each clip itself, not onto
+the cut.
+
+DaVinci Resolve doesn't let OFX **transitions** read other frames of their
+clips. It always hands back the current frame, which Show Diagnostics
+reports as **HOST GAVE THE CURRENT FRAME**. Speed-up and the extra motion
+blur need other frames, so for those, use FilmFlash as an **effect**.
+Effects do get other frames.
+
+1. Leave a straight cut between the two clips.
+2. On the **outgoing** clip, add FilmFlash and set **Timing → Run-out at
+   end of clip**. Park the playhead on that clip's **last frame in your
+   edit** and press **Set Cut Here**.
+3. On the **incoming** clip, add FilmFlash and set **Timing → Run-up at
+   start of clip**. Park on its **first frame in your edit** and press
+   **Set Cut Here**.
+4. Use the same Peak and look settings on both, so the flash matches
+   across the cut.
+
+**Set Cut Here matters.** Resolve tells the effect about the whole source
+clip, not the part of it you've used. If you use frames 150–400 of a
+600-frame clip, "end of clip" would otherwise mean frame 600, outside your
+edit, and you'd see nothing. Show Diagnostics says **CUT FRAME NOT SET**
+when that's happening.
+
+With Cut Frame set, the speed-up reads into the real frames past your edit
+point, from the unused part of the source clip, so there are no freeze
+frames. Don't use a compound clip for this: it has no frames past its end.
+
+Speed-up reads past each clip's edit point: ahead past the outgoing clip's
+end, and back before the incoming clip's start. Set **Spare Handle Frames**
+(default 48) to the handles your clips have. The speed-up is scaled so it
+never reads further than that.
+
+The amount of handle *is* the amount of speed-up: the outgoing shot ends
+that many frames further into its action than it would have. With the
+defaults (a 48-frame ramp, 48 handles) the action averages about 2× and
+reaches about 3× at the cut. With 80 handles it reaches about 4×.
+
+### Flash only: the transition
+
+1. Find FilmFlash under **Effects → OpenFX → Transitions** and drag it
+   onto a cut.
+2. Set the transition to as long as you want the whole run-out/run-up to
+   last; 1–2 seconds feels right.
+
+The outgoing shot builds to the flash, the cut happens at the peak (where
+it's hidden), and the incoming shot clears.
+
+The transition is flash only. It has no speed or blur controls, because
+Resolve only gives transitions the current frame.
+
+**Keyframe** timing (the effect's third option) lets you animate
+**Flash (stops)** by hand instead.
+
+| Control | What it does |
+| --- | --- |
+| Peak (stops) | How far over the flash goes at the cut. 6–8 burns nearly to white |
+| Cut Point | Transition only: where the shots change over (and the flash peaks) |
+| Peak Hold | Share of the transition held at the peak |
+| Run-out Shape | 1 = a motor slowing evenly (creeps up, then shoots off). Higher holds off longer, then rushes |
+| Run-up Shape | Higher = the camera gets back up to speed faster, so the flash clears sooner |
+| Cut Softness | Transition only: 0 = a hard cut at the peak. Higher = a short dissolve across it |
+| Timing | Effect only: Run-out at end of clip / Run-up at start of clip / Keyframe |
+| Cut Frame / Set Cut Here | Effect only: the frame the flash peaks on, i.e. the outgoing clip's last frame in the edit, or the incoming clip's first. -1 = the end / start of the whole source clip |
+| Length (frames) | Effect only: how many frames the run-out or run-up takes |
+| Flash (stops) | Effect only, with Timing = Keyframe: the flash amount to keyframe |
+| Flicker / Seed | Random frame-to-frame exposure wobble while flashing |
+
+**Camera Speed**
+
+| Control | What it does |
+| --- | --- |
+| Speed Up | Effect only. How much the action speeds up as the camera slows: 0 = off |
+| Speed Curve | **Even Ramp** (default): the action speeds up steadily into the cut and settles steadily after it, where you can see it. **Follows Exposure**: exactly like a real camera (speed = 2^stops), where most of the speed-up happens near the peak, inside the flash |
+| Max Speed | How fast the action runs at the cut, before Spare Handle Frames scales it down (default 6×) |
+| Speed Ramp (frames) | Effect only, Even Ramp: how many frames before the cut (run-out) or after it (run-up) the speed change spans. Default 48 (2 s at 24 fps). Longer than the flash's Length, so you can see the camera slow before the picture burns out |
+| Spare Handle Frames | Effect: handle frames past the clip's edit point. Transition: handles beyond what the transition itself uses. The speed-up (and blur) is scaled so it never reads further than this. More handles = a stronger speed-up |
+| Motion Blur | Effect only. Extra blur from the longer exposures: 1 = tied to the exposure, 0 = off |
+| Shutter Angle | The camera's shutter at normal speed (180° is standard); a wider shutter smears more |
+| Max Blur | Cap on the blur, in frames of action. Higher costs render time (one source frame per frame of blur) |
+| Show Diagnostics | Prints the timing on the picture (see below) |
+
+How speed-up works (on the transition; the effect's run-out and run-up are
+the two halves of it):
+
+- **Outgoing shot.** The action plays normally at the start of the
+  transition, then runs faster and faster into the cut. Running fast uses
+  up footage, so it reads into the clip's tail past the edit point.
+- **Incoming shot.** It's the mirror image: it starts fast at the cut and
+  settles to normal by the end. That means starting further back, in the
+  clip's head before the edit point.
+- **No jumps.** Both are pinned at the transition's outer ends, so nothing
+  jumps where the transition starts or ends.
+- **Handles.** How much speed-up you get depends on how much footage
+  there is past the edit. Spare Handle Frames tells the plugin how much it
+  may use. A 1-second transition with 12 spare frames on each side gives
+  roughly a 2× average speed-up into the cut.
+
+**Show Diagnostics** prints, on the frame:
+- where the transition is, and how the plugin found its frame step (from
+  the Transition value, or from the effect's frame range)
+- how far ahead and behind each shot is reading
+- how much handle the speed-up wanted and how much it was scaled to fit
+- whether Resolve supplied those frames. **HOST GAVE THE CURRENT FRAME**
+  means the host isn't letting the plugin read other moments of the clip.
+  That's what Resolve does for transitions; use the effect with Run-out /
+  Run-up instead. On the effect it also shows the clip's range and which
+  frames the flash covers.
+
+Both only add to what the footage already has. With no flash, there's no
+extra speed and no extra blur.
+
+**Film**
+
+| Control | What it does |
+| --- | --- |
+| Input Encoding | How the images are encoded *where FilmFlash sits*, so stops are real stops. Rec.709 / sRGB / gamma 2.2, linear, DaVinci Intermediate, Cineon, ARRI LogC3 / LogC4, Sony S-Log3, Panasonic V-Log, RED Log3G10, Apple Log, Blackmagic Film Gen 5 |
+| Exposure | **Film Negative**: a soft shoulder into white that never clips (works on anything). **Gain**: true stops in linear light. On log footage that's a log offset, like printer lights, and highlights keep going past white for your LUT or output transform to roll off. On Rec.709 footage it clips. **Gamma**: lifts the mids while whites stay put; a hazy, milky flash that never reaches white |
+| Film Response | How quickly each stop eats into the picture |
+| Colour Shift | Warm drift as the flash builds |
+| Highlight Colour | The white the flash burns toward |
+| Base Fog / Fog Colour | Milky, coloured lift of the shadows |
+| Halation / Halation Size | Red glow around bright areas (size as % of frame width) |
+| Scene Ceiling | Scene-referred encodings only: where the flash tops out, in stops above mid grey |
+
+### Log footage
+
+Highlights in Rec.709 footage are already clipped, so any flash on it is
+working with a picture that's run out of room. On log, or on a
+colour-managed timeline, the highlights still exist above white. Put the
+flash there and let your LUT or output transform roll it off:
+
+- **Colour-managed timeline (DaVinci Wide Gamut / Intermediate).** Use
+  Input Encoding **DaVinci Intermediate** and Exposure **Gain**, or Film
+  Negative for an extra shoulder.
+- **Log clips with a LUT or CST on the Color page.** Add FilmFlash as an
+  OpenFX on a node *before* the LUT/CST node. Set Input Encoding to the
+  camera's log and Exposure to **Gain**.
+
+Set Input Encoding to whatever the picture is at the point where FilmFlash
+sits. If the flash looks wrong (oddly flat, or far too strong), the
+encoding probably doesn't match. In Film Negative mode, **Scene Ceiling**
+sets where the shoulder tops out on scene-referred encodings.
+
+**Camera & Light**
+
+| Control | What it does |
+| --- | --- |
+| Uneven Exposure | Extra stops on one side of the frame |
+| Direction | Which side: 0° left, 90° top, 180° right, 270° bottom |
+| Edge Leak / Leak Colour | Light leaking in on that side |
+
+Every control except Input Encoding and Seed can be keyframed.
+
+## Build
+
+```
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The tests load the built plugin in `../ofx-testhost/minihost.cpp`, as a
+transition and as an effect. They check:
+
+- both ends of the transition, and Flash 0, return the source untouched
+- the cut is near white
+- speed-up and motion blur actually read other frames, but never beyond
+  the clips' handles (Spare Handle Frames). This includes hosts that don't
+  animate the Transition value. Turning them off reads only the current
+  frame
+- nothing ever passes white, even at 18 stops with everything turned up
+- frames rendered out of order match frames rendered in order
+
+`tools/flash_cli` previews the flash on raw video piped through ffmpeg:
+
+```
+ffmpeg -i in.mov -f rawvideo -pix_fmt rgb24 - |
+  build/flash_cli 1920 1080 --cut 48 --length 36 --peak 8 --leak 0.5 |
+  ffmpeg -f rawvideo -pix_fmt rgb24 -s 1920x1080 -r 24 -i - -pix_fmt yuv420p out.mp4
+```
