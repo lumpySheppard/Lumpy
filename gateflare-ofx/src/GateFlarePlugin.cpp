@@ -4,6 +4,7 @@
 //
 // Plain OFX C API; the image work is in GateEngine.
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -37,19 +38,26 @@ enum P {
     P_PRESET, P_APPLYPRESET, P_SAVETO, P_SAVEPRESET,
     P_CROP, P_CROPOUT, P_SHOWGATE,
     // per edge pair
-    P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TFOCUS, P_TSAT, P_TTINT,
-    P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_SFOCUS, P_SSAT, P_STINT,
-    // custom look
+    P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TFOCUS, P_TLEAN, P_TREACH, P_TDEPTH, P_TSPREAD, P_TSAT, P_TTINT,
+    P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_SFOCUS, P_SLEAN, P_SREACH, P_SDEPTH, P_SSPREAD, P_SSAT, P_STINT,
+    // custom look (these ids: Left & Right; + kTopSet: Top & Bottom)
     P_SHAPE, P_PINCH, P_LEAN, P_AIM, P_EVOLVE, P_HUEDRIFT, P_BLADEANGLE, P_BLADESOFT, P_COLOURMODE,
     P_INTENSITY, P_START, P_ONSET, P_WAIT, P_REACH, P_DEPTH, P_SPREAD, P_FAN, P_GLOW, P_SRCCOL, P_SAT, P_TINT, P_FARTINT, P_EXITTINT,
     P_STREAKS, P_STREAKDETAIL, P_SHIMMER, P_SHIMMERSPEED, P_CORE, P_FRINGE,
-    P_FALLOFF, P_CURVE, P_VEIL, P_IRID, P_BANDS, P_ALONG, P_EDGES,
+    P_FALLOFF, P_VEIL, P_IRID, P_BANDS, P_ALONG, P_EDGES,
     // sources
     P_THRESH, P_KNEE, P_ISOLATE, P_LIGHTSIZE,
+    P_MASKMODE, P_MASKX, P_MASKY, P_MASKW, P_MASKH, P_MASKSOFT, P_MASKINV,
     P_TOP, P_BOTTOM, P_LEFT, P_RIGHT,
     P_COMPOSITE, P_ENCODING, P_SEED,
-    P_COUNT
+    P_BASECOUNT,
+    // The Top & Bottom Custom Look: the same controls again, after the rest.
+    kCustomFirst = P_SHAPE,
+    kCustomLast = P_EDGES,
+    kTopSet = P_BASECOUNT - kCustomFirst,
+    P_COUNT = P_BASECOUNT + (kCustomLast - kCustomFirst + 1)
 };
+inline P topSet(P id) { return P(int(id) + int(kTopSet)); }
 enum PType { kDbl, kBool, kChoice, kRGB, kInt, kButton };
 
 struct PDef {
@@ -67,7 +75,7 @@ struct PDef {
 const std::vector<const char*> kLookOptions = {"Custom", "Soft Haze", "Thin Streak", "Cool Column", "Blue Blade",
                                                "Side Blast"};
 const char* const kLookHint =
-    "Custom: the Custom Look controls below. Soft Haze: a soft, streaky plume in the lights' own colour. "
+    "Custom: this edge pair's own Custom Look controls, below. Soft Haze: a soft, streaky plume in the lights' own colour. "
     "Thin Streak: a long, thin streak straight in (a light leaving the side, Road to Perdition). Cool "
     "Column: a cool column straight in. Blue Blade: a hard-edged blue wedge. Side Blast: the light comes "
     "to a soft focus just inside the edge, crosses and opens into a soft, broken-up blue cone (Gummo).";
@@ -83,7 +91,7 @@ const std::vector<PDef>& defs() {
     static const std::vector<PDef> d = {
         {P_PRESET, "preset", kChoice, "grpPreset", "Preset",
          "Choosing a preset sets the controls to it. Gummo Side Blast: the side flare matched to the Gummo "
-         "shot, loaded into the Custom Look controls so you can adjust it (Left & Right use Custom, Top & "
+         "shot, loaded into the Left & Right Custom Look so you can adjust it (Left & Right use Custom, Top & "
          "Bottom Soft Haze, Gate Crop 16, Light Size 8). Defaults: everything back to how it starts. User "
          "1-8: your own, saved with Save Preset.",
          {0}, 0, 10, 0, 10, kPresetOptions},
@@ -109,6 +117,25 @@ const std::vector<PDef>& defs() {
          "With Isolate Lights: the biggest thing that still counts as a light, as % of frame height.", {3}, 0.2,
          50, 0.5, 20},
 
+
+        {P_MASKMODE, "maskMode", kChoice, "grpSources", "Source Mask",
+         "Limits which lights can flare. Ellipse / Rectangle: only lights inside the shape (see it with Show "
+         "Gate & Sources; keyframe it to follow a light). Clip Alpha: only where the incoming image's alpha "
+         "is on, e.g. a key or window from another node.",
+         {0}, 0, 3, 0, 3, {"Off", "Ellipse", "Rectangle", "Clip Alpha"}},
+        {P_MASKX, "maskX", kDbl, "grpSources", "Mask X (%)",
+         "Centre of the mask, % of the picture's width from the left (the whole picture, before Gate Crop).",
+         {50}, -50, 150, 0, 100},
+        {P_MASKY, "maskY", kDbl, "grpSources", "Mask Y (%)",
+         "Centre of the mask, % of the picture's height from the top.", {50}, -50, 150, 0, 100},
+        {P_MASKW, "maskWidth", kDbl, "grpSources", "Mask Width (%)", "Width of the mask, % of the picture's width.",
+         {30}, 0.5, 300, 1, 100},
+        {P_MASKH, "maskHeight", kDbl, "grpSources", "Mask Height (%)",
+         "Height of the mask, % of the picture's height.", {30}, 0.5, 300, 1, 100},
+        {P_MASKSOFT, "maskSoftness", kDbl, "grpSources", "Mask Softness (%)", "Soft edge of the mask.", {2}, 0, 50,
+         0, 20},
+        {P_MASKINV, "maskInvert", kBool, "grpSources", "Invert Mask",
+         "Lights inside the mask don't flare; everything else can.", {0}, 0, 1, 0, 1},
 
         {P_COMPOSITE, "composite", kChoice, "grpInput", "Composite",
          "Film: the flare is extra exposure on the negative, through a soft shoulder: it glows into the "
@@ -143,8 +170,18 @@ const std::vector<PDef>& defs() {
          {0}, -20, 10, -5, 3},
         {P_TFOCUS, "topFocusOffset", kDbl, "grpTop", "Focus Offset (%)",
          "Pinch looks (Side Blast, or Custom with Shape = Pinch): moves the convergence point further into the "
-         "frame (+) or toward the edge (-).",
-         {0}, -20, 40, -10, 20},
+         "frame (+) or toward the edge and off screen (-).",
+         {0}, -20, 20, -10, 10},
+        {P_TLEAN, "topLean", kDbl, "grpTop", "Lean",
+         "Tilts the top and bottom flares, in degrees, on top of the look's own (Pinch and Blade looks).", {0}, -60,
+         60, -30, 30},
+        {P_TREACH, "topReach", kDbl, "grpTop", "Reach x",
+         "Scales how far beyond the edge a light keeps flaring (the look's Reach).", {1}, 0.1, 5, 0.25, 3},
+        {P_TDEPTH, "topDepth", kDbl, "grpTop", "Depth x",
+         "Scales the flare's length: how far it reaches into the frame (the look's Depth).", {1}, 0.1, 5, 0.25,
+         3},
+        {P_TSPREAD, "topSpread", kDbl, "grpTop", "Spread x",
+         "Scales the flare's width where it starts (the look's Spread).", {1}, 0.1, 5, 0.25, 3},
         {P_TSAT, "topSaturation", kDbl, "grpTop", "Saturation",
          "Colour saturation of the top and bottom flares (multiplies the look's own).", {1}, 0, 3, 0, 2},
         {P_TTINT, "topTint", kRGB, "grpTop", "Tint", "Colours the top and bottom flares.", {1, 1, 1}, 0, 2, 0, 1},
@@ -160,8 +197,18 @@ const std::vector<PDef>& defs() {
          {0}, -20, 10, -5, 3},
         {P_SFOCUS, "sideFocusOffset", kDbl, "grpSide", "Focus Offset (%)",
          "Pinch looks (Side Blast, or Custom with Shape = Pinch): moves the convergence point further into the "
-         "frame (+) or toward the edge (-).",
-         {0}, -20, 40, -10, 20},
+         "frame (+) or toward the edge and off screen (-).",
+         {0}, -20, 20, -10, 10},
+        {P_SLEAN, "sideLean", kDbl, "grpSide", "Lean",
+         "Tilts the left and right flares, in degrees, on top of the look's own (Pinch and Blade looks).", {0}, -60,
+         60, -30, 30},
+        {P_SREACH, "sideReach", kDbl, "grpSide", "Reach x",
+         "Scales how far beyond the edge a light keeps flaring (the look's Reach).", {1}, 0.1, 5, 0.25, 3},
+        {P_SDEPTH, "sideDepth", kDbl, "grpSide", "Depth x",
+         "Scales the flare's length: how far it reaches into the frame (the look's Depth).", {1}, 0.1, 5, 0.25,
+         3},
+        {P_SSPREAD, "sideSpread", kDbl, "grpSide", "Spread x",
+         "Scales the flare's width where it starts (the look's Spread).", {1}, 0.1, 5, 0.25, 3},
         {P_SSAT, "sideSaturation", kDbl, "grpSide", "Saturation",
          "Colour saturation of the left and right flares (multiplies the look's own).", {1}, 0, 3, 0, 2},
         {P_STINT, "sideTint", kRGB, "grpSide", "Tint", "Colours the left and right flares.", {1, 1, 1}, 0, 2, 0, 1},
@@ -174,7 +221,9 @@ const std::vector<PDef>& defs() {
          {0}, 0, 3, 0, 3,
          {"Plume (fan)", "Beam (straight column)", "Blade (hard-edged wedge)", "Pinch (neck, then fan)"}},
         {P_PINCH, "pinchLength", kDbl, "grpCustom", "Pinch Length (%)",
-         "Pinch: how far into the frame the focal point is.", {15}, 0, 100, 0, 40},
+         "Pinch: how far into the frame the rays converge. Negative: the convergence point is beyond the "
+         "edge, off screen, and only the fanning-out part shows.",
+         {3}, -20, 20, -10, 10},
         {P_LEAN, "lean", kDbl, "grpCustom", "Lean",
          "Pinch: degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and "
          "bottom).",
@@ -260,14 +309,12 @@ const std::vector<PDef>& defs() {
         {P_FALLOFF, "falloff", kDbl, "grpCustom", "Falloff",
          "0: the flare fades gradually from the edge. 1: it holds its strength, then drops away at about Depth.",
          {0}, 0, 1, 0, 1},
-        {P_CURVE, "curve", kDbl, "grpCustom", "Curve",
-         "Bends the flare as it goes into the frame, into an arc (positive bends the same way as Lean).", {0},
-         -3, 3, -1.5, 1.5},
         {P_VEIL, "veil", kDbl, "grpCustom", "Veil",
          "Veiling glare: a wide, low haze around the flare that lifts the blacks.", {0}, 0, 5, 0, 2},
         {P_IRID, "iridescence", kDbl, "grpCustom", "Iridescence",
-         "Rainbow banding, like thin-film or prism colours. Keeps the brightness, shifts the hue.", {0}, 0, 1,
-         0, 1},
+         "Rainbow banding, like thin-film or prism colours. Keeps the brightness, shifts the hue. (Gentle: the "
+         "top of the slider is a half-strength shift.)",
+         {0}, 0, 1, 0, 1},
         {P_BANDS, "rainbowBands", kDbl, "grpCustom", "Rainbow Bands", "How many rainbow bands.", {3}, 0.2, 20,
          0.5, 10},
         {P_ALONG, "rainbowAlong", kDbl, "grpCustom", "Rainbow Direction",
@@ -283,7 +330,30 @@ const std::vector<PDef>& defs() {
         {P_LEFT, "edgeLeft", kBool, "grpEdges", "Left", "Flare from the left edge.", {1}, 0, 1, 0, 1},
         {P_RIGHT, "edgeRight", kBool, "grpEdges", "Right", "Flare from the right edge.", {1}, 0, 1, 0, 1},
     };
-    return d;
+    // The Top & Bottom Custom Look: every Custom Look control again, named
+    // topCustomXxx, placed before the Left & Right one.
+    static std::vector<PDef> all;
+    static std::vector<std::string> names;
+    if (all.empty()) {
+        names.reserve(d.size());
+        std::vector<PDef> top;
+        for (const PDef& e : d)
+            if (e.group && !std::strcmp(e.group, "grpCustom")) {
+                PDef t = e;
+                std::string n = std::string("topCustom") + e.name;
+                n[9] = char(std::toupper(static_cast<unsigned char>(n[9])));
+                names.push_back(n);
+                t.name = names.back().c_str();
+                t.id = topSet(e.id);
+                t.group = "grpCustomTop";
+                top.push_back(t);
+            }
+        for (const PDef& e : d) {
+            if (e.id == P_SHAPE) all.insert(all.end(), top.begin(), top.end());
+            all.push_back(e);
+        }
+    }
+    return all;
 }
 
 struct GDef {
@@ -294,7 +364,9 @@ struct GDef {
 const GDef kGroups[] = {{"grpPreset", "Presets", true},      {"grpSources", "Sources", true},
                         {"grpInput", "Composite & Input", true}, {"grpGate", "Gate", true},
                         {"grpTop", "Top & Bottom", true},     {"grpSide", "Left & Right", true},
-                        {"grpCustom", "Custom Look", false},  {"grpEdges", "Edges", false}};
+                        {"grpCustomTop", "Custom Look: Top & Bottom", false},
+                        {"grpCustom", "Custom Look: Left & Right", false},
+                        {"grpEdges", "Edges", false}};
 
 const OfxPropertySuiteV1* gProp = nullptr;
 const OfxImageEffectSuiteV1* gFx = nullptr;
@@ -335,6 +407,13 @@ gate::Settings read(Instance* in, double t) {
     s.knee = f(P_KNEE);
     s.isolate = f(P_ISOLATE);
     s.lightSize = f(P_LIGHTSIZE);
+    s.maskMode = std::min(std::max(int(v[P_MASKMODE][0]), 0), 3);
+    s.maskX = f(P_MASKX);
+    s.maskY = f(P_MASKY);
+    s.maskW = f(P_MASKW);
+    s.maskH = f(P_MASKH);
+    s.maskSoft = f(P_MASKSOFT);
+    s.maskInvert = v[P_MASKINV][0] != 0;
     s.edges[0] = v[P_TOP][0] != 0;
     s.edges[1] = v[P_BOTTOM][0] != 0;
     s.edges[2] = v[P_LEFT][0] != 0;
@@ -345,66 +424,76 @@ gate::Settings read(Instance* in, double t) {
     s.time = float(t);
     s.upSign = +1;  // OFX images are bottom-up
 
-    // The Custom Look.
-    gate::Look c;
-    c.shape = std::min(std::max(int(v[P_SHAPE][0]), 0), 3);
-    c.pinch = f(P_PINCH);
-    c.lean = f(P_LEAN);
-    c.aim = f(P_AIM);
-    c.evolve = f(P_EVOLVE);
-    c.hueDrift = f(P_HUEDRIFT);
-    for (int i = 0; i < 3; ++i) c.farTint[i] = f(P_FARTINT, i);
-    for (int i = 0; i < 3; ++i) c.exitTint[i] = f(P_EXITTINT, i);
-    c.falloff = f(P_FALLOFF);
-    c.curve = f(P_CURVE);
-    c.veil = f(P_VEIL);
-    c.iridescence = f(P_IRID);
-    c.rainbowBands = f(P_BANDS);
-    c.rainbowAlong = f(P_ALONG);
-    c.prismEdges = f(P_EDGES);
-    c.intensity = f(P_INTENSITY);
-    c.flareStart = f(P_START);
-    c.onset = f(P_ONSET);
-    c.waitExit = f(P_WAIT);
-    c.reach = f(P_REACH);
-    c.depth = f(P_DEPTH);
-    c.spread = f(P_SPREAD);
-    c.fan = f(P_FAN);
-    c.edgeGlow = f(P_GLOW);
-    c.bladeAngle = f(P_BLADEANGLE);
-    c.bladeSoftness = f(P_BLADESOFT);
-    c.streaks = f(P_STREAKS);
-    c.streakDetail = f(P_STREAKDETAIL);
-    c.shimmer = f(P_SHIMMER);
-    c.shimmerSpeed = f(P_SHIMMERSPEED);
-    c.core = f(P_CORE);
-    c.fringe = f(P_FRINGE);
-    c.sourceColour = f(P_SRCCOL);
-    c.saturation = f(P_SAT);
-    for (int i = 0; i < 3; ++i) c.tint[i] = f(P_TINT, i);
-    // Flare Colour presets: replace the source's colour, then Tint on top.
-    static const float presets[5][3] = {{1, 1, 1}, {0.55f, 0.72f, 1.f}, {0.55f, 0.95f, 1.f}, {1.f, 0.75f, 0.5f}, {1, 1, 1}};
-    const int cm = std::min(std::max(int(v[P_COLOURMODE][0]), 0), 4);
-    if (cm != 0) c.sourceColour = 0.f;
-    for (int i = 0; i < 3; ++i) c.tint[i] *= presets[cm][i];
+    // The Custom Looks: o = 0 the Left & Right one, kTopSet the Top & Bottom one.
+    auto customLook = [&](int o) {
+        gate::Look c;
+        c.shape = std::min(std::max(int(v[P_SHAPE + o][0]), 0), 3);
+        c.pinch = f(P(P_PINCH + o));
+        c.lean = f(P(P_LEAN + o));
+        c.aim = f(P(P_AIM + o));
+        c.evolve = f(P(P_EVOLVE + o));
+        c.hueDrift = f(P(P_HUEDRIFT + o));
+        for (int i = 0; i < 3; ++i) c.farTint[i] = f(P(P_FARTINT + o), i);
+        for (int i = 0; i < 3; ++i) c.exitTint[i] = f(P(P_EXITTINT + o), i);
+        c.falloff = f(P(P_FALLOFF + o));
+        c.veil = f(P(P_VEIL + o));
+        c.iridescence = f(P(P_IRID + o));
+        c.rainbowBands = f(P(P_BANDS + o));
+        c.rainbowAlong = f(P(P_ALONG + o));
+        c.prismEdges = f(P(P_EDGES + o));
+        c.intensity = f(P(P_INTENSITY + o));
+        c.flareStart = f(P(P_START + o));
+        c.onset = f(P(P_ONSET + o));
+        c.waitExit = f(P(P_WAIT + o));
+        c.reach = f(P(P_REACH + o));
+        c.depth = f(P(P_DEPTH + o));
+        c.spread = f(P(P_SPREAD + o));
+        c.fan = f(P(P_FAN + o));
+        c.edgeGlow = f(P(P_GLOW + o));
+        c.bladeAngle = f(P(P_BLADEANGLE + o));
+        c.bladeSoftness = f(P(P_BLADESOFT + o));
+        c.streaks = f(P(P_STREAKS + o));
+        c.streakDetail = f(P(P_STREAKDETAIL + o));
+        c.shimmer = f(P(P_SHIMMER + o));
+        c.shimmerSpeed = f(P(P_SHIMMERSPEED + o));
+        c.core = f(P(P_CORE + o));
+        c.fringe = f(P(P_FRINGE + o));
+        c.sourceColour = f(P(P_SRCCOL + o));
+        c.saturation = f(P(P_SAT + o));
+        for (int i = 0; i < 3; ++i) c.tint[i] = f(P(P_TINT + o), i);
+        // Flare Colour presets: replace the source's colour, then Tint on top.
+        static const float presets[5][3] = {{1, 1, 1}, {0.55f, 0.72f, 1.f}, {0.55f, 0.95f, 1.f}, {1.f, 0.75f, 0.5f}, {1, 1, 1}};
+        const int cm = std::min(std::max(int(v[P_COLOURMODE + o][0]), 0), 4);
+        if (cm != 0) c.sourceColour = 0.f;
+        for (int i = 0; i < 3; ++i) c.tint[i] *= presets[cm][i];
+        return c;
+    };
+    const gate::Look custom[2] = {customLook(kTopSet), customLook(0)};
 
     // Each edge pair: two looks, a blend, and its own strength / timing / tint.
-    struct PairP { P a, b, blend, inten, start, focus, sat, tint; };
-    const PairP pp[2] = {{P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TFOCUS, P_TSAT, P_TTINT},
-                         {P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_SFOCUS, P_SSAT, P_STINT}};
+    struct PairP { P a, b, blend, inten, start, focus, lean, reach, depth, spread, sat, tint; };
+    const PairP pp[2] = {{P_TLOOKA, P_TLOOKB, P_TBLEND, P_TINT_T, P_TSTART, P_TFOCUS, P_TLEAN, P_TREACH, P_TDEPTH,
+                          P_TSPREAD, P_TSAT, P_TTINT},
+                         {P_SLOOKA, P_SLOOKB, P_SBLEND, P_SINT, P_SSTART, P_SFOCUS, P_SLEAN, P_SREACH, P_SDEPTH,
+                          P_SSPREAD, P_SSAT, P_STINT}};
     for (int k = 0; k < 2; ++k) {
         gate::EdgePair& ep = s.pair[k];
         auto finish = [&](gate::Look L) {
             L.intensity *= f(pp[k].inten);
             L.edgeGlow *= f(pp[k].inten);
             L.flareStart += f(pp[k].start);
-            L.pinch = std::max(0.f, L.pinch + f(pp[k].focus));
+            L.pinch += f(pp[k].focus);  // (may go negative: off screen)
+            L.lean += f(pp[k].lean);
+            L.bladeAngle += f(pp[k].lean);
+            L.reach *= f(pp[k].reach);
+            L.depth *= f(pp[k].depth);
+            L.spread *= f(pp[k].spread);
             L.saturation *= f(pp[k].sat);
             for (int i = 0; i < 3; ++i) L.tint[i] *= f(pp[k].tint, i);
             return L;
         };
-        ep.a = finish(gate::presetLook(int(v[pp[k].a][0]), c));
-        ep.b = finish(gate::presetLook(int(v[pp[k].b][0]), c));
+        ep.a = finish(gate::presetLook(int(v[pp[k].a][0]), custom[k]));
+        ep.b = finish(gate::presetLook(int(v[pp[k].b][0]), custom[k]));
         ep.blend = f(pp[k].blend);
     }
     return s;
@@ -590,8 +679,8 @@ std::vector<PVal> lookValues(const gate::Look& L) {
         {P_STREAKS, {L.streaks}},            {P_STREAKDETAIL, {L.streakDetail}},
         {P_SHIMMER, {L.shimmer}},            {P_SHIMMERSPEED, {L.shimmerSpeed}},
         {P_CORE, {L.core}},                  {P_FRINGE, {L.fringe}},
-        {P_FALLOFF, {L.falloff}},            {P_CURVE, {L.curve}},
-        {P_VEIL, {L.veil}},                  {P_IRID, {L.iridescence}},
+        {P_FALLOFF, {L.falloff}},            {P_VEIL, {L.veil}},
+        {P_IRID, {L.iridescence}},
         {P_BANDS, {L.rainbowBands}},         {P_ALONG, {L.rainbowAlong}},
         {P_EDGES, {L.prismEdges}},
     };
@@ -678,6 +767,7 @@ void applyPreset(Instance* in, int preset) {
         const PVal more[] = {
             {P_SLOOKA, {0}},   {P_SLOOKB, {5}},  {P_SBLEND, {0}},  {P_SINT, {1}},   {P_SSTART, {0}},
             {P_SFOCUS, {0}},   {P_SSAT, {1}},    {P_STINT, {1, 1, 1}},
+            {P_SLEAN, {0}},    {P_SREACH, {1}},  {P_SDEPTH, {1}},  {P_SSPREAD, {1}},
             {P_TLOOKA, {1}},   {P_TBLEND, {0}},  {P_CROP, {16}},   {P_LIGHTSIZE, {8}}, {P_COMPOSITE, {0}},
             {P_LEFT, {1}},     {P_RIGHT, {1}},
         };
@@ -817,7 +907,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 15, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 16, setHost, mainEntry};
 
 }  // namespace
 

@@ -24,7 +24,8 @@ static void usage() {
                  "               --fan F --edge-glow F --blade-angle DEG --blade-softness PCT --streaks F\n"
                  "               --streak-detail F --shimmer F --shimmer-speed F --core F --fringe F --source-colour F\n"
                  "               --pinch PCT --lean DEG --tint-r/g/b F --far-r/g/b F\n"
-                 "               --curve F --veil F --iridescence F --bands F --along F\n"
+                 "               --veil F --iridescence F --bands F --along F\n"
+                 "  mask: --mask-mode N(1 ellipse, 2 rectangle, 3 alpha) --mask-x/y/w/h PCT --mask-soft PCT --mask-invert 1\n"
                  "  sources: --threshold F --knee F --isolate F --light-size PCT\n"
                  "  other: --crop PCT --no-crop 1 --show-gate 1 --encoding N --composite N --seed N\n");
     std::exit(2);
@@ -39,7 +40,7 @@ int main(int argc, char** argv) {
     gate::Look c;
     float showGate = 0, noCrop = 0, enc = 0, comp = 0, shape = 0, seed = 1;
     float lookTop = 0, lookTopB = 1, blendTop = 0, lookSide = 0, lookSideB = 1, blendSide = 0;
-    float focusTop = 0, focusSide = 0;
+    float focusTop = 0, focusSide = 0, maskMode = 0, maskInv = 0;
     std::map<std::string, float*> f = {
         {"--crop", &s.crop}, {"--threshold", &s.threshold}, {"--knee", &s.knee}, {"--isolate", &s.isolate},
         {"--light-size", &s.lightSize}, {"--intensity", &c.intensity}, {"--flare-start", &c.flareStart},
@@ -49,7 +50,8 @@ int main(int argc, char** argv) {
         {"--shimmer-speed", &c.shimmerSpeed}, {"--core", &c.core}, {"--fringe", &c.fringe},
         {"--source-colour", &c.sourceColour}, {"--saturation", &c.saturation}, {"--pinch", &c.pinch}, {"--lean", &c.lean},
         {"--aim", &c.aim}, {"--evolve", &c.evolve}, {"--hue-drift", &c.hueDrift},
-        {"--falloff", &c.falloff}, {"--curve", &c.curve}, {"--veil", &c.veil}, {"--iridescence", &c.iridescence}, {"--bands", &c.rainbowBands},
+        {"--falloff", &c.falloff}, {"--mask-mode", &maskMode}, {"--mask-x", &s.maskX}, {"--mask-y", &s.maskY},
+        {"--mask-w", &s.maskW}, {"--mask-h", &s.maskH}, {"--mask-soft", &s.maskSoft}, {"--mask-invert", &maskInv}, {"--veil", &c.veil}, {"--iridescence", &c.iridescence}, {"--bands", &c.rainbowBands},
         {"--along", &c.rainbowAlong}, {"--edges", &c.prismEdges},
         {"--tint-r", &c.tint[0]}, {"--tint-g", &c.tint[1]}, {"--tint-b", &c.tint[2]},
         {"--far-r", &c.farTint[0]}, {"--far-g", &c.farTint[1]}, {"--far-b", &c.farTint[2]},
@@ -75,8 +77,10 @@ int main(int argc, char** argv) {
     s.pair[1].a = gate::presetLook(int(lookSide), c);
     s.pair[1].b = gate::presetLook(int(lookSideB), c);
     s.pair[1].blend = blendSide;
-    for (gate::Look* l : {&s.pair[0].a, &s.pair[0].b}) l->pinch = std::max(0.f, l->pinch + focusTop);
-    for (gate::Look* l : {&s.pair[1].a, &s.pair[1].b}) l->pinch = std::max(0.f, l->pinch + focusSide);
+    for (gate::Look* l : {&s.pair[0].a, &s.pair[0].b}) l->pinch += focusTop;
+    for (gate::Look* l : {&s.pair[1].a, &s.pair[1].b}) l->pinch += focusSide;
+    s.maskMode = int(maskMode);
+    s.maskInvert = maskInv != 0;
     const size_t fb = size_t(w) * h * 3;
     std::vector<unsigned char> buf(fb);
     gate::Image img(w, h), out;

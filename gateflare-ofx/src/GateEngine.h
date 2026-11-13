@@ -75,7 +75,8 @@ struct Look {
     float saturation = 1.f;    // the flare's colour saturation
     float farTint[3] = {1.f, 1.f, 1.f};  // colour it shifts toward as it goes into the frame
     float exitTint[3] = {1.f, 1.f, 1.f}; // colour it shifts toward as the light goes further out of frame
-    float pinch = 15.f;        // pinch: length of the tight neck before it fans out
+    float pinch = 3.f;         // pinch: how far into the frame the rays converge (negative: beyond
+                               // the edge, off screen, so only the diverging part shows)
     float lean = 0.f;          // pinch: degrees the fan leans (+ = up on the sides, left on top/bottom)
     float aim = 1.f;           // pinch: 1 = each flare points where the gate edge reflects its light (it
                                // tilts away from the frame's centre line and swings as the light moves)
@@ -84,9 +85,8 @@ struct Look {
                                // blue -> cyan -> green)
     // Organic veiling-flare character.
     float falloff = 0.f;       // 0 = fades gradually from the edge, 1 = holds its strength, then drops away
-    float curve = 0.f;         // bends the flare as it goes in (+ the same way as Lean)
     float veil = 0.f;          // a wide, low haze around the flare (veiling glare)
-    float iridescence = 0.f;   // rainbow banding (thin-film / prism colours)
+    float iridescence = 0.f;   // rainbow banding (thin-film / prism colours); 1 = half the hue shift
     float rainbowBands = 3.f;  // how many bands
     float rainbowAlong = 0.f;  // 0 = bands across the depth, 1 = along the flare (parallel to it)
     float prismEdges = 0.f;    // 1 = the colour only on the rays' edges (thin spectral lines)
@@ -126,7 +126,13 @@ struct Settings {
                                // brighter than their surroundings (bright walls drop out)
     float lightSize = 3.f;     // how big a "light" can be, % of frame height
     bool edges[4] = {true, true, true, true};  // top, bottom, left, right (as seen)
-    bool showGate = false;     // debug: show the gate and the detected sources
+    // Source mask: only lights inside it flare.
+    int maskMode = 0;          // 0 off, 1 ellipse, 2 rectangle, 3 the clip's alpha
+    float maskX = 50.f, maskY = 50.f;  // centre, % of the picture's width / height (from the left / top)
+    float maskW = 30.f, maskH = 30.f;  // size, % of the picture's width / height
+    float maskSoft = 2.f;      // soft edge, % of frame height
+    bool maskInvert = false;   // everything but
+    bool showGate = false;     // debug: show the gate, the mask and the detected sources
     int upSign = 1;            // +1 if rows go bottom-up (OFX), -1 if top-down
 };
 

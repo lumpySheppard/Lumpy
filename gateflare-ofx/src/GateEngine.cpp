@@ -186,9 +186,6 @@ struct Flare {
     void eval(int u, float v, float* add) const {
         v = std::max(v, 0.f);
         if (v > maxD) return;
-        // Curve: the flare that starts at u bends sideways as it goes in.
-        if (L.curve != 0.f)
-            u = std::min(std::max(int(std::lround(u + L.curve * v * v / (0.5f * frameH))), 0), n - 1);
         const float fade = 1.f - smoothstep(0.6f * maxD, maxD, v);
         float rgb[3] = {0, 0, 0};
         const float glowK = std::exp(-v / glowFall) * L.edgeGlow;
@@ -281,7 +278,7 @@ struct Flare {
             const float edge = 1.f - smoothstep(0.05f, 0.16f, std::fabs(streakVal - 0.55f));
             // Running along the flare, the hot middle stays white; the colours sit outside it.
             const float mid = al * (1.f - pe) * 0.8f * (1.f - smoothstep(0.1f, 0.55f, std::fabs(rayCoord)));
-            const float ir = std::min(std::max(L.iridescence, 0.f), 1.f) * (1.f - pe + pe * edge) * (1.f - mid);
+            const float ir = 0.5f * std::min(std::max(L.iridescence, 0.f), 1.f) * (1.f - pe + pe * edge) * (1.f - mid);
             for (int c = 0; c < 3; ++c) col[c] += (lum * sp[c] / ls - col[c]) * ir;
         }
         // Veil: a wide, low haze (veiling glare), without the streaks.
@@ -518,7 +515,7 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
         fl.veilFall = 1.5f * fl.depthPx;
     }
     if (L.shape == kPinch) {
-        fl.pinchPx = std::max(0.f, L.pinch * unit);
+        fl.pinchPx = std::min(std::max(L.pinch, -40.f), 100.f) * unit;  // negative: beyond the edge
         fl.leanTan = std::tan(std::min(std::max(L.lean, -60.f), 60.f) * 3.14159265f / 180.f);
         fl.neckHw = std::max(1.f, 0.5f * fl.spreadPx);
         fl.halfPerp = std::max(1.f, 0.5f * float(g.span));
@@ -636,6 +633,31 @@ Flare buildFlare(const Look& L, float weight, const FlareGeom& g, const std::vec
 
 }  // namespace
 
+namespace {
+// Source mask: signed distance in pixels from the shape's edge (negative
+// inside) at a point in visual coordinates.
+float maskDistance(const Settings& s, int w, int h, float x, float y) {
+    const float cx = s.maskX / 100.f * w, cy = s.maskY / 100.f * h;
+    const float rx = std::max(1.f, 0.5f * s.maskW / 100.f * w), ry = std::max(1.f, 0.5f * s.maskH / 100.f * h);
+    if (s.maskMode == 2) return std::max(std::fabs(x - cx) - rx, std::fabs(y - cy) - ry);
+    const float dx = (x - cx) / rx, dy = (y - cy) / ry;
+    return (std::sqrt(dx * dx + dy * dy) - 1.f) * std::min(rx, ry);
+}
+// How much a pixel counts (0..1).
+float maskWeight(const Settings& s, int w, int h, int x, int y, float alpha) {
+    float m = 1.f;
+    if (s.maskMode == 1 || s.maskMode == 2) {
+        const float soft = std::max(0.f, s.maskSoft) * h / 100.f;
+        m = 1.f - smoothstep(-0.5f * soft, 0.5f * soft + 1e-3f, maskDistance(s, w, h, x + 0.5f, y + 0.5f));
+    } else if (s.maskMode == 3) {
+        m = std::min(std::max(alpha, 0.f), 1.f);
+    } else {
+        return 1.f;
+    }
+    return s.maskInvert ? 1.f - m : m;
+}
+}  // namespace
+
 void render(const Image& in, const Settings& s, Image& out) {
     const int w = in.w, h = in.h;
     if (in.empty()) {
@@ -675,6 +697,7 @@ void render(const Image& in, const Settings& s, Image& out) {
         for (int x = 0; x < w; ++x) {
             const size_t j = size_t(yv) * w + x;
             float k = smoothstep(s.threshold - s.knee, s.threshold + s.knee, V[j]);
+            if (s.maskMode != 0) k *= maskWeight(s, w, h, x, yv, in.row(vis(yv))[x * 4 + 3]);
             if (!opened.empty()) {
                 const float tophat = V[j] - opened[j];  // how much it stands out as a small light
                 k *= 1.f - s.isolate + s.isolate * smoothstep(0.03f, 0.15f, tophat);
@@ -793,6 +816,13 @@ void render(const Image& in, const Settings& s, Image& out) {
                 }
                 if (s.showGate) {
                     if (!inside) l *= 0.35f;
+                    if (s.maskMode != 0) {
+                        // Outside the source mask: dimmer; its outline in green.
+                        if (maskWeight(s, w, h, x, yv, src[x * 4 + 3]) < 0.5f) l *= 0.55f;
+                        if ((s.maskMode == 1 || s.maskMode == 2) &&
+                            std::fabs(maskDistance(s, w, h, x + 0.5f, yv + 0.5f)) < 1.5f)
+                            l = c == 1 ? 1.f : 0.1f;
+                    }
                     // Sources in magenta, as strongly as they count.
                     const float kk = Wt[size_t(yv) * w + x];
                     const float mag = c == 1 ? 0.05f : 0.9f;

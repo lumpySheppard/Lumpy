@@ -44,8 +44,8 @@ Then:
 3. Turn Show Gate & Sources off and shape the flare.
 
 The controls run in setup order: **Presets**, **Sources**, **Composite &
-Input**, **Gate**, then the looks (**Top & Bottom**, **Left & Right**,
-**Custom Look**) and **Edges**.
+Input**, **Gate**, then the looks (**Top & Bottom**, **Left & Right**, and
+a **Custom Look** for each) and **Edges**.
 
 ### Presets
 
@@ -74,7 +74,9 @@ have their own look:
 | Blend A > B | 0 = all Look A, 1 = all Look B, between = a mix of the two flares |
 | Intensity | Strength of this pair's flares (0 turns them off) |
 | Flare Start Offset (%) | Added to the looks' Flare Start: negative = later |
-| Focus Offset (%) | Pinch looks (Side Blast, or Custom with Shape = Pinch): moves the convergence point further in (+) or toward the edge (-) |
+| Lean | Tilts this pair's flares, in degrees, on top of the look's own (Pinch and Blade looks) |
+| Reach x / Depth x / Spread x | Scale the look's Reach (how far beyond the edge a light keeps flaring), Depth (the flare's length into the frame) and Spread (its width where it starts). They work on the built-in looks as well as Custom |
+| Focus Offset (%) | Pinch looks (Side Blast, or Custom with Shape = Pinch): moves the convergence point further in (+), or toward the edge and off screen (-) |
 | Tint | Colours this pair's flares |
 
 By default both pairs use Look A = Custom. Look B is **Soft Haze** for
@@ -103,9 +105,10 @@ Offset if Side Blast doesn't fire.
 | Crop to Gate | Scale the gate up to fill the frame. Turn off to keep the full picture and crop it yourself |
 | Show Gate & Sources | Setup view: the gate, the margin, and the detected sources |
 
-### Custom Look
+### Custom Look: Top & Bottom, and Custom Look: Left & Right
 
-Used wherever a pair's Look A or B is **Custom**.
+Each edge pair has its own Custom Look, with the same controls, used
+wherever that pair's Look A or B is **Custom**.
 
 | Control | What it does |
 | --- | --- |
@@ -116,7 +119,7 @@ Used wherever a pair's Look A or B is **Custom**.
 | Wait for Exit | 1: a light doesn't flare while it, or its glow, still shows inside the edge. The flare then builds up over **Onset** of travel, measured from when the glow clears the edge, and its life (Evolve, Hue Drift) runs from there until the light leaves the picture. Needs Gate Crop room beyond the edge |
 | Saturation | The flare's colour saturation (also per edge pair, multiplying the look's) |
 | Onset (%) | How gradually a light's flare comes in once it passes Flare Start: small switches on, large builds over a few frames |
-| Pinch Length (%) / Lean | Pinch: how far in the focal point is, and how many degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and bottom) |
+| Pinch Length (%) / Lean | Pinch: how far in the focal point is (-10 to 10; negative puts it beyond the edge, off screen, so only the fanning-out part shows), and how many degrees the whole hourglass leans (positive = up on the left and right edges, left on the top and bottom) |
 | Blade Angle / Blade Softness | Blade: how far it leans from straight in, and how soft its sides are (0 = razor sharp) |
 | Flare Colour | **Source** (the lights' own colour), **Cool Blue**, **Cyan**, **Warm**, or **Custom** (white coloured by Tint). Tint applies on top of all of them |
 | Intensity | Strength of the flare. Lights are usually clipped in the footage, so they get a built-in boost (about 6×) that tapers off for lights that are genuinely very bright in scene-linear footage |
@@ -129,10 +132,9 @@ Used wherever a pair's Look A or B is **Custom**.
 | Exit Tint | The colour the flare shifts toward as the light goes further out of frame, as it dies (white = none). Side Blast goes green-teal, like Gummo |
 | Far Tint | The colour the flare shifts toward as it goes into the frame (white = none). Side Blast goes from cyan-white at the neck to deep blue, the way red drops out first in the reference |
 | Falloff | 0: the flare fades gradually from the edge. 1: it holds its strength, then drops away at about Depth (like the Gummo side flare) |
-| Curve | Bends the flare into an arc as it goes in (positive bends the same way as Lean) |
 | Veil | Veiling glare: a wide, low haze around the flare that lifts the blacks |
-| Iridescence / Rainbow Bands | Rainbow banding like thin-film or prism colours: same brightness, shifted hue |
-| Rainbow Direction | 0: bands across the depth. 1: bands running along the flare, parallel to it (with Curve: rainbow arcs, the middle staying white) |
+| Iridescence / Rainbow Bands | Gentle rainbow banding like thin-film or prism colours: same brightness, shifted hue (the top of the slider is a half-strength shift) |
+| Rainbow Direction | 0: bands across the depth. 1: bands running along the flare, parallel to it (the middle staying white) |
 | Prism Edges | 1: the rainbow only on the rays' edges, as thin spectral lines |
 | Streaks | Striations from the gate edge's nicks and roughness, radiating from the light and softening as they go in. 0 = a smooth glow |
 | Streak Detail | Broad (0) to fine (1) streaks |
@@ -150,6 +152,7 @@ the same way.
 | Source Threshold / Softness | How bright (as encoded) something must be to flare (default 0.9) |
 | Isolate Lights | 1 (default): only small things much brighter than their surroundings flare, such as lamps, practicals and speculars. Big bright areas like lit walls don't. 0: anything over the threshold flares, windows and walls included |
 | Light Size (%) | With Isolate Lights: the biggest thing that still counts as a light. Raise it for big practicals or windows |
+| Source Mask | Limits which lights can flare. **Ellipse** / **Rectangle**: only lights inside the shape, set with Mask X / Y (centre, % of the whole picture from the left / top), Mask Width / Height and Mask Softness; Show Gate & Sources draws it in green and dims everything outside; keyframe it to follow a light. **Clip Alpha**: only where the incoming image's alpha is on. **Invert Mask**: everything but |
 | Edges | Which edges flare |
 | Composite | **Film** (default): the flare is extra exposure on the negative, and like film, the brighter it gets the whiter it gets (the dye layers bleed into each other) rather than staying a saturated colour. It's added in odds space and brought back through a soft shoulder, so it glows into the highlights and never flattens into clipped white. **Screen**: brighter, but strong flares hit white. **Add**: plain linear add, for log or scene-linear footage that goes through an output transform afterwards |
 | Input Encoding | How the images are encoded, so the flare is added in linear light. Same list as FilmFlash: Rec.709, DaVinci Intermediate, Cineon, camera logs (LogC3/4, S-Log3, V-Log, Log3G10, Apple Log, BMD Film Gen 5) and HLG (iPhone footage) |
