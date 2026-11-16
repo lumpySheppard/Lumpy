@@ -150,6 +150,33 @@ plugin also remembers the frames it has been given, and when played or
 rendered in order it no longer depends on the host for them. Jumping
 straight into the middle of a mosh still does.
 
+### Parking inside a mosh
+
+A frame in the middle of a mosh is the result of every frame since Mosh
+Start. Played from before the mosh, the plugin builds it step by step. If
+you park inside a mosh that hasn't been played, it has to rebuild all of
+that at once, and it can only do so if the host hands over every frame
+since Mosh Start. Resolve doesn't always, and then only part of the damage
+is there.
+
+So the plugin keeps each finished mosh frame in a temporary file. **Once a
+mosh has played through, every frame in it looks the same however you get
+to it.** If a mosh looks different when you park in it, play it once from
+before Mosh Start. Changing a setting starts a new mosh, which needs
+playing through again.
+
+The file is removed when the effect goes or the host quits. It can use up
+to a quarter of the free space where temporary files go, between 1 and
+8 GB, shared by every copy of the effect (a 1080p frame is 33 MB, so 4 GB
+holds about 120 frames). Set `ERIKSTV_DISK_MB` before starting Resolve to
+change that; 0 turns it off.
+
+**Re-mosh Every** restarts the mosh every that many frames after Mosh
+Start: the picture cleans up to the current shot, then breaks again. After
+a restart the current shot is being moshed by its own motion, which looks
+quite different from the old shot being dragged. Set it to 0 for one mosh
+that holds the old shot all the way.
+
 **Show Diagnostics** prints what the plugin did at the current frame: the
 frame number the host gave it, Mosh Start, where the held frame came from
 (from the host, remembered, or missing) and how many of the other frames it

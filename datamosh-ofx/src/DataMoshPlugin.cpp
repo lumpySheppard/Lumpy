@@ -13,10 +13,12 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -50,7 +52,7 @@ namespace {
 // projects that already use it keep finding it.
 const char* const kPluginId = "com.lumpy.DataMosh";
 const char* const kGrouping = "Lumpy";
-const int kVersionMajor = 1, kVersionMinor = 3;
+const int kVersionMajor = 1, kVersionMinor = 4;
 
 const char* const kParamSetStart = "setStartHere";
 const char* const kParamLook = "look";
@@ -272,6 +274,111 @@ struct CachedState {
     int time = 0;
     uint64_t fpAtTime = 0;  // fingerprint of the real frame at `time`
     mosh::Image img;
+    bool complete = true;   // every step behind it had the frames it needed
+};
+
+// Finished mosh frames, on disk. A frame in the middle of a mosh can only be
+// rebuilt from Mosh Start if the host hands over every frame since, and some
+// hosts don't (Resolve, when you park inside a mosh). So each complete frame
+// that has been rendered is kept in a temporary file, and coming back to it,
+// or to a frame after it, starts from there: once a mosh has played through,
+// it looks the same however you get to a frame. The file is removed by the
+// system when the instance goes or the host quits, whatever happens.
+struct DiskStore {
+    struct Slot {
+        uint64_t key = 0;    // the settings, Mosh Start and the held frame's content
+        uint64_t chain = 0;  // the settings and Mosh Start only
+        int time = 0;
+        uint64_t fp = 0;
+        bool used = false;
+        bool complete = true;  // built with every frame it needed
+    };
+    FILE* f = nullptr;
+    bool failed = false;
+    int w = 0, h = 0;
+    std::vector<Slot> slots;
+    size_t next = 0;  // the oldest slot (overwritten next)
+
+    ~DiskStore() {
+        if (f) std::fclose(f);
+    }
+    size_t slotBytes() const { return size_t(w) * size_t(h) * 4 * sizeof(float); }
+    size_t bytes() const { return slots.size() * slotBytes(); }
+    void reset() {
+        if (f) std::fclose(f);
+        f = nullptr;
+        slots.clear();
+        next = 0;
+        w = h = 0;
+    }
+    // The latest in [lo, hi], or -1.
+    int find(uint64_t key, int lo, int hi, bool completeOnly) const {
+        int best = -1;
+        for (size_t i = 0; i < slots.size(); ++i)
+            if (slots[i].used && slots[i].key == key && slots[i].time >= lo && slots[i].time <= hi &&
+                (slots[i].complete || !completeOnly) &&
+                (best < 0 || slots[i].time > slots[size_t(best)].time))
+                best = int(i);
+        return best;
+    }
+    // For when the held frame can't be had, so the key can't be worked out:
+    // the latest frame of this mosh (same settings and Mosh Start) in [lo, hi].
+    int findChain(uint64_t chain, int lo, int hi) const {
+        int best = -1;
+        for (size_t i = 0; i < slots.size(); ++i) {
+            if (!slots[i].used || slots[i].chain != chain || slots[i].time < lo || slots[i].time > hi) continue;
+            if (best < 0 || slots[i].time > slots[size_t(best)].time ||
+                (slots[i].time == slots[size_t(best)].time && slots[i].complete))
+                best = int(i);
+        }
+        return best;
+    }
+    bool load(int slot, mosh::Image& out) {
+        if (!f || slot < 0) return false;
+        out = mosh::Image(w, h);
+        if (fseeko(f, off_t(size_t(slot) * slotBytes()), SEEK_SET) != 0 ||
+            std::fread(out.px.data(), 1, slotBytes(), f) != slotBytes()) {
+            failed = true;
+            reset();
+            return false;
+        }
+        return true;
+    }
+    void put(uint64_t key, uint64_t chain, int time, uint64_t fp, const mosh::Image& img, size_t budgetBytes,
+             bool complete) {
+        if (failed || budgetBytes == 0 || img.empty()) return;
+        if (f && (img.w != w || img.h != h)) reset();  // another size (proxy / full): start over
+        if (!f) {
+            f = std::tmpfile();  // deleted by the system when closed, or when the host goes
+            if (!f) {
+                failed = true;
+                return;
+            }
+            w = img.w;
+            h = img.h;
+        }
+        const size_t most = std::max<size_t>(budgetBytes / slotBytes(), 1);
+        size_t slot;
+        const int have = find(key, time, time, false);
+        if (have >= 0) {
+            // Already there. Only a complete frame replaces a partly built one.
+            if (slots[size_t(have)].complete || !complete) return;
+            slot = size_t(have);
+        } else if (slots.size() < most) {
+            slot = slots.size();
+            slots.emplace_back();
+        } else {
+            slot = next % slots.size();
+            next = (slot + 1) % slots.size();
+        }
+        if (fseeko(f, off_t(slot * slotBytes()), SEEK_SET) != 0 ||
+            std::fwrite(img.px.data(), 1, slotBytes(), f) != slotBytes()) {
+            failed = true;  // disk full, most likely: do without
+            reset();
+            return;
+        }
+        slots[slot] = Slot{key, chain, time, fp, true, complete};
+    }
 };
 
 struct Instance {
@@ -288,6 +395,8 @@ struct Instance {
     // hosts don't supply other frames reliably (Resolve, on a compound clip,
     // for a while after a cut inside it), so these are the fallback.
     std::list<std::pair<int, Frame>> kept;
+    DiskStore disk;
+    std::atomic<size_t> diskBytes{0};
     // For the memory budget shared by every instance (see trimCaches).
     std::atomic<size_t> bytes{0};     // what the two caches hold
     std::atomic<uint64_t> lastUse{0};
@@ -349,6 +458,21 @@ size_t cacheBudget() {
     return budget;
 }
 
+// Disk for finished mosh frames, all instances together: a quarter of what's
+// free where temporary files go, between 1 and 8 GB (ERIKSTV_DISK_MB
+// overrides it; 0 turns the store off).
+size_t diskBudget() {
+    static const size_t budget = [] {
+        const size_t mb = size_t(1) << 20;
+        if (const char* e = std::getenv("ERIKSTV_DISK_MB")) return size_t(std::max(0L, std::atol(e))) * mb;
+        std::error_code ec;
+        const auto sp = std::filesystem::space(std::filesystem::temp_directory_path(ec), ec);
+        if (ec) return 4096 * mb;
+        return size_t(std::min<uint64_t>(std::max<uint64_t>(uint64_t(sp.available) / 4, 1024 * mb), 8192 * mb));
+    }();
+    return budget;
+}
+
 // Call with `cur`'s lock held, after it has rendered.
 void trimCaches(Instance* cur) {
     const size_t budget = cacheBudget();
@@ -384,6 +508,29 @@ void trimCaches(Instance* cur) {
             victim->motion.clear();
             victim->kept.clear();
             victim->bytes = 0;
+            victim->lock.unlock();
+        } else {
+            busy.push_back(victim);
+        }
+    }
+    // The same for disk: idle instances' stores go first.
+    cur->diskBytes = cur->disk.bytes();
+    auto totalDisk = [&] {
+        size_t n = 0;
+        for (Instance* i : r.all) n += i->diskBytes;
+        return n;
+    };
+    busy.clear();
+    while (totalDisk() > diskBudget()) {
+        Instance* victim = nullptr;
+        for (Instance* i : r.all)
+            if (i != cur && i->diskBytes > 0 && std::find(busy.begin(), busy.end(), i) == busy.end() &&
+                (!victim || i->lastUse < victim->lastUse))
+                victim = i;
+        if (!victim) break;
+        if (victim->lock.try_lock()) {
+            victim->disk.reset();
+            victim->diskBytes = 0;
             victim->lock.unlock();
         } else {
             busy.push_back(victim);
@@ -522,7 +669,7 @@ bool fetchFrame(OfxImageClipHandle clip, double t, Frame& f) {
 
 // What one build did (for Show Diagnostics).
 struct BuildInfo {
-    bool tried = false, ok = false, usedCache = false;
+    bool tried = false, ok = false, usedCache = false, fromDisk = false, complete = true;
     int start = 0, from = 0;
     int refSource = 0;  // 0 missing, 1 from the host, 2 remembered
     int applied = 0, skipped = 0;
@@ -585,6 +732,8 @@ struct FrameCache {
     }
 };
 
+const Frame* frameAt(FrameCache& fc, int t) { return fc.get(t); }
+
 // After a render: keep the frame just rendered and the frames the mosh hangs on.
 void rememberFrame(Instance* in, const Params& p, int t, Frame&& real) {
     if (!real.ok) return;
@@ -613,15 +762,17 @@ const mosh::MotionField& motionFor(Instance* in, const Frame& cur, const Frame& 
     return in->motion.front().second;
 }
 
-void storeState(Instance* in, uint64_t key, int time, uint64_t fp, const mosh::Image& img) {
+void storeState(Instance* in, uint64_t key, uint64_t chain, int time, uint64_t fp, const mosh::Image& img,
+                bool complete) {
     for (auto it = in->states.begin(); it != in->states.end(); ++it) {
         if (it->key == key && it->time == time) {
             in->states.erase(it);
             break;
         }
     }
-    in->states.push_front(CachedState{key, time, fp, img});
+    in->states.push_front(CachedState{key, time, fp, img, complete});
     while (in->states.size() > 3) in->states.pop_back();
+    in->disk.put(key, chain, time, fp, img, diskBudget(), complete);
 }
 
 // Latest cached state for `key` with time in [lo, hi], or null.
@@ -631,6 +782,64 @@ CachedState* findState(Instance* in, uint64_t key, int lo, int hi) {
         if (s.key == key && s.time >= lo && s.time <= hi && (!best || s.time > best->time))
             best = &s;
     return best;
+}
+
+struct FrameCache;
+const Frame* frameAt(FrameCache& fc, int t);
+
+// Where to pick the mosh up from: the latest state for this chain at or before
+// t, in memory or on disk. Leaves `state` / `from` / `complete` alone if there
+// is none. A state whose footage has since changed is thrown away.
+void resumeMosh(Instance* in, uint64_t key, int S, int t, FrameCache& fc, mosh::Image& state, int& from,
+                bool& complete, BuildInfo& info) {
+    CachedState* c = findState(in, key, S, t);
+    if (c) {
+        // (If the frame can't be had at all, there's nothing to check it with.)
+        const Frame* at = frameAt(fc, c->time);
+        if (at && at->fp != c->fpAtTime) {
+            in->states.clear();
+            in->disk.reset();
+            c = nullptr;
+        }
+    }
+    // Disk, if it is further along, or the same frame but complete.
+    const int slot = in->disk.find(key, S, t, true);  // (only frames built with all they needed)
+    if (slot >= 0) {
+        const DiskStore::Slot d = in->disk.slots[size_t(slot)];
+        const bool better = !c || d.time > c->time || (d.time == c->time && !c->complete);
+        if (better) {
+            const Frame* at = frameAt(fc, d.time);
+            if (at && at->fp != d.fp) {
+                in->disk.reset();
+            } else if (in->disk.load(slot, state)) {
+                from = d.time;
+                complete = true;
+                info.usedCache = info.fromDisk = true;
+                return;
+            }
+        }
+    }
+    if (c) {
+        from = c->time;
+        state = c->img;
+        complete = c->complete;
+        info.usedCache = true;
+    }
+}
+
+// A frame that couldn't be built completely (the host didn't have the frames):
+// if this very frame was shown before, show that again. It may be no more
+// right, but a frame should look the same every time you come back to it.
+void sameAsLastTime(Instance* in, uint64_t key, int t, mosh::Image& state, bool& complete, BuildInfo& info) {
+    if (complete) return;
+    const int slot = in->disk.find(key, t, t, false);
+    if (slot < 0) return;
+    const bool was = in->disk.slots[size_t(slot)].complete;
+    mosh::Image stored;
+    if (!in->disk.load(slot, stored) || stored.w != state.w || stored.h != state.h) return;
+    state = std::move(stored);
+    complete = was;
+    info.fromDisk = true;
 }
 
 // Builds the moshed picture for frame t. On success `out` holds it and `real`
@@ -678,7 +887,20 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
     if (p.i(P_MODE) == kModeBloom) {
         // Freeze frame S and keep re-applying its motion.
         const Frame* fz = fc.get(S);
-        if (!fz) return false;
+        if (!fz) {
+            // The frozen frame can't be had. If this very frame was built
+            // before, it's on disk; anything else needs that frame.
+            const int slot = in->disk.findChain(base, t, t);
+            const Frame* now = fc.get(t);
+            if (slot < 0 || !now || now->fp != in->disk.slots[size_t(slot)].fp || !in->disk.load(slot, out))
+                return false;
+            real = *now;
+            info.usedCache = info.fromDisk = true;
+            info.from = t;
+            info.complete = in->disk.slots[size_t(slot)].complete;
+            info.ok = true;
+            return true;
+        }
         Frame frozen = *fz;
         const Frame* before = fc.get(S - 1);
         info.refSource = fc.lastSource;
@@ -690,11 +912,8 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
 
         int from = S;
         mosh::Image state = frozen.img;
-        if (CachedState* c = findState(in, key, S, t)) {
-            from = c->time;
-            state = c->img;
-            info.usedCache = true;
-        }
+        bool complete = haveBefore;  // (without the frame before, there's no motion to repeat)
+        resumeMosh(in, key, S, t, fc, state, from, complete, info);
         info.from = from;
         for (int k = from + 1; k <= t; ++k) {
             const Frame* cur = ss.heal > 0.f ? fc.get(k) : nullptr;
@@ -704,7 +923,9 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
         }
         const Frame* r = fc.get(t);
         real = r ? *r : frozen;
-        storeState(in, key, t, real.fp, state);
+        sameAsLastTime(in, key, t, state, complete, info);
+        info.complete = complete;
+        storeState(in, key, base, t, real.fp, state, complete);
         out = std::move(state);
         info.ok = true;
         return true;
@@ -715,26 +936,29 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
     // picks: normally frame k vs k-1, or repeated / reversed / jumped.
     const Frame* rf = fc.get(S - 1);
     info.refSource = fc.lastSource;
-    if (!rf) rf = fc.get(S);
-    if (!rf) return false;
-    const Frame ref = *rf;
-    const uint64_t key = hashMix(base, ref.fp);
+    bool complete = true;
+    uint64_t key = 0;
+    mosh::Image state;
+    if (rf) {
+        key = hashMix(base, rf->fp);
+        state = rf->img;
+    } else if (const int slot = in->disk.findChain(base, S, t); slot >= 0) {
+        // The held frame can't be had, but this mosh has been through here:
+        // carry on from what was kept (resumeMosh picks it up).
+        key = in->disk.slots[size_t(slot)].key;
+    } else if ((rf = fc.get(S))) {
+        // Making do with frame S instead: not the real thing.
+        key = hashMix(base, rf->fp);
+        state = rf->img;
+        complete = false;
+    } else {
+        return false;
+    }
     const std::vector<mosh::StepSpec> plan = mosh::schedule(S, t, timeSettings(p));
 
     int from = S;
-    mosh::Image state = ref.img;
-    if (CachedState* c = findState(in, key, S, t)) {
-        // Don't trust the cache if the footage at that frame has changed.
-        // (If the frame can't be had at all, there's nothing to check it with.)
-        const Frame* at = fc.get(c->time);
-        if (!at || at->fp == c->fpAtTime) {
-            from = c->time;
-            state = c->img;
-            info.usedCache = true;
-        } else {
-            in->states.clear();
-        }
-    }
+    resumeMosh(in, key, S, t, fc, state, from, complete, info);
+    if (state.empty()) return false;  // nothing to start from
     info.from = from;
 
     for (int k = from + 1; k <= t; ++k) {
@@ -750,13 +974,17 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
                 ++info.applied;
             } else {
                 ++info.skipped;  // a frame it needed wasn't to be had
+                complete = false;
             }
         }
         if (gFx->abort(effect)) return false;
     }
     const Frame* r = fc.get(t);
-    real = r ? *r : ref;
-    storeState(in, key, t, real.fp, state);
+    if (r) real = *r;
+    else if (rf) real = *rf;
+    sameAsLastTime(in, key, t, state, complete, info);
+    info.complete = complete;
+    storeState(in, key, base, t, real.fp, state, complete);
     out = std::move(state);
     info.ok = true;
     return true;
@@ -1157,14 +1385,19 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
                         "  FRAME " + std::to_string(frame) + "  START " + std::to_string(S) + "  LENGTH " +
                         std::to_string(p.i(P_LENGTH)));
         if (info.tried) {
-            lines.push_back(std::string("IN MOSH  RESULT: ") + (info.ok ? "MOSH" : "CLEAN (HELD FRAME MISSING)"));
+            lines.push_back(std::string("IN MOSH  RESULT: ") +
+                            (!info.ok ? "CLEAN (HELD FRAME MISSING)"
+                                      : info.complete ? "MOSH" : "PART OF THE MOSH (FRAMES MISSING)"));
             lines.push_back("HELD FRAME " + std::to_string(S - 1) + ": " + src[info.refSource]);
-            if (info.from >= frame)
+            if (info.from >= frame && info.usedCache)
+                lines.push_back(info.fromDisk ? "THIS FRAME: FROM DISK" : "THIS FRAME: REMEMBERED");
+            else if (info.from >= frame)
                 lines.push_back("FIRST FRAME OF THE MOSH: SHOWS THE HELD FRAME");
             else
                 lines.push_back("STEPS " + std::to_string(info.from + 1) + "-" + std::to_string(frame) + ": " +
                                 std::to_string(info.applied) + " APPLIED  " + std::to_string(info.skipped) +
-                                " SKIPPED" + (info.usedCache ? "  (CONTINUED)" : "  (FROM START)"));
+                                " SKIPPED" +
+                                (info.fromDisk ? "  (FROM DISK)" : info.usedCache ? "  (CONTINUED)" : "  (FROM START)"));
             lines.push_back("OTHER FRAMES: " + std::to_string(info.fromHost) + " FROM HOST  " +
                             std::to_string(info.remembered) + " REMEMBERED  " + std::to_string(info.missing) +
                             " MISSING");

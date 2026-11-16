@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(EriksTV VERSION 1.3.0 LANGUAGES CXX)
+project(EriksTV VERSION 1.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -106,6 +106,27 @@ if(NOT WIN32)
                          PROPERTIES FIXTURES_REQUIRED "quirk_${quirk};plain")
   endforeach()
   set_tests_properties(minihost_drag minihost_bloom PROPERTIES FIXTURES_SETUP plain)
+  # Parking inside a mosh. On a host that supplies no other frames, a frame in
+  # the middle can't be rebuilt from Mosh Start. Finished frames are kept on
+  # disk, so once the mosh has played through, every frame looks the same
+  # however it is reached: here, revisited in shuffled order.
+  add_test(NAME minihost_revisit_drag
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/revisit.rgb
+                   --start-here 24 --set residual=0.5 --current-only --sequential-only --revisit)
+  add_test(NAME minihost_revisit_drag_matches
+           COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/drag.rgb ${CMAKE_BINARY_DIR}/revisit.rgb)
+  set_tests_properties(minihost_revisit_drag PROPERTIES FIXTURES_SETUP revisit)
+  set_tests_properties(minihost_revisit_drag_matches PROPERTIES FIXTURES_REQUIRED "revisit;plain")
+  add_test(NAME minihost_revisit_remosh_and_time_glitches
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/revisit2.rgb
+                   --start-here 24 --set residual=0.6 --set blockVariety=0.8 --set blockSize=3 --set cycle=12
+                   --set moshLength=10 --set tRepeat=0.1 --set tJumpBack=0.1 --current-only --sequential-only
+                   --revisit)
+  # ... and on a host that supplies everything, with next to no disk.
+  add_test(NAME minihost_revisit_normal_host
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/revisit3.rgb
+                   --start-here 24 --set residual=0.5 --set blockVariety=0.6 --revisit)
+  set_tests_properties(minihost_revisit_normal_host PROPERTIES ENVIRONMENT "ERIKSTV_DISK_MB=1")
   # Show Diagnostics only draws on the picture.
   add_test(NAME minihost_diagnostics
            COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/diag.rgb
@@ -119,7 +140,8 @@ if(NOT WIN32)
            COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 960 540 ${CMAKE_BINARY_DIR}/many.rgb
                    --frames 16 --start-here 2 --set residual=0.5 --set blockVariety=0.8 --set blockSize=0
                    --instances 8 --expect-instance-growth-below 120)
-  set_tests_properties(minihost_many_instances_bounded_memory PROPERTIES ENVIRONMENT "ERIKSTV_CACHE_MB=32")
+  set_tests_properties(minihost_many_instances_bounded_memory PROPERTIES
+                       ENVIRONMENT "ERIKSTV_CACHE_MB=32;ERIKSTV_DISK_MB=64")
   # With next to no budget every cache entry is thrown away at once: slower,
   # but every frame must still come out the same in any order.
   add_test(NAME minihost_tiny_budget_still_exact

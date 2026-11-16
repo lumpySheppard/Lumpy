@@ -517,6 +517,8 @@ int main(int argc, char** argv) {
                      "  --static-transition --ignore-time (simulate host quirks)\n"
                      "  --current-only (host quirk: no frame but the one being rendered can be fetched)\n"
                      "  --sequential-only (skip the shuffled-order pass: for hosts that can't seek)\n"
+                     "  --revisit (after playing through, the same instance renders every frame again in\n"
+                     "      shuffled order, like parking here and there: must match the first time)\n"
                      "  --expect-no-failed-fetches   --press BUTTON@TIME\n"
                      "  --instances N   --expect-instance-growth-below MB   (N more instances kept alive,\n"
                      "      like clips on a timeline, each rendering the clip: memory must stay bounded)\n"
@@ -535,6 +537,7 @@ int main(int argc, char** argv) {
     std::vector<std::pair<std::string, double>> presses;  // --press NAME@TIME
     bool noFailedFetches = false;
     bool sequentialOnly = false;  // --sequential-only: no shuffled-order pass
+    bool revisit = false;         // --revisit: the same instance again, in shuffled order
     int extraInstances = 0;       // --instances N
     double instanceGrowthMB = -1;  // --expect-instance-growth-below MB
     auto frameColon = [](const std::string& kv, int& frame) {
@@ -576,6 +579,7 @@ int main(int argc, char** argv) {
         if (a == "--ignore-time") { gIgnoreTime = true; continue; }
         if (a == "--current-only") { gCurrentOnly = true; continue; }
         if (a == "--sequential-only") { sequentialOnly = true; continue; }
+        if (a == "--revisit") { revisit = true; continue; }
         if (a == "--offset" && i + 1 < argc) { gOffset = std::atoi(argv[++i]); continue; }
         if (a == "--set" && i + 1 < argc) {
             std::string kv = argv[++i];
@@ -748,6 +752,19 @@ int main(int argc, char** argv) {
     if (noFailedFetches && gFailedFetches) die("plugin asked for frames beyond the clips' handles");
     if (fetchesAbove >= 0 && !(double(gSourceFetches) / N > fetchesAbove))
         die("plugin fetched fewer source frames than expected (no temporal access?)");
+
+    if (revisit) {
+        std::vector<int> again(N);
+        for (int i = 0; i < N; ++i) again[i] = i;
+        std::shuffle(again.begin(), again.end(), std::mt19937(99));
+        double w2 = 0;
+        for (int t : again) {
+            std::vector<float> r = renderFrame(fx.get(), gOffset + t);
+            for (size_t i = 0; i < r.size(); ++i) w2 = std::max(w2, double(std::fabs(r[i] - seq[t][i])));
+        }
+        std::printf("revisited in shuffled order: max difference vs the first time %g\n", w2);
+        if (w2 > 1e-5) die("a frame looked different when revisited");
+    }
 
     // Pass 2: fresh instance, shuffled order (like scrubbing); must match.
     auto fx2 = makeInstance(descCtx, sets);
