@@ -128,6 +128,15 @@ float blurFrames(const Speed& s, float stops);
 // exposure window `width` frames wide (box filter over whole frames).
 std::vector<std::pair<int, float>> blurTaps(double t, float width);
 
+// The picture at source time `t`, exposed over `width` frames: a real, continuous
+// motion blur. `frames[i]` is the source frame at time `times[i]` (ascending).
+// The motion between each pair of frames is estimated and the in-between
+// positions are filled in, so fast action smears instead of showing as a
+// stack of separate frames. In linear light. The frames are used as working
+// space (their contents are destroyed).
+void exposeMotion(std::vector<Image>& frames, const std::vector<int>& times, double t, float width,
+                  int encoding, Image& out);
+
 // Weighted average of frames in linear light. Weights should sum to 1.
 void blendFrames(const std::vector<const Image*>& frames, const std::vector<float>& weights,
                  int encoding, Image& out);

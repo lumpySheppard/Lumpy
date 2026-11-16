@@ -786,22 +786,29 @@ bool gather(OfxImageClipHandle clip, double s, float width, double t, int encodi
             flash::Image& out, OfxRectI& bounds, FetchStats* st = nullptr,
             double readMin = -1e18, double readMax = 1e18) {
     std::vector<flash::Image> imgs;
-    std::vector<float> wts;
+    std::vector<int> times;
     s = std::min(std::max(s, readMin), readMax);
-    for (auto& tap : flash::blurTaps(s, width)) {
-        if (tap.first < readMin || tap.first > readMax) continue;
+    // Every frame the exposure touches (a real exposure is continuous, so the
+    // motion between them is filled in: see flash::exposeMotion).
+    int k0 = int(std::floor(s + 0.5)), k1 = k0;
+    if (width >= 1e-3f) {
+        k0 = int(std::floor(s - width / 2.0));
+        k1 = int(std::ceil(s + width / 2.0));
+    }
+    for (int k = k0; k <= k1; ++k) {
+        if (k < readMin || k > readMax) continue;
         flash::Image im;
         OfxRectI r;
         if (st) {
-            if (!st->asked) st->firstTime = tap.first;
+            if (!st->asked) st->firstTime = k;
             ++st->asked;
         }
-        if (!fetch(clip, tap.first, im, r)) continue;
+        if (!fetch(clip, k, im, r)) continue;
         if (st) ++st->got;
         if (!imgs.empty() && (im.w != imgs[0].w || im.h != imgs[0].h)) continue;
         if (imgs.empty()) bounds = r;
         imgs.push_back(std::move(im));
-        wts.push_back(tap.second);
+        times.push_back(k);
     }
     if (st && !imgs.empty() && st->firstTime != int(std::lround(t))) {
         // Did the host really give us another moment, or just frame t again?
@@ -820,14 +827,7 @@ bool gather(OfxImageClipHandle clip, double s, float width, double t, int encodi
         }
         return fetch(clip, t, out, bounds);
     }
-    float total = 0;
-    for (float w : wts) total += w;
-    std::vector<const flash::Image*> ptrs;
-    for (size_t i = 0; i < imgs.size(); ++i) {
-        ptrs.push_back(&imgs[i]);
-        wts[i] /= total;
-    }
-    flash::blendFrames(ptrs, wts, encoding, out);
+    flash::exposeMotion(imgs, times, s, width, encoding, out);
     return true;
 }
 
@@ -1040,7 +1040,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
 
 void setHost(OfxHost* host) { gHost = host; }
 
-OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 7, setHost, mainEntry};
+OfxPlugin gPlugin = {kOfxImageEffectPluginApi, 1, kPluginId, 1, 8, setHost, mainEntry};
 
 }  // namespace
 

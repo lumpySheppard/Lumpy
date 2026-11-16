@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(FilmFlash VERSION 1.7.0 LANGUAGES CXX)
+project(FilmFlash VERSION 1.8.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,6 +52,8 @@ add_executable(flash_cli tools/flash_cli.cpp)
 target_link_libraries(flash_cli PRIVATE flash_engine)
 add_executable(encoding_check tools/encoding_check.cpp)
 target_link_libraries(encoding_check PRIVATE flash_engine)
+add_executable(motion_blur_check tools/motion_blur_check.cpp)
+target_link_libraries(motion_blur_check PRIVATE flash_engine)
 
 if(NOT WIN32)
   add_executable(minihost ${CMAKE_CURRENT_SOURCE_DIR}/../ofx-testhost/minihost.cpp)
@@ -60,6 +62,8 @@ if(NOT WIN32)
   enable_testing()
   set(FF $<TARGET_FILE:FilmFlash>)
   add_test(NAME log_curves COMMAND encoding_check)
+  # Motion blur is a continuous smear, not a stack of whole frames.
+  add_test(NAME motion_blur_is_continuous COMMAND motion_blur_check)
   # Transition, defaults: untouched at both ends, near white at the cut, never clipped.
   add_test(NAME transition_defaults
            COMMAND minihost ${FF} synthetic 192 108 ${CMAKE_BINARY_DIR}/t_default.rgb --context transition

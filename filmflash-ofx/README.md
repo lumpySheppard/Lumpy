@@ -26,8 +26,11 @@ That light lands on a negative, not a sensor, so nothing clips:
   outgoing shot accelerates into the cut and the incoming shot starts fast
   and settles (Speed Up).
 - **Motion blur.** The shutter stays open k times longer in real time, so
-  each frame smears k times as much motion. The plugin averages the real
-  source frames across that exposure window, in linear light (Motion Blur).
+  each frame smears k times as much motion. The plugin exposes the picture
+  over that window in linear light (Motion Blur). It measures how things
+  move between the source frames and fills in the positions in between, so
+  fast action becomes one continuous smear rather than a stack of separate
+  frames.
 - **Unsteady camera.** The shutter at the wrong speed lights one side more
   than the other (Uneven Exposure), and an unsteady motor flickers
   (Flicker).
@@ -131,7 +134,7 @@ Resolve only gives transitions the current frame.
 | Spare Handle Frames | Effect: handle frames past the clip's edit point. Transition: handles beyond what the transition itself uses. The speed-up (and blur) is scaled so it never reads further than this. More handles = a stronger speed-up |
 | Motion Blur | Effect only. Extra blur from the longer exposures: 1 = tied to the exposure, 0 = off |
 | Shutter Angle | The camera's shutter at normal speed (180° is standard); a wider shutter smears more |
-| Max Blur | Cap on the blur, in frames of action. Higher costs render time (one source frame per frame of blur) |
+| Max Blur | Cap on the blur, in frames of action. Higher costs render time (a source frame, and the motion between frames, per frame of blur) |
 | Show Diagnostics | Prints the timing on the picture (see below) |
 
 How speed-up works (on the transition; the effect's run-out and run-up are
