@@ -1,0 +1,270 @@
+cmake_minimum_required(VERSION 3.16)
+
+# Universal (Apple silicon + Intel) by default on macOS. Must be set before project().
+if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
+  set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
+endif()
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
+
+project(GateFlare VERSION 1.16.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+find_package(Threads REQUIRED)
+set(OFX_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/openfx/include)
+
+add_library(gate_engine STATIC src/GateEngine.cpp)
+target_include_directories(gate_engine PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../shared)
+set_target_properties(gate_engine PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden)
+target_link_libraries(gate_engine PUBLIC Threads::Threads)
+
+if(APPLE)
+  set(OFX_ARCH_DIR MacOS)
+elseif(WIN32)
+  set(OFX_ARCH_DIR Win64)
+else()
+  set(OFX_ARCH_DIR Linux-x86-64)
+endif()
+set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/GateFlare.ofx.bundle)
+
+add_library(GateFlare MODULE src/GateFlarePlugin.cpp)
+target_include_directories(GateFlare PRIVATE ${OFX_INCLUDE})
+target_link_libraries(GateFlare PRIVATE gate_engine)
+set_target_properties(GateFlare PROPERTIES
+  PREFIX "" SUFFIX ".ofx"
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN ON
+  LIBRARY_OUTPUT_DIRECTORY ${BUNDLE_DIR}/Contents/${OFX_ARCH_DIR})
+if(NOT MSVC)
+  target_compile_options(GateFlare PRIVATE -Wall -Wextra)
+  target_compile_options(gate_engine PRIVATE -Wall -Wextra)
+endif()
+if(APPLE)
+  configure_file(resources/Info.plist.in ${BUNDLE_DIR}/Contents/Info.plist @ONLY)
+endif()
+
+add_executable(gate_cli tools/gate_cli.cpp)
+target_link_libraries(gate_cli PRIVATE gate_engine)
+add_executable(make_test_clip tools/make_test_clip.cpp)
+
+if(NOT WIN32)
+  add_executable(minihost ${CMAKE_CURRENT_SOURCE_DIR}/../ofx-testhost/minihost.cpp)
+  target_include_directories(minihost PRIVATE ${OFX_INCLUDE})
+  target_link_libraries(minihost PRIVATE ${CMAKE_DL_LIBS})
+  enable_testing()
+  set(GF $<TARGET_FILE:GateFlare>)
+  set(CLIP ${CMAKE_BINARY_DIR}/bar.rgb)
+  add_test(NAME make_clip COMMAND make_test_clip 192 108 ${CLIP})
+  set(SIDECLIP ${CMAKE_BINARY_DIR}/side.rgb)
+  add_test(NAME make_side_clip COMMAND make_test_clip 192 108 ${SIDECLIP} side)
+  set_tests_properties(make_side_clip PROPERTIES FIXTURES_SETUP sideclip)
+  set_tests_properties(make_clip PROPERTIES FIXTURES_SETUP clip)
+  # Nothing to do (no flare, no crop): the picture comes back untouched.
+  add_test(NAME off_is_identity
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/off.rgb --context filter
+                   --set topCustomIntensity=0 --set topCustomEdgeGlow=0 --set intensity=0 --set edgeGlow=0
+                   --set cropToGate=0
+                   --expect-identity-at 0:Source --expect-identity-at 30:Source)
+  # Flare only (no crop): frames with the bar far from the edges are untouched
+  # away from the bar... and the frame where it sits just beyond the top of the
+  # gate is brighter than the plain frame. Display encoding: never past white.
+  add_test(NAME flare_from_margin
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/flare.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0
+                   --expect-mean-above 28:0.175 --max-below 1.0000001)
+  # Isolate Lights with a small Light Size: the bar is bigger than a "light",
+  # so it doesn't flare (like a lit wall).
+  add_test(NAME isolate_ignores_big_areas
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/iso.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=1 --set lightSize=1
+                   --expect-mean-below 28:0.135)
+  # Same frame with the flare off, for comparison (the check above must fail here).
+  add_test(NAME no_flare_baseline
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/base.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set topCustomIntensity=0 --set topCustomEdgeGlow=0
+                   --expect-mean-below 28:0.175)
+  # Crop to gate, scene-referred encoding, Show Gate: all render and stay deterministic.
+  add_test(NAME crop_and_options
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/crop.rgb --context filter
+                   --set encoding=7 --set gateCrop=8 --set topCustomFan=2 --set topCustomSourceColour=0)
+  add_test(NAME show_gate
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/show.rgb --context filter --set showGate=1)
+  # Each shape (Beam, Blade) flares from the margin too, with a colour preset.
+  foreach(SHAPE 1 2)
+    add_test(NAME shape_${SHAPE}
+             COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/shape${SHAPE}.rgb --context filter
+                     --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomShape=${SHAPE}
+                     --set topCustomFlareColour=${SHAPE} --expect-mean-above 28:0.128 --max-below 1.0000001)
+    set_tests_properties(shape_${SHAPE} PROPERTIES FIXTURES_REQUIRED clip)
+  endforeach()
+  # Character off (smooth, no shimmer): still flares; with heavy streaks,
+  # shimmer and fringe: still flares, deterministic, never past white.
+  add_test(NAME character_off
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/charoff.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomStreaks=0 --set topCustomShimmer=0
+                   --set topCustomCore=0 --set topCustomFringe=0 --expect-mean-above 28:0.14)
+  add_test(NAME character_heavy
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/charheavy.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomStreaks=2 --set topCustomShimmer=1
+                   --set topCustomShimmerSpeed=5 --set topCustomFringe=2 --set topCustomCore=1 --set seed=7 --set topCustomShape=2
+                   --expect-mean-above 28:0.14 --max-below 1.0000001)
+  # Film composite (default): even a very strong flare stays strictly below
+  # white. Screen and Add composites render too.
+  add_test(NAME film_composite_never_clips
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/film.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomIntensity=8 --set topCustomCore=1
+                   --expect-mean-above 28:0.15 --max-below 1.0)
+  add_test(NAME other_composites
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/scr.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set composite=1)
+  add_test(NAME add_composite_log
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/add.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set composite=2 --set encoding=7)
+  # Flare Start: at frame 28 the bar is just past the top of the gate, so a
+  # Flare Start of -8% (only flare well past the edge) gives no flare yet.
+  add_test(NAME flare_start_later
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/late.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomFlareStart=-8 --set topCustomEdgeGlow=0
+                   --expect-mean-below 28:0.13)
+  add_test(NAME flare_start_earlier
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/early.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomFlareStart=5
+                   --expect-mean-above 20:0.13)
+  # Looks: a preset on the top & bottom pair changes the flare; Blend mixes
+  # two looks; the left & right pair leaves a top-edge flare alone; both pairs
+  # at zero intensity (and no crop) is a pass-through.
+  add_test(NAME top_look_preset
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/lookp.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5
+                   --expect-mean-above 30:0.14 --max-below 1.0)
+  add_test(NAME look_blend
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/blend.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookB=5 --set topBlend=0.5
+                   --expect-mean-above 28:0.17 --expect-mean-below 28:0.22)
+  add_test(NAME pairs_independent
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pairs.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topIntensity=0 --set sideLookA=5
+                   --expect-mean-below 28:0.135)
+  add_test(NAME pairs_off_identity
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pairsoff.rgb --context filter
+                   --set cropToGate=0 --set topIntensity=0 --set sideIntensity=0 --expect-identity-at 28:Source)
+  # Pinch shape (Custom) and the Side Blast preset (a pinch) both render a
+  # flare that never clips.
+  add_test(NAME pinch_shape
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pinch.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomShape=3 --set topCustomLean=10
+                   --expect-mean-above 28:0.14 --max-below 1.0)
+  # Side Blast waits for the light to leave, then builds up: little flare at
+  # frame 28 (the bar has only just gone), clearly more two frames later.
+  add_test(NAME side_blast_builds_up
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/blastt.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=5
+                   --set topFocusOffset=5 --expect-mean-below 28:0.138 --expect-mean-above 30:0.14 --max-below 1.0)
+  set_tests_properties(pinch_shape side_blast_builds_up PROPERTIES FIXTURES_REQUIRED clip)
+  # Veil, iridescence and curve render a flare that never clips.
+  add_test(NAME organic_controls
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/orgc.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomVeil=1 --set topCustomIridescence=1
+                   --set topCustomRainbowAlong=0.5 --set topCustomPrismEdges=0.5 --set topCustomFalloff=1
+                   --expect-mean-above 28:0.14 --max-below 1.0)
+  set_tests_properties(organic_controls PROPERTIES FIXTURES_REQUIRED clip)
+  # A fractional Falloff used to turn the first row / column inside the bottom
+  # and right gate edges into NaN (a white line in Resolve). The test host
+  # fails on any non-finite value.
+  add_test(NAME fractional_falloff_is_clean
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/nan.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set falloff=0.4 --set shape=3
+                   --max-below 1.0)
+  set_tests_properties(fractional_falloff_is_clean PROPERTIES FIXTURES_REQUIRED sideclip)
+
+  # Presets. Gummo Side Blast loads the Side Blast look into the Custom Look
+  # controls: the render must be identical to using the Side Blast look itself.
+  add_test(NAME preset_gummo
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/gummo_preset.rgb --context filter
+                   --set cropToGate=0 --set isolateLights=0 --set preset=1 --press preset@0
+                   --expect shape=3 --expect gateCrop=16 --expect sideLookA=0)
+  add_test(NAME preset_gummo_reference
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/gummo_look.rgb --context filter
+                   --set cropToGate=0 --set isolateLights=0 --set gateCrop=16 --set lightSize=8 --set sideLookA=5
+                   --set topLookA=1)
+  add_test(NAME preset_gummo_matches_look
+           COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/gummo_preset.rgb
+                   ${CMAKE_BINARY_DIR}/gummo_look.rgb)
+  set_tests_properties(preset_gummo preset_gummo_reference PROPERTIES FIXTURES_REQUIRED sideclip FIXTURES_SETUP gummo)
+  set_tests_properties(preset_gummo_matches_look PROPERTIES FIXTURES_REQUIRED gummo)
+  # A user preset: save one, then load it into a fresh instance: same render.
+  add_test(NAME preset_user_save
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/user_saved.rgb --context filter
+                   --set cropToGate=0 --set isolateLights=0 --set gateCrop=14 --set shape=3 --set intensity=2.5
+                   --set pinchLength=6 --set hueDrift=-30 --set savePresetTo=2 --press savePreset@0
+                   --expect preset=5)
+  add_test(NAME preset_user_load
+           COMMAND minihost ${GF} ${SIDECLIP} 192 108 ${CMAKE_BINARY_DIR}/user_loaded.rgb --context filter
+                   --set preset=5 --press applyPreset@0 --expect intensity=2.5 --expect gateCrop=14)
+  add_test(NAME preset_user_round_trip
+           COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/user_saved.rgb
+                   ${CMAKE_BINARY_DIR}/user_loaded.rgb)
+  set_tests_properties(preset_user_save PROPERTIES FIXTURES_REQUIRED sideclip FIXTURES_SETUP usersaved)
+  set_tests_properties(preset_user_load PROPERTIES FIXTURES_REQUIRED "sideclip;usersaved" FIXTURES_SETUP userloaded)
+  set_tests_properties(preset_user_round_trip PROPERTIES FIXTURES_REQUIRED userloaded)
+  set_tests_properties(preset_user_save preset_user_load PROPERTIES
+                       ENVIRONMENT "GATEFLARE_PRESET_DIR=${CMAKE_BINARY_DIR}/presets")
+  # Defaults puts everything back.
+  add_test(NAME preset_defaults
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/defaults.rgb --context filter
+                   --set intensity=7 --set gateCrop=20 --set preset=2 --press applyPreset@0
+                   --expect intensity=1 --expect gateCrop=6)
+  set_tests_properties(preset_defaults PROPERTIES FIXTURES_REQUIRED clip)
+
+  # Source mask: a mask over the bar keeps its flare; one somewhere else, or
+  # the same one inverted, removes it.
+  add_test(NAME mask_keeps_light
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/mask_in.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set maskMode=1 --set maskX=50
+                   --set maskY=0 --set maskWidth=40 --set maskHeight=40 --expect-mean-above 28:0.14)
+  add_test(NAME mask_elsewhere_no_flare
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/mask_out.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set maskMode=2 --set maskX=10
+                   --set maskY=0 --set maskWidth=15 --set maskHeight=40 --expect-mean-below 28:0.135)
+  add_test(NAME mask_inverted_no_flare
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/mask_inv.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set maskMode=1 --set maskX=50
+                   --set maskY=0 --set maskWidth=40 --set maskHeight=40 --set maskInvert=1
+                   --expect-mean-below 28:0.135)
+  # The two Custom Looks are separate: the Left & Right one doesn't change a
+  # top-edge flare, the Top & Bottom one does.
+  add_test(NAME side_custom_leaves_top_alone
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/sidecustom.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set intensity=0 --set edgeGlow=0
+                   --expect-mean-above 28:0.14)
+  add_test(NAME top_custom_drives_top
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/topcustom.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomIntensity=0
+                   --set topCustomEdgeGlow=0 --expect-mean-below 28:0.135)
+  # Per-edge controls over a built-in look: a longer flare (Depth x) is brighter
+  # overall; a pinch pushed off screen (negative Pinch Length) still renders.
+  add_test(NAME pair_depth_scales_look
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pairdepth.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topLookA=1 --set topDepth=3
+                   --set topSpread=2 --set topReach=1.5 --set topLean=10 --expect-mean-above 28:0.2 --max-below 1.0)
+  add_test(NAME pinch_off_screen
+           COMMAND minihost ${GF} ${CLIP} 192 108 ${CMAKE_BINARY_DIR}/pinchneg.rgb --context filter
+                   --set cropToGate=0 --set gateCrop=10 --set isolateLights=0 --set topCustomShape=3
+                   --set topCustomPinchLength=-8 --set topFocusOffset=-2 --expect-mean-above 28:0.14 --max-below 1.0)
+  set_tests_properties(mask_keeps_light mask_elsewhere_no_flare mask_inverted_no_flare side_custom_leaves_top_alone
+                       top_custom_drives_top pair_depth_scales_look pinch_off_screen
+                       PROPERTIES FIXTURES_REQUIRED clip)
+
+  set_tests_properties(top_look_preset look_blend pairs_independent pairs_off_identity
+                       PROPERTIES FIXTURES_REQUIRED clip)
+  set_tests_properties(flare_start_later flare_start_earlier PROPERTIES FIXTURES_REQUIRED clip)
+  set_tests_properties(character_off character_heavy film_composite_never_clips other_composites add_composite_log
+                       PROPERTIES FIXTURES_REQUIRED clip)
+  set_tests_properties(off_is_identity flare_from_margin no_flare_baseline crop_and_options show_gate
+                       isolate_ignores_big_areas
+                       PROPERTIES FIXTURES_REQUIRED clip)
+endif()

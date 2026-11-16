@@ -1,0 +1,156 @@
+cmake_minimum_required(VERSION 3.16)
+
+# Universal (Apple silicon + Intel) by default on macOS. Must be set before project().
+if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
+  set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
+endif()
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
+
+project(EriksTV VERSION 1.4.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+find_package(Threads REQUIRED)
+set(OFX_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/openfx/include)
+
+add_library(mosh_engine STATIC src/MoshEngine.cpp)
+target_include_directories(mosh_engine PUBLIC src)
+set_target_properties(mosh_engine PROPERTIES POSITION_INDEPENDENT_CODE ON
+                                             CXX_VISIBILITY_PRESET hidden)
+target_link_libraries(mosh_engine PUBLIC Threads::Threads)
+
+# --- The plugin, laid out as an OFX bundle -------------------------------
+if(APPLE)
+  set(OFX_ARCH_DIR MacOS)
+elseif(WIN32)
+  set(OFX_ARCH_DIR Win64)
+else()
+  set(OFX_ARCH_DIR Linux-x86-64)
+endif()
+set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/EriksTV.ofx.bundle)
+
+add_library(EriksTV MODULE src/DataMoshPlugin.cpp)
+target_include_directories(EriksTV PRIVATE ${OFX_INCLUDE})
+target_link_libraries(EriksTV PRIVATE mosh_engine)
+set_target_properties(EriksTV PROPERTIES
+  PREFIX "" SUFFIX ".ofx"
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN ON
+  LIBRARY_OUTPUT_DIRECTORY ${BUNDLE_DIR}/Contents/${OFX_ARCH_DIR})
+if(NOT MSVC)
+  target_compile_options(EriksTV PRIVATE -Wall -Wextra)
+  target_compile_options(mosh_engine PRIVATE -Wall -Wextra)
+endif()
+if(APPLE)
+  configure_file(resources/Info.plist.in ${BUNDLE_DIR}/Contents/Info.plist @ONLY)
+endif()
+
+# --- Tools and tests ------------------------------------------------------
+add_executable(mosh_cli tools/mosh_cli.cpp)
+target_link_libraries(mosh_cli PRIVATE mosh_engine)
+
+if(NOT WIN32)
+  add_executable(minihost ${CMAKE_CURRENT_SOURCE_DIR}/../ofx-testhost/minihost.cpp)
+  target_include_directories(minihost PRIVATE ${OFX_INCLUDE})
+  target_link_libraries(minihost PRIVATE ${CMAKE_DL_LIBS})
+  enable_testing()
+  # Synthetic two-shot clip, cut at frame 24, through both modes.
+  add_test(NAME minihost_drag
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/drag.rgb
+                   --start-here 24 --set residual=0.5)
+  add_test(NAME minihost_bloom
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/bloom.rgb
+                   --start-here 30 --set mode=1 --set smoothVectors=1 --set heal=0.05 --set mix=0.8)
+  # Everything on: mixed blocks, every time / block / colour glitch, re-mosh
+  # cycles. Shuffled rendering must still match sequential exactly.
+  add_test(NAME minihost_all_glitches
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/glitch.rgb
+                   --start-here 24 --set residual=0.6 --set blockVariety=0.8 --set blockSize=3
+                   --set cycle=12 --set moshLength=10 --set seed=7
+                   --set tRepeat=0.1 --set tFreeze=0.1 --set tJumpBack=0.1 --set tJumpForward=0.1
+                   --set tReverse=0.1 --set tEventLength=4 --set tJumpDistance=5
+                   --set gStuck=0.1 --set gScatter=0.1 --set gStreak=0.1 --set gFlatten=0.1
+                   --set gHold=3 --set cChromaDrift=0.5 --set cBleed=0.5 --set cSaturate=0.5
+                   --set cHueDrift=5 --set cErrors=1 --set cErrorStrength=1 --set heal=0.02)
+  # Apply Look: "Film Melt" sets its values and resets others to defaults.
+  add_test(NAME minihost_apply_look
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/look.rgb
+                   --start-here 24 --set gScatter=0.5 --set mix=0.7 --apply-look 1
+                   --expect blockVariety=0.6 --expect blockSize=0 --expect cErrors=0.4
+                   --expect gScatter=0 --expect mix=0.7 --expect moshStart=24)
+  # A host that doesn't supply other frames (Resolve, on a compound clip, for
+  # a while after a cut inside it; or one that answers any request with the
+  # frame being rendered): played in order, the mosh must come out exactly
+  # as it does on a host that supplies everything, because the plugin
+  # remembers the frames it has been handed.
+  foreach(quirk current-only ignore-time)
+    add_test(NAME minihost_drag_${quirk}
+             COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/drag_${quirk}.rgb
+                     --start-here 24 --set residual=0.5 --${quirk} --sequential-only)
+    add_test(NAME minihost_drag_${quirk}_matches
+             COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/drag.rgb
+                     ${CMAKE_BINARY_DIR}/drag_${quirk}.rgb)
+    add_test(NAME minihost_bloom_${quirk}
+             COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/bloom_${quirk}.rgb
+                     --start-here 30 --set mode=1 --set smoothVectors=1 --set heal=0.05 --set mix=0.8
+                     --${quirk} --sequential-only)
+    add_test(NAME minihost_bloom_${quirk}_matches
+             COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/bloom.rgb
+                     ${CMAKE_BINARY_DIR}/bloom_${quirk}.rgb)
+    set_tests_properties(minihost_drag_${quirk} minihost_bloom_${quirk} PROPERTIES FIXTURES_SETUP quirk_${quirk})
+    set_tests_properties(minihost_drag_${quirk}_matches minihost_bloom_${quirk}_matches
+                         PROPERTIES FIXTURES_REQUIRED "quirk_${quirk};plain")
+  endforeach()
+  set_tests_properties(minihost_drag minihost_bloom PROPERTIES FIXTURES_SETUP plain)
+  # Parking inside a mosh. On a host that supplies no other frames, a frame in
+  # the middle can't be rebuilt from Mosh Start. Finished frames are kept on
+  # disk, so once the mosh has played through, every frame looks the same
+  # however it is reached: here, revisited in shuffled order.
+  add_test(NAME minihost_revisit_drag
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/revisit.rgb
+                   --start-here 24 --set residual=0.5 --current-only --sequential-only --revisit)
+  add_test(NAME minihost_revisit_drag_matches
+           COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/drag.rgb ${CMAKE_BINARY_DIR}/revisit.rgb)
+  set_tests_properties(minihost_revisit_drag PROPERTIES FIXTURES_SETUP revisit)
+  set_tests_properties(minihost_revisit_drag_matches PROPERTIES FIXTURES_REQUIRED "revisit;plain")
+  add_test(NAME minihost_revisit_remosh_and_time_glitches
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/revisit2.rgb
+                   --start-here 24 --set residual=0.6 --set blockVariety=0.8 --set blockSize=3 --set cycle=12
+                   --set moshLength=10 --set tRepeat=0.1 --set tJumpBack=0.1 --current-only --sequential-only
+                   --revisit)
+  # ... and on a host that supplies everything, with next to no disk.
+  add_test(NAME minihost_revisit_normal_host
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/revisit3.rgb
+                   --start-here 24 --set residual=0.5 --set blockVariety=0.6 --revisit)
+  set_tests_properties(minihost_revisit_normal_host PROPERTIES ENVIRONMENT "ERIKSTV_DISK_MB=1")
+  # Show Diagnostics only draws on the picture.
+  add_test(NAME minihost_diagnostics
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/diag.rgb
+                   --start-here 24 --set residual=0.5 --set showDiagnostics=1 --sequential-only)
+
+  # Memory. A timeline full of clips: 8 more instances kept alive, each
+  # rendering the clip. Their caches share one budget (32 MB here), so memory
+  # must not grow with the number of instances (it used to: about 60 MB each
+  # at this size, with no limit).
+  add_test(NAME minihost_many_instances_bounded_memory
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 960 540 ${CMAKE_BINARY_DIR}/many.rgb
+                   --frames 16 --start-here 2 --set residual=0.5 --set blockVariety=0.8 --set blockSize=0
+                   --instances 8 --expect-instance-growth-below 120)
+  set_tests_properties(minihost_many_instances_bounded_memory PROPERTIES
+                       ENVIRONMENT "ERIKSTV_CACHE_MB=32;ERIKSTV_DISK_MB=64")
+  # With next to no budget every cache entry is thrown away at once: slower,
+  # but every frame must still come out the same in any order.
+  add_test(NAME minihost_tiny_budget_still_exact
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/tiny.rgb
+                   --start-here 24 --set residual=0.6 --set blockVariety=0.8 --set blockSize=3
+                   --set tRepeat=0.1 --set tJumpBack=0.1 --set gScatter=0.2 --instances 3)
+  set_tests_properties(minihost_tiny_budget_still_exact PROPERTIES ENVIRONMENT "ERIKSTV_CACHE_MB=1")
+  add_test(NAME minihost_rhythm_smooth
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/rhythm.rgb
+                   --start-here 24 --set blockSize=4 --set smoothVectors=1 --set blockVariety=0.4
+                   --set tEvery=4 --set tRepeat=1 --set tEventLength=2)
+endif()
