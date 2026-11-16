@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(EriksTV VERSION 1.2.0 LANGUAGES CXX)
+project(EriksTV VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -82,6 +82,35 @@ if(NOT WIN32)
                    --start-here 24 --set gScatter=0.5 --set mix=0.7 --apply-look 1
                    --expect blockVariety=0.6 --expect blockSize=0 --expect cErrors=0.4
                    --expect gScatter=0 --expect mix=0.7 --expect moshStart=24)
+  # A host that doesn't supply other frames (Resolve, on a compound clip, for
+  # a while after a cut inside it; or one that answers any request with the
+  # frame being rendered): played in order, the mosh must come out exactly
+  # as it does on a host that supplies everything, because the plugin
+  # remembers the frames it has been handed.
+  foreach(quirk current-only ignore-time)
+    add_test(NAME minihost_drag_${quirk}
+             COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/drag_${quirk}.rgb
+                     --start-here 24 --set residual=0.5 --${quirk} --sequential-only)
+    add_test(NAME minihost_drag_${quirk}_matches
+             COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/drag.rgb
+                     ${CMAKE_BINARY_DIR}/drag_${quirk}.rgb)
+    add_test(NAME minihost_bloom_${quirk}
+             COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/bloom_${quirk}.rgb
+                     --start-here 30 --set mode=1 --set smoothVectors=1 --set heal=0.05 --set mix=0.8
+                     --${quirk} --sequential-only)
+    add_test(NAME minihost_bloom_${quirk}_matches
+             COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_BINARY_DIR}/bloom.rgb
+                     ${CMAKE_BINARY_DIR}/bloom_${quirk}.rgb)
+    set_tests_properties(minihost_drag_${quirk} minihost_bloom_${quirk} PROPERTIES FIXTURES_SETUP quirk_${quirk})
+    set_tests_properties(minihost_drag_${quirk}_matches minihost_bloom_${quirk}_matches
+                         PROPERTIES FIXTURES_REQUIRED "quirk_${quirk};plain")
+  endforeach()
+  set_tests_properties(minihost_drag minihost_bloom PROPERTIES FIXTURES_SETUP plain)
+  # Show Diagnostics only draws on the picture.
+  add_test(NAME minihost_diagnostics
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/diag.rgb
+                   --start-here 24 --set residual=0.5 --set showDiagnostics=1 --sequential-only)
+
   # Memory. A timeline full of clips: 8 more instances kept alive, each
   # rendering the clip. Their caches share one budget (32 MB here), so memory
   # must not grow with the number of instances (it used to: about 60 MB each

@@ -120,6 +120,7 @@ static int gFrames = 1;   // frames rendered (the transition's length)
 static int gOffset = 0;   // clip time of the first rendered frame
 // Host quirks to simulate:
 static bool gStaticTransition = false;  // Transition param not animated over time
+static bool gCurrentOnly = false;       // clipGetImage fails for any frame but the one being rendered
 static bool gIgnoreTime = false;        // clipGetImage returns the frame being rendered, whatever time is asked
 static double gRenderTime = 0;
 static bool gWholeRange = false;  // report the whole source clip as the effect's range, like Resolve
@@ -318,6 +319,7 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime t, const OfxRectD*,
     }
     const Video& vid = c->name == kOfxImageEffectTransitionSourceToClipName ? gVideoB : gVideo;
     int f = int(std::lround(gIgnoreTime ? gRenderTime : t));
+    if (gCurrentOnly && f != int(std::lround(gRenderTime))) return kOfxStatFailed;
     if (f < 0 || f >= vid.n) {
         ++gFailedFetches;
         return kOfxStatFailed;
@@ -513,6 +515,8 @@ int main(int argc, char** argv) {
                      "  --expect-fetches-above F (source frames fetched per rendered frame)\n"
                      "  --frames N --offset N (render N frames from clip time N)\n"
                      "  --static-transition --ignore-time (simulate host quirks)\n"
+                     "  --current-only (host quirk: no frame but the one being rendered can be fetched)\n"
+                     "  --sequential-only (skip the shuffled-order pass: for hosts that can't seek)\n"
                      "  --expect-no-failed-fetches   --press BUTTON@TIME\n"
                      "  --instances N   --expect-instance-growth-below MB   (N more instances kept alive,\n"
                      "      like clips on a timeline, each rendering the clip: memory must stay bounded)\n"
@@ -530,6 +534,7 @@ int main(int argc, char** argv) {
     int framesOpt = -1;
     std::vector<std::pair<std::string, double>> presses;  // --press NAME@TIME
     bool noFailedFetches = false;
+    bool sequentialOnly = false;  // --sequential-only: no shuffled-order pass
     int extraInstances = 0;       // --instances N
     double instanceGrowthMB = -1;  // --expect-instance-growth-below MB
     auto frameColon = [](const std::string& kv, int& frame) {
@@ -569,6 +574,8 @@ int main(int argc, char** argv) {
         if (a == "--instances" && i + 1 < argc) { extraInstances = std::atoi(argv[++i]); continue; }
         if (a == "--expect-instance-growth-below" && i + 1 < argc) { instanceGrowthMB = std::atof(argv[++i]); continue; }
         if (a == "--ignore-time") { gIgnoreTime = true; continue; }
+        if (a == "--current-only") { gCurrentOnly = true; continue; }
+        if (a == "--sequential-only") { sequentialOnly = true; continue; }
         if (a == "--offset" && i + 1 < argc) { gOffset = std::atoi(argv[++i]); continue; }
         if (a == "--set" && i + 1 < argc) {
             std::string kv = argv[++i];
@@ -755,12 +762,14 @@ int main(int argc, char** argv) {
     for (int i = 0; i < N; ++i) order[i] = i;
     std::shuffle(order.begin(), order.end(), std::mt19937(1234));
     double worst = 0;
-    for (int t : order) {
-        std::vector<float> r = renderFrame(fx2.get(), gOffset + t);
-        for (size_t i = 0; i < r.size(); ++i) worst = std::max(worst, double(std::fabs(r[i] - seq[t][i])));
+    if (!sequentialOnly) {
+        for (int t : order) {
+            std::vector<float> r = renderFrame(fx2.get(), gOffset + t);
+            for (size_t i = 0; i < r.size(); ++i) worst = std::max(worst, double(std::fabs(r[i] - seq[t][i])));
+        }
+        std::printf("shuffled render max difference vs sequential: %g\n", worst);
+        if (worst > 1e-5) die("shuffled render differs from sequential render");
     }
-    std::printf("shuffled render max difference vs sequential: %g\n", worst);
-    if (worst > 1e-5) die("shuffled render differs from sequential render");
 
     // Every rendered value must be a real number (hosts draw NaN as white or black).
     for (int t = 0; t < N; ++t)

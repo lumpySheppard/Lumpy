@@ -137,6 +137,24 @@ resolution, so the glitch pattern differs from the full-resolution render.
 - Proxy and reduced-resolution playback work: block size and search range
   scale with the render resolution.
 
+## If the mosh starts late or doesn't hold the old shot
+
+Set **Mosh Start Frame** on the **first frame of the new shot** (park
+there and press Start Mosh Here). That frame shows the last frame of the
+old shot, held; the new shot's motion then breaks through it.
+
+The plugin needs the frame before Mosh Start, and each frame's
+predecessor. Not every host hands those over reliably: Resolve, for a
+compound clip, can withhold them for a while after a cut inside it. So the
+plugin also remembers the frames it has been given, and when played or
+rendered in order it no longer depends on the host for them. Jumping
+straight into the middle of a mosh still does.
+
+**Show Diagnostics** prints what the plugin did at the current frame: the
+frame number the host gave it, Mosh Start, where the held frame came from
+(from the host, remembered, or missing) and how many of the other frames it
+asked for the host supplied.
+
 ## Memory
 
 The effect remembers recent results so playing forward only costs one step

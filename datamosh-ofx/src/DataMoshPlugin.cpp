@@ -11,6 +11,7 @@
 // the content of the frames they came from, so they survive scrubbing.
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
@@ -49,7 +50,7 @@ namespace {
 // projects that already use it keep finding it.
 const char* const kPluginId = "com.lumpy.DataMosh";
 const char* const kGrouping = "Lumpy";
-const int kVersionMajor = 1, kVersionMinor = 2;
+const int kVersionMajor = 1, kVersionMinor = 3;
 
 const char* const kParamSetStart = "setStartHere";
 const char* const kParamLook = "look";
@@ -67,7 +68,7 @@ enum P {
     P_REPEAT, P_FREEZE, P_JBACK, P_JFWD, P_REVERSE, P_EVLEN, P_JDIST, P_EVERY,
     P_STUCK, P_SCATTER, P_STREAK, P_FLATTEN, P_HOLD,
     P_CDRIFT, P_BLEED, P_SAT, P_HUE, P_CERR, P_CERRSTR,
-    P_MIX,
+    P_MIX, P_DIAG,
     P_COUNT
 };
 
@@ -208,6 +209,11 @@ const std::vector<PDef>& paramDefs() {
 
         {P_MIX, "mix", kDbl, nullptr, "Mix", "Blend between the original (0) and the mosh (1).",
          1, 0, 1, 0, 1, true, {}},
+        {P_DIAG, "showDiagnostics", kBool, nullptr, "Show Diagnostics",
+         "Prints on the picture what the plugin is doing at this frame: the frame number the host gave it, "
+         "Mosh Start, where the held frame came from, and whether the host supplied the other frames it "
+         "asked for. For troubleshooting; turn off to render.",
+         0, 0, 1, 0, 1, false, {}},
     };
     return defs;
 }
@@ -276,6 +282,12 @@ struct Instance {
     std::mutex lock;
     std::deque<CachedState> states;  // newest first
     std::list<std::pair<uint64_t, mosh::MotionField>> motion;  // LRU, newest first
+    // Real frames this instance was handed as the frame being rendered (the
+    // one request every host honours): the last one, and the frames the mosh
+    // in progress hangs on (Mosh Start - 1, and Mosh Start for Bloom). Some
+    // hosts don't supply other frames reliably (Resolve, on a compound clip,
+    // for a while after a cut inside it), so these are the fallback.
+    std::list<std::pair<int, Frame>> kept;
     // For the memory budget shared by every instance (see trimCaches).
     std::atomic<size_t> bytes{0};     // what the two caches hold
     std::atomic<uint64_t> lastUse{0};
@@ -298,6 +310,7 @@ size_t cachedBytes(const Instance* in) {
     size_t n = 0;
     for (const CachedState& c : in->states) n += bytesOf(c.img);
     for (const auto& m : in->motion) n += bytesOf(m.second);
+    for (const auto& k : in->kept) n += bytesOf(k.second.img);
     return n;
 }
 
@@ -369,6 +382,7 @@ void trimCaches(Instance* cur) {
         if (victim->lock.try_lock()) {
             victim->states.clear();
             victim->motion.clear();
+            victim->kept.clear();
             victim->bytes = 0;
             victim->lock.unlock();
         } else {
@@ -506,13 +520,36 @@ bool fetchFrame(OfxImageClipHandle clip, double t, Frame& f) {
     return f.ok;
 }
 
-// The few source frames one build touches, most recent first. Capacity is
-// above the 3 frames a step uses at once, so pointers from the current step
-// stay valid.
+// What one build did (for Show Diagnostics).
+struct BuildInfo {
+    bool tried = false, ok = false, usedCache = false;
+    int start = 0, from = 0;
+    int refSource = 0;  // 0 missing, 1 from the host, 2 remembered
+    int applied = 0, skipped = 0;
+    int fromHost = 0, remembered = 0, missing = 0, gaveCurrent = 0;
+};
+
+// The source frames one build touches. The frame being rendered comes from
+// the host. Any other frame is asked of the host too, but if the host has
+// none, or answers with the frame being rendered instead, the copy this
+// instance remembered is used.
 struct FrameCache {
     OfxImageClipHandle clip;
-    std::list<std::pair<int, Frame>> items;
+    Instance* in;
+    int now;
+    BuildInfo* info;
+    Frame cur;  // the frame being rendered
+    std::list<std::pair<int, Frame>> items;  // others, most recent first (above the 3 a step uses at once)
+    int lastSource = 0;
+
+    FrameCache(OfxImageClipHandle c, Instance* i, int t, BuildInfo* bi) : clip(c), in(i), now(t), info(bi) {
+        fetchFrame(clip, t, cur);
+    }
     const Frame* get(int t) {
+        if (t == now) {
+            lastSource = cur.ok ? 1 : 0;
+            return cur.ok ? &cur : nullptr;
+        }
         for (auto it = items.begin(); it != items.end(); ++it)
             if (it->first == t) {
                 items.splice(items.begin(), items, it);
@@ -520,10 +557,46 @@ struct FrameCache {
             }
         if (items.size() >= 5) items.pop_back();
         items.emplace_front(t, Frame{});
-        fetchFrame(clip, t, items.front().second);
-        return items.front().second.ok ? &items.front().second : nullptr;
+        Frame& f = items.front().second;
+        fetchFrame(clip, t, f);
+        if (f.ok && cur.ok && f.fp == cur.fp) {
+            // Another time, the very same picture as the frame being rendered:
+            // the host didn't really fetch it (or nothing moved, and then it
+            // makes no difference).
+            f.ok = false;
+            ++info->gaveCurrent;
+        }
+        if (f.ok) {
+            ++info->fromHost;
+            lastSource = 1;
+            return &f;
+        }
+        for (auto& k : in->kept)
+            if (k.first == t && k.second.ok &&
+                (!cur.ok || (k.second.img.w == cur.img.w && k.second.img.h == cur.img.h))) {
+                items.pop_front();  // (the empty placeholder)
+                ++info->remembered;
+                lastSource = 2;
+                return &k.second;
+            }
+        ++info->missing;
+        lastSource = 0;
+        return nullptr;
     }
 };
+
+// After a render: keep the frame just rendered and the frames the mosh hangs on.
+void rememberFrame(Instance* in, const Params& p, int t, Frame&& real) {
+    if (!real.ok) return;
+    const int next = inMosh(p, t) ? t : t + 1;
+    const int S = effectiveStart(p, next);
+    const bool bloom = p.i(P_MODE) == kModeBloom;
+    for (auto it = in->kept.begin(); it != in->kept.end();) {
+        const bool anchor = it->first == S - 1 || (bloom && it->first == S);
+        it = (it->first == t || !anchor) ? in->kept.erase(it) : std::next(it);
+    }
+    in->kept.emplace_front(t, std::move(real));
+}
 
 const mosh::MotionField& motionFor(Instance* in, const Frame& cur, const Frame& prev,
                                    const mosh::MotionSettings& ms) {
@@ -563,7 +636,7 @@ CachedState* findState(Instance* in, uint64_t key, int lo, int hi) {
 // Builds the moshed picture for frame t. On success `out` holds it and `real`
 // holds the untouched source frame at t (for Mix).
 bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t,
-               double renderScale, mosh::Image& out, Frame& real) {
+               double renderScale, mosh::Image& out, Frame& real, BuildInfo& info) {
     mosh::MotionSettings ms;
     ms.block = std::max(4, int(std::lround(blockPixels(p) * renderScale)));
     ms.range = std::max(2, int(std::lround(p.i(P_RANGE) * renderScale)));
@@ -592,11 +665,13 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
     const int S = effectiveStart(p, t);
     uint64_t base = 7;
     for (int i = 0; i < P_COUNT; ++i)
-        if (i != P_MIX && i != P_START) base = hashDouble(base, p.v[i]);
+        if (i != P_MIX && i != P_START && i != P_DIAG) base = hashDouble(base, p.v[i]);
     base = hashMix(hashMix(hashMix(base, uint64_t(int64_t(S))), uint64_t(ms.block)),
                    uint64_t(ms.range));
 
-    FrameCache fc{in->src, {}};
+    info.tried = true;
+    info.start = info.from = S;
+    FrameCache fc(in->src, in, t, &info);
     ScratchLoan loan;
     mosh::Scratch& sc = loan.sc;
 
@@ -606,6 +681,7 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
         if (!fz) return false;
         Frame frozen = *fz;
         const Frame* before = fc.get(S - 1);
+        info.refSource = fc.lastSource;
         const bool haveBefore =
             before && before->img.w == frozen.img.w && before->img.h == frozen.img.h;
         mosh::MotionField none;
@@ -617,16 +693,20 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
         if (CachedState* c = findState(in, key, S, t)) {
             from = c->time;
             state = c->img;
+            info.usedCache = true;
         }
+        info.from = from;
         for (int k = from + 1; k <= t; ++k) {
             const Frame* cur = ss.heal > 0.f ? fc.get(k) : nullptr;
             mosh::step(state, nullptr, nullptr, cur ? &cur->img : nullptr, mf, ss, k, sc);
+            ++info.applied;
             if (gFx->abort(effect)) return false;
         }
         const Frame* r = fc.get(t);
         real = r ? *r : frozen;
         storeState(in, key, t, real.fp, state);
         out = std::move(state);
+        info.ok = true;
         return true;
     }
 
@@ -634,6 +714,7 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
     // later frames apply motion (and residual) from the frames the schedule
     // picks: normally frame k vs k-1, or repeated / reversed / jumped.
     const Frame* rf = fc.get(S - 1);
+    info.refSource = fc.lastSource;
     if (!rf) rf = fc.get(S);
     if (!rf) return false;
     const Frame ref = *rf;
@@ -643,15 +724,18 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
     int from = S;
     mosh::Image state = ref.img;
     if (CachedState* c = findState(in, key, S, t)) {
-        // Only trust the cache if the footage at that frame is unchanged.
+        // Don't trust the cache if the footage at that frame has changed.
+        // (If the frame can't be had at all, there's nothing to check it with.)
         const Frame* at = fc.get(c->time);
-        if (at && at->fp == c->fpAtTime) {
+        if (!at || at->fp == c->fpAtTime) {
             from = c->time;
             state = c->img;
+            info.usedCache = true;
         } else {
             in->states.clear();
         }
     }
+    info.from = from;
 
     for (int k = from + 1; k <= t; ++k) {
         const mosh::StepSpec& sp = plan[size_t(k - S - 1)];
@@ -663,6 +747,9 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
                 const mosh::MotionField& mf = motionFor(in, *a, *b, ms);
                 const Frame* hl = ss.heal > 0.f ? fc.get(k) : nullptr;
                 mosh::step(state, &a->img, &b->img, hl ? &hl->img : nullptr, mf, ss, k, sc);
+                ++info.applied;
+            } else {
+                ++info.skipped;  // a frame it needed wasn't to be had
             }
         }
         if (gFx->abort(effect)) return false;
@@ -671,7 +758,14 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
     real = r ? *r : ref;
     storeState(in, key, t, real.fp, state);
     out = std::move(state);
+    info.ok = true;
     return true;
+}
+
+// True on the frame before a mosh starts: it is rendered (passed through) so
+// the plugin sees the frame the mosh will hold.
+bool armsMosh(const Params& p, int frame) {
+    return !inMosh(p, frame) && inMosh(p, frame + 1) && effectiveStart(p, frame + 1) == frame + 1;
 }
 
 // ---------------------------------------------------------------- actions
@@ -878,7 +972,9 @@ OfxStatus isIdentity(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs,
     double t = 0;
     gProp->propGetDouble(inArgs, kOfxPropTime, 0, &t);
     Params p = readParams(in, t);
-    if (inMosh(p, int(std::lround(t))) && p.v[P_MIX] > 0.0) return kOfxStatReplyDefault;
+    const int frame = int(std::lround(t));
+    if (p.i(P_DIAG) != 0) return kOfxStatReplyDefault;
+    if ((inMosh(p, frame) || armsMosh(p, frame)) && p.v[P_MIX] > 0.0) return kOfxStatReplyDefault;
     gProp->propSetString(outArgs, kOfxPropName, 0, kOfxImageEffectSimpleSourceClipName);
     gProp->propSetDouble(outArgs, kOfxPropTime, 0, t);
     return kOfxStatOK;
@@ -908,6 +1004,71 @@ OfxStatus getFramesNeeded(OfxImageEffectHandle effect, OfxPropertySetHandle inAr
                        kOfxImageEffectSimpleSourceClipName;
     gProp->propSetDoubleN(outArgs, prop.c_str(), 2, range);
     return kOfxStatOK;
+}
+
+// 5x7 bitmap font: each glyph is 7 rows of 5 bits, top row first.
+const uint8_t* glyph(char c) {
+    struct G { char c; uint8_t r[7]; };
+    static const G font[] = {
+        {'0', {14, 17, 19, 21, 25, 17, 14}}, {'1', {4, 12, 4, 4, 4, 4, 14}},
+        {'2', {14, 17, 1, 2, 4, 8, 31}},     {'3', {30, 1, 1, 14, 1, 1, 30}},
+        {'4', {2, 6, 10, 18, 31, 2, 2}},     {'5', {31, 16, 30, 1, 1, 17, 14}},
+        {'6', {6, 8, 16, 30, 17, 17, 14}},   {'7', {31, 1, 2, 4, 8, 8, 8}},
+        {'8', {14, 17, 17, 14, 17, 17, 14}}, {'9', {14, 17, 17, 15, 1, 2, 12}},
+        {'.', {0, 0, 0, 0, 0, 12, 12}},      {'-', {0, 0, 0, 31, 0, 0, 0}},
+        {'+', {0, 4, 4, 31, 4, 4, 0}},       {'/', {1, 2, 2, 4, 8, 8, 16}},
+        {':', {0, 12, 12, 0, 12, 12, 0}},    {'=', {0, 0, 31, 0, 31, 0, 0}},
+        {'(', {2, 4, 8, 8, 8, 4, 2}},        {')', {8, 4, 2, 2, 2, 4, 8}},
+        {'A', {14, 17, 17, 31, 17, 17, 17}}, {'B', {30, 17, 17, 30, 17, 17, 30}},
+        {'C', {14, 17, 16, 16, 16, 17, 14}}, {'D', {30, 17, 17, 17, 17, 17, 30}},
+        {'E', {31, 16, 16, 30, 16, 16, 31}}, {'F', {31, 16, 16, 30, 16, 16, 16}},
+        {'G', {14, 17, 16, 23, 17, 17, 15}}, {'H', {17, 17, 17, 31, 17, 17, 17}},
+        {'I', {14, 4, 4, 4, 4, 4, 14}},      {'K', {17, 18, 20, 24, 20, 18, 17}},
+        {'L', {16, 16, 16, 16, 16, 16, 31}}, {'M', {17, 27, 21, 21, 17, 17, 17}},
+        {'N', {17, 25, 21, 19, 17, 17, 17}}, {'O', {14, 17, 17, 17, 17, 17, 14}},
+        {'P', {30, 17, 17, 30, 16, 16, 16}}, {'R', {30, 17, 17, 30, 20, 18, 17}},
+        {'S', {15, 16, 16, 14, 1, 1, 30}},   {'T', {31, 4, 4, 4, 4, 4, 4}},
+        {'U', {17, 17, 17, 17, 17, 17, 14}}, {'V', {17, 17, 17, 17, 17, 10, 4}},
+        {'W', {17, 17, 17, 21, 21, 21, 10}}, {'X', {17, 17, 10, 4, 10, 17, 17}},
+        {'Y', {17, 17, 10, 4, 4, 4, 4}},
+    };
+    for (const G& g : font)
+        if (g.c == c) return g.r;
+    return nullptr;
+}
+
+// Draws lines of text, top-left, on a bottom-up RGBA float image.
+void drawText(float* data, int rowBytes, const OfxRectI& b, const std::vector<std::string>& lines) {
+    const int w = b.x2 - b.x1, h = b.y2 - b.y1;
+    const int sc = std::max(2, h / 300);
+    const int lineH = 9 * sc, pad = 2 * sc;
+    size_t longest = 0;
+    for (auto& l : lines) longest = std::max(longest, l.size());
+    const int boxW = std::min(w, int(longest) * 6 * sc + 2 * pad);
+    const int boxH = std::min(h, int(lines.size()) * lineH + 2 * pad);
+    auto px = [&](int x, int yTop) -> float* {  // yTop: rows from the top
+        int y = h - 1 - yTop;
+        if (x < 0 || x >= w || y < 0 || y >= h) return nullptr;
+        return reinterpret_cast<float*>(reinterpret_cast<char*>(data) + std::ptrdiff_t(y) * rowBytes) + size_t(x) * 4;
+    };
+    for (int y = 0; y < boxH; ++y)
+        for (int x = 0; x < boxW; ++x)
+            if (float* p = px(x, y)) { p[0] *= 0.25f; p[1] *= 0.25f; p[2] *= 0.25f; p[3] = 1.f; }
+    for (size_t li = 0; li < lines.size(); ++li)
+        for (size_t ci = 0; ci < lines[li].size(); ++ci) {
+            const uint8_t* g = glyph(char(std::toupper((unsigned char)lines[li][ci])));
+            if (!g) continue;
+            for (int gy = 0; gy < 7; ++gy)
+                for (int gx = 0; gx < 5; ++gx) {
+                    if (!(g[gy] & (16 >> gx))) continue;
+                    for (int sy = 0; sy < sc; ++sy)
+                        for (int sx = 0; sx < sc; ++sx)
+                            if (float* p = px(pad + int(ci) * 6 * sc + gx * sc + sx, pad + int(li) * lineH + gy * sc + sy)) {
+                                p[0] = p[1] = p[2] = 1.f;
+                                p[3] = 1.f;
+                            }
+                }
+        }
 }
 
 OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
@@ -940,15 +1101,17 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
     mosh::Image moshed;
     Frame real;
     bool haveMosh = false;
+    BuildInfo info;
     {
         std::lock_guard<std::mutex> g(in->lock);
         if (inMosh(p, frame) && p.v[P_MIX] > 0.0) {
             try {
-                haveMosh = buildMosh(effect, in, p, frame, rs[0] > 0 ? rs[0] : 1.0, moshed, real);
+                haveMosh = buildMosh(effect, in, p, frame, rs[0] > 0 ? rs[0] : 1.0, moshed, real, info);
             } catch (const std::bad_alloc&) {
                 // Out of memory: give everything back before reporting it.
                 in->states.clear();
                 in->motion.clear();
+                in->kept.clear();
                 in->bytes = 0;
                 throw;
             }
@@ -986,6 +1149,42 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
         }
     });
 
+    if (p.i(P_DIAG) != 0) {
+        static const char* const src[] = {"MISSING", "FROM HOST", "REMEMBERED"};
+        const int S = effectiveStart(p, frame);
+        std::vector<std::string> lines;
+        lines.push_back("ERIKSTV " + std::to_string(kVersionMajor) + "." + std::to_string(kVersionMinor) +
+                        "  FRAME " + std::to_string(frame) + "  START " + std::to_string(S) + "  LENGTH " +
+                        std::to_string(p.i(P_LENGTH)));
+        if (info.tried) {
+            lines.push_back(std::string("IN MOSH  RESULT: ") + (info.ok ? "MOSH" : "CLEAN (HELD FRAME MISSING)"));
+            lines.push_back("HELD FRAME " + std::to_string(S - 1) + ": " + src[info.refSource]);
+            if (info.from >= frame)
+                lines.push_back("FIRST FRAME OF THE MOSH: SHOWS THE HELD FRAME");
+            else
+                lines.push_back("STEPS " + std::to_string(info.from + 1) + "-" + std::to_string(frame) + ": " +
+                                std::to_string(info.applied) + " APPLIED  " + std::to_string(info.skipped) +
+                                " SKIPPED" + (info.usedCache ? "  (CONTINUED)" : "  (FROM START)"));
+            lines.push_back("OTHER FRAMES: " + std::to_string(info.fromHost) + " FROM HOST  " +
+                            std::to_string(info.remembered) + " REMEMBERED  " + std::to_string(info.missing) +
+                            " MISSING");
+            if (info.gaveCurrent)
+                lines.push_back("HOST GAVE THE CURRENT FRAME " + std::to_string(info.gaveCurrent) + " TIMES");
+        } else if (armsMosh(p, frame)) {
+            lines.push_back("FRAME BEFORE THE MOSH (REMEMBERED AS THE HELD FRAME)");
+        } else {
+            lines.push_back(p.v[P_MIX] > 0.0 ? "NOT IN MOSH" : "MIX IS 0");
+        }
+        drawText(static_cast<float*>(dstData), dstRowBytes, db, lines);
+    }
+
+    // Keep this frame: the next one's motion is measured against it, and the
+    // frame before a mosh is the one the mosh holds.
+    if (real.ok && p.v[P_MIX] > 0.0 && (inMosh(p, frame) || armsMosh(p, frame))) {
+        std::lock_guard<std::mutex> g(in->lock);
+        rememberFrame(in, p, frame, std::move(real));
+        in->bytes = cachedBytes(in);
+    }
     return kOfxStatOK;
 }
 
@@ -1012,6 +1211,7 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
                 std::lock_guard<std::mutex> g(in->lock);
                 in->states.clear();
                 in->motion.clear();
+                in->kept.clear();
                 in->bytes = 0;
             }
             {
