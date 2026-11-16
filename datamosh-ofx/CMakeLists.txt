@@ -6,7 +6,7 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 
-project(EriksTV VERSION 1.1.0 LANGUAGES CXX)
+project(EriksTV VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -82,6 +82,22 @@ if(NOT WIN32)
                    --start-here 24 --set gScatter=0.5 --set mix=0.7 --apply-look 1
                    --expect blockVariety=0.6 --expect blockSize=0 --expect cErrors=0.4
                    --expect gScatter=0 --expect mix=0.7 --expect moshStart=24)
+  # Memory. A timeline full of clips: 8 more instances kept alive, each
+  # rendering the clip. Their caches share one budget (32 MB here), so memory
+  # must not grow with the number of instances (it used to: about 60 MB each
+  # at this size, with no limit).
+  add_test(NAME minihost_many_instances_bounded_memory
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 960 540 ${CMAKE_BINARY_DIR}/many.rgb
+                   --frames 16 --start-here 2 --set residual=0.5 --set blockVariety=0.8 --set blockSize=0
+                   --instances 8 --expect-instance-growth-below 120)
+  set_tests_properties(minihost_many_instances_bounded_memory PROPERTIES ENVIRONMENT "ERIKSTV_CACHE_MB=32")
+  # With next to no budget every cache entry is thrown away at once: slower,
+  # but every frame must still come out the same in any order.
+  add_test(NAME minihost_tiny_budget_still_exact
+           COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/tiny.rgb
+                   --start-here 24 --set residual=0.6 --set blockVariety=0.8 --set blockSize=3
+                   --set tRepeat=0.1 --set tJumpBack=0.1 --set gScatter=0.2 --instances 3)
+  set_tests_properties(minihost_tiny_budget_still_exact PROPERTIES ENVIRONMENT "ERIKSTV_CACHE_MB=1")
   add_test(NAME minihost_rhythm_smooth
            COMMAND minihost $<TARGET_FILE:EriksTV> synthetic 192 108 ${CMAKE_BINARY_DIR}/rhythm.rgb
                    --start-here 24 --set blockSize=4 --set smoothVectors=1 --set blockVariety=0.4

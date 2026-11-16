@@ -21,6 +21,12 @@
 #include <string>
 #include <vector>
 
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
 #include "ofxMessage.h"
@@ -195,6 +201,24 @@ static OfxStatus paramSetValue(OfxParamHandle h, ...) {
 static OfxStatus paramSetValueAtTime(OfxParamHandle h, OfxTime t, ...) {
     va_list ap; va_start(ap, t); OfxStatus s = setValueV(h, ap); va_end(ap); return s;
 }
+// Memory this process holds right now, in MB.
+static double residentMB() {
+#if defined(__APPLE__)
+    mach_task_basic_info info;
+    mach_msg_type_number_t n = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &n) != KERN_SUCCESS)
+        return 0;
+    return double(info.resident_size) / (1024.0 * 1024.0);
+#else
+    long total = 0, resident = 0;
+    FILE* f = std::fopen("/proc/self/statm", "r");
+    if (!f) return 0;
+    const int got = std::fscanf(f, "%ld %ld", &total, &resident);
+    std::fclose(f);
+    return got == 2 ? double(resident) * double(sysconf(_SC_PAGE_SIZE)) / (1024.0 * 1024.0) : 0;
+#endif
+}
+
 static OfxStatus unsupported() { return kOfxStatErrUnsupported; }
 
 static OfxParameterSuiteV1 makeParamSuite() {
@@ -490,6 +514,8 @@ int main(int argc, char** argv) {
                      "  --frames N --offset N (render N frames from clip time N)\n"
                      "  --static-transition --ignore-time (simulate host quirks)\n"
                      "  --expect-no-failed-fetches   --press BUTTON@TIME\n"
+                     "  --instances N   --expect-instance-growth-below MB   (N more instances kept alive,\n"
+                     "      like clips on a timeline, each rendering the clip: memory must stay bounded)\n"
                      "  --whole-clip-range (effect's frame range = the whole source clip, as Resolve reports)\n");
         return 2;
     }
@@ -504,6 +530,8 @@ int main(int argc, char** argv) {
     int framesOpt = -1;
     std::vector<std::pair<std::string, double>> presses;  // --press NAME@TIME
     bool noFailedFetches = false;
+    int extraInstances = 0;       // --instances N
+    double instanceGrowthMB = -1;  // --expect-instance-growth-below MB
     auto frameColon = [](const std::string& kv, int& frame) {
         auto c = kv.find(':');
         frame = std::atoi(kv.substr(0, c).c_str());
@@ -538,6 +566,8 @@ int main(int argc, char** argv) {
             continue;
         }
         if (a == "--expect-no-failed-fetches") { noFailedFetches = true; continue; }
+        if (a == "--instances" && i + 1 < argc) { extraInstances = std::atoi(argv[++i]); continue; }
+        if (a == "--expect-instance-growth-below" && i + 1 < argc) { instanceGrowthMB = std::atof(argv[++i]); continue; }
         if (a == "--ignore-time") { gIgnoreTime = true; continue; }
         if (a == "--offset" && i + 1 < argc) { gOffset = std::atoi(argv[++i]); continue; }
         if (a == "--set" && i + 1 < argc) {
@@ -796,6 +826,28 @@ int main(int argc, char** argv) {
         std::printf("brightest output value %.6f at frame %zu pixel %zu channel %zu (want < %g)\n", mx, mf,
                     mi / 4, mi % 4, maxBelow);
         if (!(mx < maxBelow)) die("output reaches the ceiling (clipping)");
+    }
+
+    // A timeline full of clips: N more instances, all alive at once, each
+    // rendering the clip in turn. What they keep must not grow without limit.
+    if (extraInstances > 0) {
+        const double before = residentMB();
+        std::vector<std::unique_ptr<Effect>> more;
+        double worstDiff = 0;
+        for (int k = 0; k < extraInstances; ++k) {
+            more.push_back(makeInstance(descCtx, sets));
+            for (int t = 0; t < N; ++t) {
+                std::vector<float> r = renderFrame(more.back().get(), gOffset + t);
+                for (size_t i = 0; i < r.size(); i += 97)
+                    worstDiff = std::max(worstDiff, double(std::fabs(r[i] - seq[t][i])));
+            }
+        }
+        const double grown = residentMB() - before;
+        std::printf("%d more instances: memory grew by %.0f MB (%.1f MB each), max difference vs first render %g\n",
+                    extraInstances, grown, grown / extraInstances, worstDiff);
+        if (worstDiff > 1e-5) die("an extra instance rendered differently");
+        if (instanceGrowthMB >= 0 && !(grown < instanceGrowthMB)) die("instances keep too much memory");
+        for (auto& e : more) act(kOfxActionDestroyInstance, e.get());
     }
 
     act(kOfxActionDestroyInstance, fx.get());

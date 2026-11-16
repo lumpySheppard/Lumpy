@@ -137,6 +137,18 @@ resolution, so the glitch pattern differs from the full-resolution render.
 - Proxy and reduced-resolution playback work: block size and search range
   scale with the render resolution.
 
+## Memory
+
+The effect remembers recent results so playing forward only costs one step
+per frame. All the copies of the effect in a project share one memory
+budget for that: a sixteenth of the machine's memory, between 256 MB and
+1 GB. When it fills up, clips that aren't playing give up their caches
+first. Nothing is lost: a dropped result is simply worked out again when
+you come back to that clip.
+
+To change the budget, set the environment variable `ERIKSTV_CACHE_MB`
+(in MB) before starting Resolve.
+
 ## Build
 
 ```

@@ -2,6 +2,8 @@
 
 #include "Encodings.h"
 
+#include <mutex>
+#include <exception>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -17,14 +19,30 @@ void parallelFor(int n, const std::function<void(int)>& fn) {
         for (int i = 0; i < n; ++i) fn(i);
         return;
     }
+    // An exception escaping a std::thread ends the whole process (the host
+    // with it), so the workers hand the first one back to the caller.
     std::atomic<int> next{0};
+    std::exception_ptr error;
+    std::mutex errorLock;
     auto worker = [&] {
-        for (int i; (i = next.fetch_add(1)) < n;) fn(i);
+        try {
+            for (int i; (i = next.fetch_add(1)) < n;) fn(i);
+        } catch (...) {
+            next.store(n);  // stop the others
+            std::lock_guard<std::mutex> g(errorLock);
+            if (!error) error = std::current_exception();
+        }
     };
     std::vector<std::thread> pool;
-    for (int t = 1; t < nt; ++t) pool.emplace_back(worker);
+    try {
+        pool.reserve(size_t(nt - 1));
+        for (int t = 1; t < nt; ++t) pool.emplace_back(worker);
+    } catch (...) {
+        // Couldn't start (all) the threads: the ones running, and this one, do the work.
+    }
     worker();
     for (auto& t : pool) t.join();
+    if (error) std::rethrow_exception(error);
 }
 
 namespace {

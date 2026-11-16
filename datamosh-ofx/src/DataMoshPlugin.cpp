@@ -10,15 +10,25 @@
 // forward only ever costs one new step per frame. Motion fields are cached by
 // the content of the frames they came from, so they survive scrubbing.
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <deque>
 #include <list>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <string>
 #include <vector>
+
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#elif !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 #include "MoshEngine.h"
 #include "ofxCore.h"
@@ -39,7 +49,7 @@ namespace {
 // projects that already use it keep finding it.
 const char* const kPluginId = "com.lumpy.DataMosh";
 const char* const kGrouping = "Lumpy";
-const int kVersionMajor = 1, kVersionMinor = 1;
+const int kVersionMajor = 1, kVersionMinor = 2;
 
 const char* const kParamSetStart = "setStartHere";
 const char* const kParamLook = "look";
@@ -266,7 +276,135 @@ struct Instance {
     std::mutex lock;
     std::deque<CachedState> states;  // newest first
     std::list<std::pair<uint64_t, mosh::MotionField>> motion;  // LRU, newest first
-    mosh::Scratch scratch;
+    // For the memory budget shared by every instance (see trimCaches).
+    std::atomic<size_t> bytes{0};     // what the two caches hold
+    std::atomic<uint64_t> lastUse{0};
+};
+
+// ------------------------------------------------------------ memory budget
+//
+// A host makes an instance per clip (often several), and each used to keep
+// its own caches and working frames for as long as it lived: hundreds of MB
+// each at UHD, gigabytes with mixed block sizes. Now every instance shares
+// one budget: when it's exceeded, idle instances give up their caches first,
+// then the one rendering drops its oldest entries. The working frames
+// (Scratch) are shared too.
+
+size_t bytesOf(const mosh::Image& i) { return i.px.capacity() * sizeof(float); }
+size_t bytesOf(const mosh::MotionField& m) {
+    return (m.dx.capacity() + m.dy.capacity()) * sizeof(float) + m.blocks.capacity() * sizeof(mosh::Block);
+}
+size_t cachedBytes(const Instance* in) {
+    size_t n = 0;
+    for (const CachedState& c : in->states) n += bytesOf(c.img);
+    for (const auto& m : in->motion) n += bytesOf(m.second);
+    return n;
+}
+
+struct Registry {
+    std::mutex m;
+    std::vector<Instance*> all;
+    std::vector<mosh::Scratch> scratch;  // at most one spare set of working frames
+};
+Registry& registry() {
+    static Registry r;
+    return r;
+}
+std::atomic<uint64_t> gUseClock{0};
+
+// A sixteenth of the machine's memory, between 256 MB and 1 GB: the host needs
+// the rest, and only the newest state of a clip that is playing really pays
+// for itself (ERIKSTV_CACHE_MB overrides it).
+size_t cacheBudget() {
+    static const size_t budget = [] {
+        const size_t mb = size_t(1) << 20;
+        if (const char* e = std::getenv("ERIKSTV_CACHE_MB")) {
+            const long v = std::atol(e);
+            if (v > 0) return size_t(v) * mb;
+        }
+        uint64_t ram = 0;
+#if defined(__APPLE__)
+        size_t len = sizeof ram;
+        if (sysctlbyname("hw.memsize", &ram, &len, nullptr, 0) != 0) ram = 0;
+#elif !defined(_WIN32)
+        const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGE_SIZE);
+        if (pages > 0 && page > 0) ram = uint64_t(pages) * uint64_t(page);
+#endif
+        if (!ram) ram = uint64_t(8) << 30;
+        return size_t(std::min<uint64_t>(std::max<uint64_t>(ram / 16, 256 * mb), 1024 * mb));
+    }();
+    return budget;
+}
+
+// Call with `cur`'s lock held, after it has rendered.
+void trimCaches(Instance* cur) {
+    const size_t budget = cacheBudget();
+    // One instance never takes more than half for its motion fields.
+    size_t motionBytes = 0;
+    for (const auto& m : cur->motion) motionBytes += bytesOf(m.second);
+    while (motionBytes > budget / 2 && cur->motion.size() > 4) {
+        motionBytes -= bytesOf(cur->motion.back().second);
+        cur->motion.pop_back();
+    }
+    cur->bytes = cachedBytes(cur);
+    cur->lastUse = ++gUseClock;
+
+    Registry& r = registry();
+    std::lock_guard<std::mutex> g(r.m);
+    auto total = [&] {
+        size_t n = 0;
+        for (Instance* i : r.all) n += i->bytes;
+        return n;
+    };
+    // Idle instances first, the longest idle first. (try_lock: one that is
+    // rendering right now is skipped, and can't deadlock with this one.)
+    std::vector<Instance*> busy;
+    while (total() > budget) {
+        Instance* victim = nullptr;
+        for (Instance* i : r.all)
+            if (i != cur && i->bytes > 0 && std::find(busy.begin(), busy.end(), i) == busy.end() &&
+                (!victim || i->lastUse < victim->lastUse))
+                victim = i;
+        if (!victim) break;
+        if (victim->lock.try_lock()) {
+            victim->states.clear();
+            victim->motion.clear();
+            victim->bytes = 0;
+            victim->lock.unlock();
+        } else {
+            busy.push_back(victim);
+        }
+    }
+    // Then this one: its oldest motion fields, then its older states. The
+    // newest state stays: playing forward needs it.
+    while (total() > budget && cur->motion.size() > 4) {
+        cur->bytes -= std::min(size_t(cur->bytes), bytesOf(cur->motion.back().second));
+        cur->motion.pop_back();
+    }
+    while (total() > budget && cur->states.size() > 1) {
+        cur->bytes -= std::min(size_t(cur->bytes), bytesOf(cur->states.back().img));
+        cur->states.pop_back();
+    }
+}
+
+// The working frames for one render, borrowed from the shared spare.
+struct ScratchLoan {
+    mosh::Scratch sc;
+    ScratchLoan() {
+        Registry& r = registry();
+        std::lock_guard<std::mutex> g(r.m);
+        if (!r.scratch.empty()) {
+            sc = std::move(r.scratch.back());
+            r.scratch.pop_back();
+        }
+    }
+    ~ScratchLoan() {
+        Registry& r = registry();
+        std::lock_guard<std::mutex> g(r.m);
+        if (r.scratch.empty()) r.scratch.push_back(std::move(sc));
+    }
+    ScratchLoan(const ScratchLoan&) = delete;
+    ScratchLoan& operator=(const ScratchLoan&) = delete;
 };
 
 Instance* getInstance(OfxImageEffectHandle effect) {
@@ -459,7 +597,8 @@ bool buildMosh(OfxImageEffectHandle effect, Instance* in, const Params& p, int t
                    uint64_t(ms.range));
 
     FrameCache fc{in->src, {}};
-    mosh::Scratch& sc = in->scratch;
+    ScratchLoan loan;
+    mosh::Scratch& sc = loan.sc;
 
     if (p.i(P_MODE) == kModeBloom) {
         // Freeze frame S and keep re-applying its motion.
@@ -673,11 +812,23 @@ OfxStatus createInstance(OfxImageEffectHandle effect) {
     OfxPropertySetHandle props;
     gFx->getPropertySet(effect, &props);
     gProp->propSetPointer(props, kOfxPropInstanceData, 0, in);
+    {
+        Registry& r = registry();
+        std::lock_guard<std::mutex> g(r.m);
+        r.all.push_back(in);
+    }
     return kOfxStatOK;
 }
 
 OfxStatus destroyInstance(OfxImageEffectHandle effect) {
-    delete getInstance(effect);
+    Instance* gone = getInstance(effect);
+    {
+        Registry& r = registry();
+        std::lock_guard<std::mutex> g(r.m);
+        r.all.erase(std::remove(r.all.begin(), r.all.end(), gone), r.all.end());
+        if (r.all.empty()) r.scratch.clear();  // nothing left using the effect
+    }
+    delete gone;
     OfxPropertySetHandle props;
     gFx->getPropertySet(effect, &props);
     gProp->propSetPointer(props, kOfxPropInstanceData, 0, nullptr);
@@ -774,6 +925,11 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
     OfxPropertySetHandle dstImg = nullptr;
     if (gFx->clipGetImage(in->dst, t, nullptr, &dstImg) != kOfxStatOK || !dstImg)
         return kOfxStatFailed;
+    // Released however this function ends, an exception (out of memory) included.
+    struct Release {
+        OfxPropertySetHandle img;
+        ~Release() { gFx->clipReleaseImage(img); }
+    } releaseDst{dstImg};
     void* dstData = nullptr;
     int dstRowBytes = 0;
     OfxRectI db;
@@ -786,12 +942,21 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
     bool haveMosh = false;
     {
         std::lock_guard<std::mutex> g(in->lock);
-        if (inMosh(p, frame) && p.v[P_MIX] > 0.0)
-            haveMosh = buildMosh(effect, in, p, frame, rs[0] > 0 ? rs[0] : 1.0, moshed, real);
+        if (inMosh(p, frame) && p.v[P_MIX] > 0.0) {
+            try {
+                haveMosh = buildMosh(effect, in, p, frame, rs[0] > 0 ? rs[0] : 1.0, moshed, real);
+            } catch (const std::bad_alloc&) {
+                // Out of memory: give everything back before reporting it.
+                in->states.clear();
+                in->motion.clear();
+                in->bytes = 0;
+                throw;
+            }
+            trimCaches(in);
+        }
     }
     if (!haveMosh && !real.ok) fetchFrame(in->src, t, real);
     if (!real.ok && !haveMosh) {
-        gFx->clipReleaseImage(dstImg);
         return gFx->abort(effect) ? kOfxStatOK : kOfxStatFailed;
     }
 
@@ -821,7 +986,6 @@ OfxStatus render(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
         }
     });
 
-    gFx->clipReleaseImage(dstImg);
     return kOfxStatOK;
 }
 
@@ -848,6 +1012,12 @@ OfxStatus mainEntry(const char* action, const void* handle, OfxPropertySetHandle
                 std::lock_guard<std::mutex> g(in->lock);
                 in->states.clear();
                 in->motion.clear();
+                in->bytes = 0;
+            }
+            {
+                Registry& r = registry();
+                std::lock_guard<std::mutex> g(r.m);
+                r.scratch.clear();
             }
             return kOfxStatOK;
         }
