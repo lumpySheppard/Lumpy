@@ -62,6 +62,7 @@ type Server struct {
 
 	archMu   sync.Mutex
 	archives map[string]*archiveRun // archive analyses waiting to be applied
+	pulls    map[string]*pullRun    // pull analyses waiting to be copied
 }
 
 type driveExtra struct {
@@ -228,6 +229,8 @@ func (s *Server) Handler() http.Handler {
 	api("DELETE /api/projects/{id}", s.deleteProject)
 	api("POST /api/projects/{id}/transfer", s.runTransfer)
 	api("GET /api/projects/{id}/proxies", s.projectProxies)
+	api("POST /api/pull", s.analysePull)
+	api("POST /api/pull/run", s.runPull)
 	api("POST /api/projects/{id}/archive", s.analyseArchive)
 	api("POST /api/projects/{id}/archive/apply", s.applyArchive)
 	api("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) (any, error) { return s.jobs.List(400), nil })

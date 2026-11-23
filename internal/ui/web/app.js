@@ -987,7 +987,7 @@ function renderProjects() {
       <p>A project is the folders that hold one piece of work: a feature across five drives, or one music video that shares a shuttle with three other jobs. Lumpy shows how well it's backed up, wherever the copies are, and plans the copies that get every file onto two drives.</p>
       <p><button class="btn primary" id="find-projects">${ICON.search}Find projects on my drives…</button> <button class="btn" id="new-project">${ICON.plus}New project</button> <button class="btn" id="new-folder">${ICON.folder}New project folder…</button></p></div>`;
   } else {
-    main.innerHTML = `<div class="page-bar"><div class="toolbar-title">${ICON.film}Projects<span class="count">${ps.length}</span></div><div class="right"><button class="btn" id="find-projects" title="Look through every logged drive for project folders">${ICON.search}Find projects…</button><button class="btn" id="new-folder" title="Make a project's folders from your Post Haste template">${ICON.folder}New project folder…</button><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
+    main.innerHTML = `<div class="page-bar"><div class="toolbar-title">${ICON.film}Projects<span class="count">${ps.length}</span></div><div class="right"><button class="btn" id="pull-shots" title="Hand Lumpy an edit and it finds every clip's camera original across all drives">${ICON.clapper}Pull shots from an edit…</button><button class="btn" id="find-projects" title="Look through every logged drive for project folders">${ICON.search}Find projects…</button><button class="btn" id="new-folder" title="Make a project's folders from your Post Haste template">${ICON.folder}New project folder…</button><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
       <div class="grid">${ps.map((p) => {
         const h = p.health;
         const bad = h.soleBytes + h.shortBytes;
@@ -1001,6 +1001,7 @@ function renderProjects() {
   }
   $("#new-project").onclick = () => newProjectDialog([]);
   $("#find-projects").onclick = () => findProjectsDialog();
+  if ($("#pull-shots")) $("#pull-shots").onclick = () => pullDialog();
   const nf = $("#new-folder");
   if (nf) nf.onclick = () => templateDialog();
 }
@@ -1450,6 +1451,86 @@ function addSourceDialog(done, startDrive, opts = {}) {
     $("#as-ok").onclick = () => { close(); done({ driveId, folder: dir }); };
   };
   show();
+}
+
+// pullDialog takes an edit (the twenty shots of a selects reel, a
+// trailer) and says where each clip's camera original is across every
+// drive, proxies seen through, then copies the chosen ones into one
+// folder.
+async function pullDialog() {
+  const st = S.pull || (S.pull = { paths: [], uploads: [], a: null, pick: {}, dest: localGet("pull.dest", ""), name: "" });
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  const run = async () => {
+    if (!st.paths.length && !st.uploads.length) { st.a = null; draw(); return; }
+    draw(true);
+    try { st.a = await api("/api/pull", { method: "POST", body: { paths: st.paths, uploads: st.uploads } }); st.pick = {}; }
+    catch (e) { toast(e.message, true); }
+    draw();
+  };
+  const hitOf = (ref, i) => st.pick[i] !== undefined ? ref.hits[st.pick[i]] : ref.hits[0];
+  const draw = (busy) => {
+    const a = st.a;
+    const chosen = a ? a.refs.map((r, i) => r.hits.length ? { i, h: hitOf(r, i) } : null).filter(Boolean) : [];
+    const total = chosen.reduce((t, x) => t + x.h.bytes, 0);
+    const byDrive = {};
+    for (const x of chosen) { const d = byDrive[x.h.driveId] || (byDrive[x.h.driveId] = { n: 0, b: 0 }); d.n++; d.b += x.h.bytes; }
+    const unplugged = Object.keys(byDrive).filter((id) => !(driveOf(id) || {}).connected);
+    const proxyOnly = chosen.filter((x) => x.h.proxy).length;
+    openSheet(`<div class="sheet-head"><h2>Pull shots from an edit</h2><div class="actions"><button class="icon-btn" id="pl-close">${ICON.x}</button></div></div>
+      <div class="sheet-body">
+        <p class="hint" style="margin:0 0 10px">Hand Lumpy the cut, a selects reel or a list of clip names and it finds each clip's camera original across every drive in the library, whether the edit was cut on proxies or not, then copies the ones you choose into one folder. FCPXML, Premiere or FCP 7 XML, an EDL, or a plain list.</p>
+        <div class="step-run" style="margin-top:0;flex-wrap:wrap"><button class="btn ${a ? "" : "primary"}" id="pl-pick" ${busy ? "disabled" : ""}>${ICON.plus}${a ? "Add another export…" : "Choose timeline exports…"}</button>${[...st.paths.map((x) => x.split("/").pop()), ...st.uploads.map((u) => u.name)].map((f, i) => `<span class="chip">${esc(a && a.files[i] ? a.files[i] : f)}<button class="chip-x" data-pl-drop="${i}" title="Leave this export out">${ICON.x}</button></span>`).join("")}</div>
+        <input type="file" id="pl-file" multiple hidden accept=".fcpxml,.xml,.edl,.txt,.csv">
+        ${busy ? loadingGlyph("Looking through every drive…") : a ? `
+        <div class="stat-row" style="margin-top:14px">
+          <div class="stat ok"><div class="v">${a.found}</div><div class="l">of ${a.refs.length} clips found (${bytes(total)} chosen)</div></div>
+          <div class="stat ${proxyOnly ? "warn" : "dim"}"><div class="v">${proxyOnly}</div><div class="l">only as a proxy</div></div>
+          <div class="stat ${a.missing.length ? "bad" : "dim"}"><div class="v">${a.missing.length}</div><div class="l">not in the library</div></div>
+        </div>
+        ${Object.keys(byDrive).length ? `<div class="chips" style="margin-top:12px">${Object.entries(byDrive).sort((x, y) => y[1].n - x[1].n).map(([id, d]) => { const dr = driveOf(id); return `<span class="chip" title="${esc(dr ? dr.title : id)}"><span class="dot ${dr && dr.connected ? "live" : ""}" style="background:${dr && dr.connected ? "var(--ok)" : "var(--muted)"};margin-right:6px"></span>${esc(dr ? dr.title : id)}<small>${d.n} clip${d.n === 1 ? "" : "s"} · ${bytes(d.b)}${dr && dr.connected ? "" : " · plug in"}</small></span>`; }).join("")}</div>` : ""}
+        ${a.missing.length ? `<details class="notes" style="margin-top:10px"><summary>${a.missing.length} clip${a.missing.length === 1 ? "" : "s"} nowhere in the library</summary><div class="chips" style="margin-top:6px">${a.missing.map((x) => `<span class="chip">${esc(x)}</span>`).join("")}</div><p class="hint" style="margin:6px 0 0">Stock, graphics, music, or on a drive that was never logged. Log that drive and choose the export again.</p></details>` : ""}
+        <table class="list compact" style="margin-top:12px"><thead><tr><th>Clip in the edit</th><th>Copy to pull</th><th class="num">Size</th></tr></thead><tbody>
+          ${a.refs.map((r, i) => { if (!r.hits.length) return ""; const h = hitOf(r, i), dr = driveOf(h.driveId); return `<tr><td><div class="name">${esc(r.name)}</div></td><td>${r.hits.length > 1 ? `<select class="plain small" data-pl-ref="${i}" style="max-width:420px">${r.hits.map((x, j) => { const d2 = driveOf(x.driveId); return `<option value="${j}" ${(st.pick[i] ?? 0) === j ? "selected" : ""}>${esc(d2 ? d2.title : x.driveId)} › ${esc(x.path)}${x.proxy ? " · proxy" : ""}${d2 && !d2.connected ? " · not plugged in" : ""}</option>`; }).join("")}</select>` : `<span class="mono" style="font-size:12px">${esc(dr ? dr.title : h.driveId)} › ${esc(h.path)}</span>`}${h.proxy ? ` <span class="badge warn" title="No original found; this is a proxy">proxy</span>` : ""}${dr && !dr.connected ? ` <span class="badge" title="Plug this drive in to copy">${ICON.plug}</span>` : ""}</td><td class="num">${bytes(h.bytes)}${h.files > 1 ? ` <span class="hint">· ${h.files} parts</span>` : ""}</td></tr>`; }).join("")}
+        </tbody></table>
+        <div class="sec"><div class="sec-title">${ICON.folder}Pull into</div><div class="box">
+          <div class="path-row"><input class="path-input" id="pl-dest" value="${esc(st.dest)}" placeholder="/Volumes/SHUTTLE_1" spellcheck="false"><button class="btn" id="pl-dest-pick">Choose…</button></div>
+          <div class="path-row" style="margin-top:8px"><span class="hint" style="flex:none">in a folder named</span><input class="path-input" id="pl-name" value="${esc(st.name)}" placeholder="Pull ${new Date().toISOString().slice(0, 10)}" spellcheck="false"></div>
+          <p class="hint" style="margin:8px 0 0">Each clip lands under a folder named after the drive it came from, keeping its path, so nothing collides and you can tell where it was. Every copy is read back and checked. Drives not plugged in are left for later: choose the export again when they are.</p>
+        </div></div>` : ""}
+      </div>
+      <div class="sheet-foot"><button class="btn" id="pl-cancel">Close</button>${a ? `<button class="btn primary" id="pl-go" ${chosen.length && !busy ? "" : "disabled"}>${ICON.copy}Copy ${chosen.length - chosen.filter((x) => unplugged.includes(x.h.driveId)).length} of ${chosen.length} clips now</button>` : ""}</div>`);
+    $("#pl-close").onclick = $("#pl-cancel").onclick = close;
+    $("#pl-pick").onclick = async () => {
+      if (native) { const paths = await nativeCall("pickFiles", {}); if (paths && paths.length) { for (const x of paths) if (!st.paths.includes(x)) st.paths.push(x); run(); } }
+      else $("#pl-file").click();
+    };
+    $("#pl-file").onchange = async (e) => {
+      const files = [...e.target.files];
+      if (!files.length) return;
+      const ups = await Promise.all(files.map((f) => f.text().then((text) => ({ name: f.name, text }))));
+      for (const u of ups) if (!st.uploads.some((x) => x.name === u.name && x.text === u.text)) st.uploads.push(u);
+      run();
+    };
+    for (const b of document.querySelectorAll("[data-pl-drop]")) b.onclick = () => { const i = +b.dataset.plDrop; if (i < st.paths.length) st.paths.splice(i, 1); else st.uploads.splice(i - st.paths.length, 1); run(); };
+    for (const el of document.querySelectorAll("[data-pl-ref]")) el.onchange = () => { st.pick[+el.dataset.plRef] = +el.value; draw(); };
+    if ($("#pl-dest")) {
+      $("#pl-dest").onchange = (e) => { st.dest = e.target.value.trim(); localSet("pull.dest", st.dest); draw(); };
+      $("#pl-name").onchange = (e) => { st.name = e.target.value; };
+      $("#pl-dest-pick").onclick = async () => { const p = await pickFolder(st.dest); if (p) { st.dest = p; localSet("pull.dest", p); draw(); } };
+    }
+    if ($("#pl-go")) $("#pl-go").onclick = async () => {
+      st.dest = $("#pl-dest").value.trim(); st.name = $("#pl-name").value;
+      if (!st.dest) { toast("Choose a folder to pull into", true); return; }
+      $("#pl-go").disabled = true;
+      try {
+        const r = await api("/api/pull/run", { method: "POST", body: { token: a.token, dest: st.dest, name: st.name, picks: chosen.map((x) => ({ driveId: x.h.driveId, path: x.h.path })) } });
+        close();
+        toast(`${r.jobs.length} pull${r.jobs.length === 1 ? "" : "s"} started into ${r.into}${r.there.length ? ` · ${r.there.length} already on that drive` : ""}${r.unplugged.length ? ` · ${r.unplugged.map(driveTitle).join(", ")} not plugged in` : ""}`);
+        toggleActivity(true); loadJobs();
+      } catch (e) { toast(e.message, true); $("#pl-go").disabled = false; }
+    };
+  };
+  draw();
 }
 
 // findProjectsDialog looks through every logged drive for folders that

@@ -91,10 +91,15 @@ func (s *Server) archiveView(token string, run *archiveRun) ArchiveView {
 	return v
 }
 
-func (s *Server) keepArchive(run *archiveRun) string {
+// newToken is a random handle for an analysis kept on the server.
+func newToken() string {
 	b := make([]byte, 12)
 	rand.Read(b)
-	token := hex.EncodeToString(b)
+	return hex.EncodeToString(b)
+}
+
+func (s *Server) keepArchive(run *archiveRun) string {
+	token := newToken()
 	s.archMu.Lock()
 	defer s.archMu.Unlock()
 	if s.archives == nil {

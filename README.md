@@ -384,6 +384,25 @@ on one copy and every copy has them. **Export CSV…** writes the current
 list with every column; a project page has the same button for just its
 clips.
 
+### Pull shots from an edit
+
+The other way round from Archive: a selects reel, a trailer or a
+festival cut names twenty shots from across a feature, and the job is
+to gather their camera originals from wherever they are. **Projects →
+Pull shots from an edit…** takes the export (FCPXML, Premiere or FCP 7
+XML, an EDL, or a plain list of clip names) and matches every clip
+against the whole library, every drive, plugged in or not. An edit cut
+on proxies still points at the raws: `A001_C003_proxy.mp4` finds
+`A001_C003.braw`, and a RED chunk finds its whole .RDC folder. Each
+clip shows the copy Lumpy would pull (originals before proxies, camera
+formats before transcodes) with a menu of the other copies, a
+**proxy** badge when nothing better was found, and which drives to
+plug in. Choose a folder and a name and **Copy**: one verified job per
+source drive, each clip landing under a folder named after its drive
+with its path kept, so nothing collides and the provenance is plain.
+Clips whose drive isn't plugged in wait; choose the export again when
+it is. Clips already on the destination drive are left where they are.
+
 ### Find projects
 
 **Projects → Find projects…** looks through every logged drive's
