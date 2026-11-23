@@ -110,9 +110,11 @@ func (s *Server) Watch(ctx context.Context) {
 	go s.updateLoop(ctx)
 	go s.rescanLoop(ctx)
 	go s.awakeLoop(ctx)
-	// Whatever is plugged in when the app opens is logged (again) now,
-	// however the last session ended.
-	s.db.SetMounted(map[string]string{})
+	// Drives plugged in when the app opens: the ones already in the
+	// library are marked seen and, when their last scan is old, rescanned
+	// as jobs one by one in Activity; new ones are logged by the agent
+	// pass below. Nothing walks a drive before the window can draw.
+	s.startupDrives(ctx)
 	t := time.NewTicker(4 * time.Second)
 	defer t.Stop()
 	for {
@@ -128,6 +130,42 @@ func (s *Server) Watch(ctx context.Context) {
 			return
 		case <-t.C:
 		}
+	}
+}
+
+// startupDrives handles what is plugged in at launch.
+func (s *Server) startupDrives(ctx context.Context) {
+	now := map[string]string{}
+	var stale []*volume.Volume
+	for _, v := range s.mounted() {
+		d, err := s.db.Drive(v.ID)
+		if err != nil {
+			continue // new: the agent pass logs it
+		}
+		now[v.ID] = v.Mount
+		if d.NeverLog {
+			continue
+		}
+		s.db.SaveDrive(v) // seen now, with its free space
+		if time.Since(d.LastScan) > 24*time.Hour {
+			stale = append(stale, v)
+		}
+	}
+	// Known drives at their known mounts don't count as fresh; anything
+	// else does.
+	s.db.SetMounted(now)
+	for _, v := range stale {
+		v := v
+		d, _ := s.db.Drive(v.ID)
+		title := v.Name
+		if d != nil {
+			title = d.Title()
+		}
+		s.jobs.StartWhenFree("rescan", "Rescan "+title, "lumpy catalog "+shellQuote(v.Mount), []string{v.ID, "startup"}, func(ctx context.Context, rep *job.Report) error {
+			rep.Info("%s was last scanned %s ago; bringing the library up to date.", title, time.Since(d.LastScan).Round(time.Hour))
+			_, err := job.CatalogDrive(ctx, s.db, v, rep)
+			return err
+		})
 	}
 }
 
@@ -357,52 +395,30 @@ const summaryTTL = 20 * time.Second
 // never stale.
 func (s *Server) extras(ds []*catalog.Drive) map[string]*driveExtra {
 	key := libraryKey(ds)
-	busy := s.jobs.AnyRunning()
 	s.mu.Lock()
-	if key == s.cacheKey {
-		m := s.summary
-		s.mu.Unlock()
-		return m
+	defer s.mu.Unlock()
+	if key == s.cacheKey && s.summary != nil {
+		return s.summary
 	}
-	if s.summary != nil && busy {
-		m := s.summary
-		if !s.refreshing && time.Since(s.summaryAt) >= summaryTTL {
-			s.refreshing = true
-			go s.computeExtras(ds, key)
-		}
-		s.mu.Unlock()
-		return s.withMissing(m, ds)
+	// Out of date, or nothing yet: hand back what there is and
+	// recompute behind the request, at most once at a time and no
+	// more often than the TTL while a job keeps changing the library.
+	if !s.refreshing && (s.summary == nil || time.Since(s.summaryAt) >= summaryTTL || !s.jobs.AnyRunning()) {
+		s.refreshing = true
+		go s.computeExtras(ds, key)
 	}
-	s.mu.Unlock()
-	return s.computeExtras(ds, key)
+	if s.summary == nil {
+		return map[string]*driveExtra{}
+	}
+	return s.summary
 }
 
-// withMissing adds summaries for drives the cached map does not know.
-func (s *Server) withMissing(m map[string]*driveExtra, ds []*catalog.Drive) map[string]*driveExtra {
-	var missing []*catalog.Drive
-	for _, d := range ds {
-		if m[d.ID] == nil {
-			missing = append(missing, d)
-		}
-	}
-	if len(missing) == 0 {
-		return m
-	}
-	out := make(map[string]*driveExtra, len(m)+len(missing))
-	for k, v := range m {
-		out[k] = v
-	}
-	for _, d := range missing {
-		out[d.ID] = s.extraOf(d)
-	}
+// summarising says whether fresh summaries are being computed, so the
+// page asks again soon instead of waiting on the request.
+func (s *Server) summarising() bool {
 	s.mu.Lock()
-	if s.summary != nil {
-		for _, d := range missing {
-			s.summary[d.ID] = out[d.ID]
-		}
-	}
-	s.mu.Unlock()
-	return out
+	defer s.mu.Unlock()
+	return s.refreshing || s.summary == nil
 }
 
 func (s *Server) extraOf(d *catalog.Drive) *driveExtra {
@@ -527,7 +543,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	return map[string]any{
 		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects, "ffmpeg": media.FFmpeg() != "",
 		"agent": agent.Status(), "version": s.meta.Version, "home": filepath.Dir(s.lockPath),
-		"update": s.updateSummary(), "recent": s.db.RecentOffloads(), "awake": s.awakeStatus(),
+		"update": s.updateSummary(), "recent": s.db.RecentOffloads(), "awake": s.awakeStatus(), "summarising": s.summarising(),
 	}, nil
 }
 

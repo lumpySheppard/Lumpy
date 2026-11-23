@@ -339,6 +339,17 @@ awake while the Mac is: **Keep the Mac awake too** runs macOS's
 `caffeinate` while Lumpy is open, so the Mac never idle-sleeps (the
 display still can), and it stops the moment Lumpy quits.
 
+### Starting up
+
+The window draws as soon as the engine answers, before any drive is
+touched. Each card's backup badge is computed behind the request and
+arrives a moment later (the page asks again until it does), so a big
+library never holds the first paint. Drives plugged in at launch are
+marked seen; one whose last scan is more than a day old is rescanned
+as an ordinary job in Activity, one at a time, rather than every
+drive being walked silently before the app is usable, as earlier
+versions did.
+
 ### One job at a time per drive
 
 A drive does one thing at a time. Start a check while an offload is

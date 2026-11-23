@@ -152,7 +152,8 @@ func Open(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	dsn := "file:" + path + "?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
+	dsn := "file:" + path + "?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
+		"&_pragma=synchronous(NORMAL)&_pragma=cache_size(-65536)&_pragma=temp_store(MEMORY)&_pragma=mmap_size(268435456)"
 	s, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -164,6 +165,9 @@ func Open(path string) (*DB, error) {
 		s.Close()
 		return nil, fmt.Errorf("opening drive library %s: %w", path, err)
 	}
+	// Fresh statistics so the planner picks the indexes for the joins
+	// behind every card; cheap when nothing changed.
+	s.Exec(`PRAGMA optimize`)
 	// Projects made before folders were supported listed whole drives.
 	s.Exec(`INSERT OR IGNORE INTO project_sources (project_id, drive_id, folder) SELECT project_id, drive_id, '' FROM project_drives`)
 	s.Exec(`DROP TABLE IF EXISTS project_drives`)

@@ -157,6 +157,9 @@ async function loadState() {
     if (first || !S.settings) S.settings = await api("/api/settings").catch(() => null);
     const after = S.state.drives.map((d) => d.id + (d.connected ? "+" : "-")).join();
     if (before !== after && S.onDrives) S.onDrives();
+    // The cards draw at once; their backup badges arrive when the
+    // summaries are done, a moment later.
+    if (S.state.summarising) { clearTimeout(S.sumTimer); S.sumTimer = setTimeout(loadState, 1500); }
     // The offload form keeps what's being typed; only the counts refresh.
     if (!first && (S.tab === "offload" || S.tab === "media" || S.tab === "space")) { renderCounts(); if (S.tab === "space") spaceTick(); }
     else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }

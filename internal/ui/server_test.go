@@ -103,7 +103,7 @@ func TestOffloadAndLibraryThroughAPI(t *testing.T) {
 	var st struct {
 		Drives []DriveView
 	}
-	call(t, s, ts, "GET", "/api/state", "", &st)
+	stateSettled(t, s, ts, &st)
 	var card DriveView
 	for _, d := range st.Drives {
 		if d.Name == "A001" {
@@ -181,7 +181,7 @@ func TestProjectsThroughAPI(t *testing.T) {
 	os.Mkdir(filepath.Join(vols, "SPARE"), 0o755)
 	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
 	var st struct{ Drives []DriveView }
-	call(t, s, ts, "GET", "/api/state", "", &st)
+	stateSettled(t, s, ts, &st)
 	ids := map[string]string{}
 	for _, d := range st.Drives {
 		ids[d.Name] = d.ID
@@ -266,7 +266,7 @@ func TestPlanStepsShowRunningAndBusy(t *testing.T) {
 	os.WriteFile(filepath.Join(vols, "A", "clip.mov"), []byte("only here"), 0o644)
 	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
 	var st struct{ Drives []DriveView }
-	call(t, s, ts, "GET", "/api/state", "", &st)
+	stateSettled(t, s, ts, &st)
 	ids := map[string]string{}
 	for _, d := range st.Drives {
 		ids[d.Name] = d.ID
@@ -387,7 +387,7 @@ func TestUpdateThroughAPI(t *testing.T) {
 		t.Fatalf("check: %+v", v)
 	}
 	var st struct{ Update map[string]any }
-	call(t, s, ts, "GET", "/api/state", "", &st)
+	stateSettled(t, s, ts, &st)
 	if st.Update["available"] != "0.9.0" {
 		t.Fatalf("state: %+v", st.Update)
 	}
@@ -416,4 +416,22 @@ func zipBytes(files map[string]string) []byte {
 func sha256Hex(b []byte) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:])
+}
+
+// stateSettled reads /api/state once the backup summaries, which are
+// computed behind the request, have caught up with the library.
+func stateSettled(t *testing.T, s *Server, ts *httptest.Server, into any) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var probe struct {
+			Summarising bool `json:"summarising"`
+		}
+		call(t, s, ts, "GET", "/api/state", "", &probe)
+		if !probe.Summarising || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	call(t, s, ts, "GET", "/api/state", "", into)
 }
