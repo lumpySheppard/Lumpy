@@ -1496,6 +1496,10 @@ async function pullDialog() {
           <div class="path-row"><input class="path-input" id="pl-dest" value="${esc(st.dest)}" placeholder="/Volumes/SHUTTLE_1" spellcheck="false"><button class="btn" id="pl-dest-pick">Choose…</button></div>
           <div class="path-row" style="margin-top:8px"><span class="hint" style="flex:none">in a folder named</span><input class="path-input" id="pl-name" value="${esc(st.name)}" placeholder="Pull ${new Date().toISOString().slice(0, 10)}" spellcheck="false"></div>
           <p class="hint" style="margin:8px 0 0">Each clip lands under a folder named after the drive it came from, keeping its path, so nothing collides and you can tell where it was. Every copy is read back and checked. Drives not plugged in are left for later: choose the export again when they are.</p>
+        </div></div>
+        <div class="sec"><div class="sec-title">${ICON.reveal}Or don't copy: point the edit at the originals where they are</div><div class="box">
+          <div class="step-run" style="margin-top:0;flex-wrap:wrap"><button class="btn" id="pl-copy-paths">${ICON.copy}Copy paths</button><button class="btn" id="pl-save-csv">${ICON.export}Save list…</button><button class="btn" id="pl-relink" ${chosen.length - unplugged.length ? "" : ""}>${ICON.play}Relink in DaVinci Resolve</button></div>
+          <p class="hint" style="margin:8px 0 0"><b>Copy paths</b> puts one full path per line on the clipboard; <b>Save list</b> writes a CSV with clip, path, drive and whether it's plugged in. <b>Relink in DaVinci Resolve</b> asks the open Resolve project to replace each media pool clip with its original, keeping every timeline use: Resolve must be open on the project with <i>Preferences → System → General → External scripting using: Local</i>, and the drives plugged in. A clip whose drive is unplugged is skipped and said so in Activity.</p>
         </div></div>` : ""}
       </div>
       <div class="sheet-foot"><button class="btn" id="pl-cancel">Close</button>${a ? `<button class="btn primary" id="pl-go" ${chosen.length && !busy ? "" : "disabled"}>${ICON.copy}Copy ${chosen.length - chosen.filter((x) => unplugged.includes(x.h.driveId)).length} of ${chosen.length} clips now</button>` : ""}</div>`);
@@ -1517,6 +1521,25 @@ async function pullDialog() {
       $("#pl-dest").onchange = (e) => { st.dest = e.target.value.trim(); localSet("pull.dest", st.dest); draw(); };
       $("#pl-name").onchange = (e) => { st.name = e.target.value; };
       $("#pl-dest-pick").onclick = async () => { const p = await pickFolder(st.dest); if (p) { st.dest = p; localSet("pull.dest", p); draw(); } };
+    }
+    const picks = () => chosen.map((x) => ({ driveId: x.h.driveId, path: x.h.path }));
+    if ($("#pl-copy-paths")) {
+      $("#pl-copy-paths").onclick = async () => {
+        try {
+          const list = await api("/api/pull/paths", { method: "POST", body: { token: a.token, picks: picks() } });
+          const text = list.map((x) => x.full).join("\n");
+          if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+          else { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+          toast(`${list.length} path${list.length === 1 ? "" : "s"} copied${list.some((x) => !x.mounted) ? " · some drives aren't plugged in; their paths are where they were last seen" : ""}`);
+        } catch (e) { toast(e.message, true); }
+      };
+      $("#pl-save-csv").onclick = () => downloadCSV("/api/pull/paths", `pull-${new Date().toISOString().slice(0, 10)}.csv`, { token: a.token, format: "csv", picks: picks() });
+      $("#pl-relink").onclick = async () => {
+        $("#pl-relink").disabled = true;
+        try { await api("/api/pull/relink", { method: "POST", body: { token: a.token, picks: picks() } }); toast("Asking Resolve to relink… (see Activity)"); toggleActivity(true); loadJobs(); }
+        catch (e) { toast(e.message, true); }
+        $("#pl-relink").disabled = false;
+      };
     }
     if ($("#pl-go")) $("#pl-go").onclick = async () => {
       st.dest = $("#pl-dest").value.trim(); st.name = $("#pl-name").value;
@@ -2785,9 +2808,9 @@ $("#update-pill").onclick = () => openSettings("updates");
 $("#refresh").onclick = () => { loadState(); loadJobs(); };
 $(".search-icon").innerHTML = ICON.search;
 $("#export").innerHTML = ICON.export + "Export CSV…";
-async function downloadCSV(url, name) {
+async function downloadCSV(url, name, body) {
   try {
-    const res = await fetch(url, { headers: { "X-Lumpy-Token": token } });
+    const res = await fetch(url, { method: body ? "POST" : "GET", headers: { "X-Lumpy-Token": token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
     if (!res.ok) throw new Error(res.statusText);
     const text = await res.text();
     if (native) { const saved = await nativeCall("saveFile", { name, content: text }); if (saved) toast("Saved " + saved); return; }

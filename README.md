@@ -403,6 +403,17 @@ with its path kept, so nothing collides and the provenance is plain.
 Clips whose drive isn't plugged in wait; choose the export again when
 it is. Clips already on the destination drive are left where they are.
 
+Or don't copy at all. **Copy paths** puts one full path per line on
+the clipboard and **Save list…** writes a CSV (clip, path, drive,
+plugged in), for Resolve, Premiere or whoever asked. **Relink in
+DaVinci Resolve** goes one further: with Resolve open on the project
+and *Preferences → System → General → External scripting using* set to
+*Local*, Lumpy asks Resolve to replace each media pool clip with its
+original, keeping every timeline use, so a cut made on proxies points
+at the raws without a copy. It needs `python3` on the Mac (Xcode's
+command line tools provide one). Activity shows each clip relinked, and
+which were skipped because their drive isn't plugged in.
+
 ### Find projects
 
 **Projects → Find projects…** looks through every logged drive's

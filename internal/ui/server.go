@@ -231,6 +231,8 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/projects/{id}/proxies", s.projectProxies)
 	api("POST /api/pull", s.analysePull)
 	api("POST /api/pull/run", s.runPull)
+	api("POST /api/pull/paths", s.pullPaths)
+	api("POST /api/pull/relink", s.relinkResolve)
 	api("POST /api/projects/{id}/archive", s.analyseArchive)
 	api("POST /api/projects/{id}/archive/apply", s.applyArchive)
 	api("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) (any, error) { return s.jobs.List(400), nil })
