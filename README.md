@@ -503,7 +503,20 @@ Trash**, and before anything goes Lumpy looks at each item properly:
 where it sits, when it last changed, whether a running app has it
 open, whether it is a folder of a Lumpy project, and whether the
 library holds a copy; critical items come unticked. Then it goes
-through the Finder, so it can be put back, and the rings update. Show in Finder opens the item. Sizes are
+through the Finder, so it can be put back, and the rings update.
+
+Beside **Folders**, two more views of the same measurement.
+**Duplicates** finds the same file twice: every file of 1 MB or more
+is compared by length, the ones that share a length are read and
+checksummed in full, and only identical contents count; pick which
+copy to keep in each set and the rest are ticked for the Trash (two
+copies on one disk protect nothing; a backup lives on another drive).
+It runs in Activity, since a big disk takes a while. **Not touched in
+a year** lists the big files neither changed nor opened in 365 days,
+biggest first (opened is the access time macOS keeps for its own
+disk), and apps not opened in a year by Spotlight's last-used date,
+with their sizes. Old isn't the same as unneeded, so nothing is ticked
+until you tick it, and the same check runs before anything goes. Show in Finder opens the item. Sizes are
 what files take on disk; each folder keeps its 60 biggest items apart
 and rolls the rest into "smaller items". The measurement runs as a job
 (Activity shows the folder being read), is kept until Lumpy quits, and

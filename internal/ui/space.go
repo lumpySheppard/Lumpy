@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -26,11 +27,18 @@ import (
 type spaceScan struct {
 	root  string
 	tree  *space.Node
+	big   []space.BigFile
 	at    time.Time
 	job   int
 	prog  *space.Progress
 	total int64 // the volume's capacity
 	free  int64
+	// The duplicate search, once asked for.
+	dupes     []space.DupeGroup
+	dupeBytes int64
+	dupeJob   int
+	dupeBusy  bool
+	dupeProg  *space.Progress
 }
 
 type spaceStore struct {
@@ -126,7 +134,7 @@ func (s *Server) spaceStart(w http.ResponseWriter, r *http.Request) (any, error)
 				}
 			}
 		}()
-		tree, err := space.Scan(ctx, root, sc.prog)
+		res, err := space.ScanAll(ctx, root, sc.prog)
 		close(done)
 		if err != nil {
 			s.spc.mu.Lock()
@@ -134,10 +142,12 @@ func (s *Server) spaceStart(w http.ResponseWriter, r *http.Request) (any, error)
 			s.spc.mu.Unlock()
 			return err
 		}
+		tree := res.Tree
 		s.spc.mu.Lock()
-		sc.tree, sc.at = tree, time.Now()
+		sc.tree, sc.big, sc.at = tree, res.Big, time.Now()
+		sc.dupes, sc.dupeBytes, sc.dupeBusy = nil, 0, false
 		s.spc.mu.Unlock()
-		rep.Info("%s in %s files", job.Bytes(tree.Bytes), fmtInt(tree.Files))
+		rep.Info("%s in %s files; %s of them 1 MB or more", job.Bytes(tree.Bytes), fmtInt(tree.Files), fmtInt(int64(len(res.Big))))
 		return nil
 	})
 	sc.job = j.ID
@@ -235,7 +245,7 @@ func (s *Server) spaceTrash(w http.ResponseWriter, r *http.Request) (any, error)
 	var full []string
 	for _, it := range body.Items {
 		it = strings.Trim(it, "/")
-		if it == "" || strings.Contains(it, "..") || sc.tree.At(it) == nil {
+		if it == "" || strings.Contains(it, "..") || (sc.tree.At(it) == nil && sc.bigAt(it) == nil) {
 			return nil, badRequest("%s is not in the measurement", it)
 		}
 		full = append(full, filepath.Join(root, filepath.FromSlash(it)))
@@ -251,9 +261,12 @@ func (s *Server) spaceTrash(w http.ResponseWriter, r *http.Request) (any, error)
 			rel := strings.Trim(body.Items[i], "/")
 			if n := sc.tree.At(rel); n != nil {
 				freed += n.Bytes
+			} else if b := sc.bigAt(rel); b != nil {
+				freed += b.Disk
 			}
 			s.spc.mu.Lock()
 			sc.tree.Remove(rel)
+			sc.dropBig(rel)
 			s.spc.mu.Unlock()
 			gone = append(gone, rel)
 		}
@@ -314,6 +327,11 @@ func (s *Server) spaceCheck(w http.ResponseWriter, r *http.Request) (any, error)
 	for _, it := range body.Items {
 		rel := strings.Trim(it, "/")
 		n := sc.tree.At(rel)
+		if n == nil {
+			if b := sc.bigAt(rel); b != nil {
+				n = &space.Node{Name: path.Base(rel), Bytes: b.Disk, Len: b.Size, Files: 1}
+			}
+		}
 		if rel == "" || strings.Contains(rel, "..") || n == nil {
 			continue
 		}
@@ -451,4 +469,211 @@ func openBy(p string, dir bool, files int64) []string {
 	}
 	sort.Strings(apps)
 	return apps
+}
+
+// bigAt finds a remembered big file by its path; dropBig forgets one.
+func (sc *spaceScan) bigAt(rel string) *space.BigFile {
+	for i := range sc.big {
+		if sc.big[i].Rel == rel {
+			return &sc.big[i]
+		}
+	}
+	return nil
+}
+func (sc *spaceScan) dropBig(rel string) {
+	for i := range sc.big {
+		if sc.big[i].Rel == rel || strings.HasPrefix(sc.big[i].Rel, rel+"/") {
+			sc.big = append(sc.big[:i], sc.big[i+1:]...)
+			sc.dropBig(rel)
+			return
+		}
+	}
+	for gi := range sc.dupes {
+		g := &sc.dupes[gi]
+		kept := g.Paths[:0]
+		for _, p := range g.Paths {
+			if p != rel && !strings.HasPrefix(p, rel+"/") {
+				kept = append(kept, p)
+			}
+		}
+		g.Paths = kept
+		g.Wasted = g.Size * int64(max(0, len(kept)-1))
+	}
+}
+
+// spaceDupes starts (POST) or reports (GET) the duplicate search for
+// a measured place: identical big files, proven by hash.
+func (s *Server) spaceDupes(w http.ResponseWriter, r *http.Request) (any, error) {
+	root := filepath.Clean(r.URL.Query().Get("path"))
+	s.spc.mu.Lock()
+	sc := s.spc.scans[root]
+	s.spc.mu.Unlock()
+	if sc == nil || sc.tree == nil {
+		return nil, badRequest("measure it first")
+	}
+	if r.Method == http.MethodGet {
+		s.spc.mu.Lock()
+		defer s.spc.mu.Unlock()
+		if sc.dupeBusy {
+			var hashed int64
+			if sc.dupeProg != nil {
+				hashed = sc.dupeProg.Bytes.Load()
+			}
+			return map[string]any{"busy": true, "hashed": hashed, "job": sc.dupeJob}, nil
+		}
+		if sc.dupes == nil {
+			return map[string]any{"ready": false}, nil
+		}
+		groups := sc.dupes
+		if len(groups) > 300 {
+			groups = groups[:300]
+		}
+		var wasted int64
+		for _, g := range sc.dupes {
+			wasted += g.Wasted
+		}
+		return map[string]any{"ready": true, "groups": groups, "wasted": wasted, "candidates": len(sc.big)}, nil
+	}
+	s.spc.mu.Lock()
+	if sc.dupeBusy {
+		s.spc.mu.Unlock()
+		return map[string]any{"job": sc.dupeJob}, nil
+	}
+	sc.dupeBusy = true
+	sc.dupeProg = &space.Progress{}
+	big := sc.big
+	s.spc.mu.Unlock()
+	// Only files that share a length with another get read.
+	bySize := map[int64]int{}
+	for _, f := range big {
+		bySize[f.Size]++
+	}
+	var toRead int64
+	for _, f := range big {
+		if bySize[f.Size] > 1 {
+			toRead += f.Size
+		}
+	}
+	name := filepath.Base(root)
+	if root == "/" {
+		name = "Macintosh HD"
+	} else if home, err := os.UserHomeDir(); err == nil && root == filepath.Clean(home) {
+		name = "Home"
+	}
+	j := s.jobs.Start("space", "Find duplicates on "+name, "lumpy space --dupes "+shellQuote(root), "", func(ctx context.Context, rep *job.Report) error {
+		rep.Info("Reading %s of files that share a size with another, to see which are the same…", job.Bytes(toRead))
+		done := make(chan struct{})
+		go func() {
+			t := time.NewTicker(2 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-t.C:
+					cur, _ := sc.dupeProg.Current.Load().(string)
+					rep.Detail("  %s of %s · %s", job.Bytes(sc.dupeProg.Bytes.Load()), job.Bytes(toRead), cur)
+				}
+			}
+		}()
+		groups, wasted, err := space.Dupes(ctx, root, big, sc.dupeProg)
+		close(done)
+		s.spc.mu.Lock()
+		sc.dupeBusy = false
+		if err == nil {
+			if groups == nil {
+				groups = []space.DupeGroup{}
+			}
+			sc.dupes, sc.dupeBytes = groups, wasted
+		}
+		s.spc.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		rep.Info("%d sets of identical files; %s taken by the extra copies", len(groups), job.Bytes(wasted))
+		return nil
+	})
+	s.spc.mu.Lock()
+	sc.dupeJob = j.ID
+	s.spc.mu.Unlock()
+	return map[string]any{"job": j.ID}, nil
+}
+
+// spaceOld lists big files neither changed nor opened in a year, and
+// apps not opened in a year (from Spotlight's last-used date).
+func (s *Server) spaceOld(w http.ResponseWriter, r *http.Request) (any, error) {
+	root := filepath.Clean(r.URL.Query().Get("path"))
+	s.spc.mu.Lock()
+	sc := s.spc.scans[root]
+	s.spc.mu.Unlock()
+	if sc == nil || sc.tree == nil {
+		return nil, badRequest("measure it first")
+	}
+	days := 365
+	fmt.Sscan(r.URL.Query().Get("days"), &days)
+	if days < 30 {
+		days = 30
+	}
+	var big []space.BigFile
+	for _, f := range sc.big {
+		if !space.IsUnderApp(f.Rel) {
+			big = append(big, f)
+		}
+	}
+	files, total := space.Old(big, time.Duration(days)*24*time.Hour, 400)
+	if files == nil {
+		files = []space.BigFile{}
+	}
+	type app struct {
+		Rel      string `json:"rel"`
+		Name     string `json:"name"`
+		Bytes    int64  `json:"bytes"`
+		LastUsed int64  `json:"lastUsed"` // 0: never, as far as Spotlight knows
+	}
+	apps := []app{}
+	home, _ := os.UserHomeDir()
+	for _, dir := range []string{"/Applications", filepath.Join(home, "Applications")} {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		n := sc.tree.At(filepath.ToSlash(rel))
+		if n == nil {
+			continue
+		}
+		for _, c := range n.Children {
+			if !strings.HasSuffix(c.Name, ".app") {
+				continue
+			}
+			full := filepath.Join(dir, c.Name)
+			used := lastUsed(full)
+			if used.IsZero() {
+				continue // Spotlight doesn't know; say nothing rather than guess
+			}
+			if time.Since(used) > time.Duration(days)*24*time.Hour {
+				apps = append(apps, app{Rel: filepath.ToSlash(filepath.Join(rel, c.Name)), Name: strings.TrimSuffix(c.Name, ".app"), Bytes: c.Bytes, LastUsed: used.Unix()})
+			}
+		}
+	}
+	sort.Slice(apps, func(i, j int) bool { return apps[i].Bytes > apps[j].Bytes })
+	return map[string]any{"days": days, "files": files, "total": total, "apps": apps, "candidates": len(big)}, nil
+}
+
+// lastUsed asks Spotlight when an app was last opened; zero when it
+// doesn't know or this isn't a Mac.
+func lastUsed(p string) time.Time {
+	if _, err := exec.LookPath("mdls"); err != nil {
+		return time.Time{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "mdls", "-name", "kMDItemLastUsedDate", "-raw", p).Output()
+	if err != nil {
+		return time.Time{}
+	}
+	t, err := time.Parse("2006-01-02 15:04:05 -0700", strings.TrimSpace(string(out)))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

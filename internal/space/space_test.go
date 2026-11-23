@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestScanPrunesAndSums(t *testing.T) {
@@ -46,5 +47,41 @@ func TestScanPrunesAndSums(t *testing.T) {
 	tr := n.Trim(1)
 	if len(tr.Children) == 0 || tr.Children[0].Children != nil {
 		t.Fatal("trim keeps one level")
+	}
+}
+
+func TestDupesAndOld(t *testing.T) {
+	dir := t.TempDir()
+	same := make([]byte, BigSize+5)
+	for i := range same {
+		same[i] = byte(i)
+	}
+	os.MkdirAll(filepath.Join(dir, "a"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "b"), 0o755)
+	os.WriteFile(filepath.Join(dir, "a", "x.mov"), same, 0o644)
+	os.WriteFile(filepath.Join(dir, "b", "copy of x.mov"), same, 0o644)
+	diff := make([]byte, BigSize+5)
+	os.WriteFile(filepath.Join(dir, "b", "y.mov"), diff, 0o644) // same length, other bytes
+	old := filepath.Join(dir, "old.bin")
+	os.WriteFile(old, same, 0o644)
+	past := time.Now().Add(-400 * 24 * time.Hour)
+	os.Chtimes(old, past, past)
+	r, err := ScanAll(context.Background(), dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Big) != 4 {
+		t.Fatalf("big files: %d", len(r.Big))
+	}
+	groups, wasted, err := Dupes(context.Background(), dir, r.Big, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || len(groups[0].Paths) != 3 || wasted != 2*int64(len(same)) {
+		t.Fatalf("groups %+v wasted %d", groups, wasted)
+	}
+	olds, total := Old(r.Big, 365*24*time.Hour, 10)
+	if len(olds) != 1 || olds[0].Rel != "old.bin" || total == 0 {
+		t.Fatalf("old: %+v", olds)
 	}
 }

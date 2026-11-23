@@ -39,19 +39,45 @@ type Progress struct {
 	Current atomic.Value // string: the folder being read
 }
 
+// Result is a scan's tree and the big files it saw, with their times.
+type Result struct {
+	Tree *Node
+	Big  []BigFile
+}
+
 // Scan measures root. Symlinks are not followed, other volumes mounted
 // below root are skipped, and sizes are what the files take on disk
 // (allocated blocks), so a sparse or cloud-only file counts as what
 // it costs.
 func Scan(ctx context.Context, root string, prog *Progress) (*Node, error) {
+	r, err := ScanAll(ctx, root, prog)
+	if err != nil {
+		return nil, err
+	}
+	return r.Tree, nil
+}
+
+// ScanAll is Scan with the big files kept for the finders.
+func ScanAll(ctx context.Context, root string, prog *Progress) (*Result, error) {
 	st, err := os.Lstat(root)
 	if err != nil {
 		return nil, err
 	}
-	dev := deviceOf(st)
-	n := walk(ctx, root, st, dev, prog)
+	w := &walker{root: root, dev: deviceOf(st), prog: prog}
+	n := w.walk(ctx, root, st)
 	n.Name = root
-	return n, ctx.Err()
+	w.mu.Lock()
+	big := w.big
+	w.mu.Unlock()
+	return &Result{Tree: n, Big: big}, ctx.Err()
+}
+
+type walker struct {
+	root string
+	dev  uint64
+	prog *Progress
+	mu   sync.Mutex
+	big  []BigFile
 }
 
 func deviceOf(st os.FileInfo) uint64 {
@@ -77,7 +103,8 @@ func onDisk(st os.FileInfo) int64 {
 // walk measures one folder with a bounded fan-out: the top of the tree
 // reads its subfolders in parallel, deeper ones in sequence, so a
 // fast SSD is kept busy without thousands of goroutines.
-func walk(ctx context.Context, dir string, st os.FileInfo, dev uint64, prog *Progress) *Node {
+func (w *walker) walk(ctx context.Context, dir string, st os.FileInfo) *Node {
+	dev, prog := w.dev, w.prog
 	n := &Node{Name: st.Name(), Dir: true}
 	if ctx.Err() != nil {
 		return n
@@ -125,10 +152,10 @@ func walk(ctx context.Context, dir string, st os.FileInfo, dev uint64, prog *Pro
 				go func() {
 					defer wg.Done()
 					defer func() { <-sem }()
-					add(walk(ctx, full, info, dev, prog))
+					add(w.walk(ctx, full, info))
 				}()
 			default:
-				add(walk(ctx, full, info, dev, prog))
+				add(w.walk(ctx, full, info))
 			}
 			continue
 		}
@@ -136,6 +163,13 @@ func walk(ctx context.Context, dir string, st os.FileInfo, dev uint64, prog *Pro
 			continue
 		}
 		size := onDisk(info)
+		if info.Size() >= BigSize {
+			if rel, err := filepath.Rel(w.root, full); err == nil {
+				w.mu.Lock()
+				w.big = append(w.big, BigFile{Rel: filepath.ToSlash(rel), Size: info.Size(), Disk: size, Mtime: info.ModTime().Unix(), Atime: atimeOf(info)})
+				w.mu.Unlock()
+			}
+		}
 		mu.Lock()
 		n.Children = append(n.Children, &Node{Name: name, Bytes: size, Len: info.Size(), Files: 1})
 		n.Bytes += size

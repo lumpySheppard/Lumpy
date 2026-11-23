@@ -2791,7 +2791,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab ==
 // big things in the Trash. The measurement lives on the server; the
 // page asks for the rings around the folder in view.
 const VD_LABEL = { safe: "safe to clear", check: "look first", critical: "critical", ok: "nothing against it" };
-const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true };
+const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null };
 async function renderSpace() {
   const main = $("#main");
   if (!SP.places) { main.innerHTML = loadingGlyph("Looking at the disks…"); try { SP.places = await api("/api/space/places"); } catch (e) { main.innerHTML = `<div class="empty"><h2>Can't look</h2><p>${esc(e.message)}</p></div>`; return; } }
@@ -2811,6 +2811,8 @@ async function renderSpace() {
     : `<div class="sp-body">
         <div class="sp-chart" id="sp-chart">${sunburst(d.node)}</div>
         <div class="sp-side">
+          <div class="seg sp-views" id="sp-views">${[["folders", "Folders"], ["dupes", "Duplicates"], ["old", "Not touched in a year"]].map(([v, l]) => `<button data-spv="${v}" class="${SP.view === v ? "on" : ""}">${l}</button>`).join("")}</div>
+          ${SP.view === "dupes" ? spaceDupesHTML() : SP.view === "old" ? spaceOldHTML() : `
           <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
           <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span></div>
           ${(d.suspects || []).length ? `<details class="sp-sus" ${SP.susOpen ? "open" : ""}><summary><b>Usual suspects</b><span class="hint">· ${bytes(d.suspects.reduce((t, x) => t + (x.risk === "keep" ? 0 : x.bytes), 0))} in caches, renders and leftovers that can go</span></summary>
@@ -2827,7 +2829,7 @@ async function renderSpace() {
               <span class="sp-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
               <span class="sp-size">${bytes(c.bytes)}</span>
               <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>
-          <p class="hint" style="margin-top:10px">Sizes are what files take on disk. Each folder keeps its ${60} biggest items apart and rolls the rest into "smaller items". The Mac's own disk also holds system files, snapshots and purgeable space that no app can measure; what Finder says is used can be more than this.</p>
+          <p class="hint" style="margin-top:10px">Sizes are what files take on disk. Each folder keeps its ${60} biggest items apart and rolls the rest into "smaller items". The Mac's own disk also holds system files, snapshots and purgeable space that no app can measure; what Finder says is used can be more than this.</p>`}
         </div></div>`}
   </div>`;
   $("#sp-place").onchange = (e) => { SP.root = e.target.value; localSet("space.root", SP.root); SP.at = ""; SP.sel.clear(); SP.data = null; spaceLoad(); };
@@ -2840,17 +2842,56 @@ async function renderSpace() {
   for (const el of document.querySelectorAll("[data-sp-pick]")) el.onchange = () => { if (el.checked) SP.sel.add(el.dataset.spPick); else SP.sel.delete(el.dataset.spPick); renderSpace(); };
   for (const row of document.querySelectorAll("[data-sp-row]")) { row.onmouseenter = () => spHover(row.dataset.spRow); row.onmouseleave = () => spHover(null); row.ondblclick = () => { const c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === row.dataset.spRow); if (c && c.dir) { SP.at = row.dataset.spRow; spaceLoad(); } }; }
   if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
+  for (const b of document.querySelectorAll("[data-spv]")) b.onclick = () => { SP.view = b.dataset.spv; if (SP.view === "dupes" && !SP.dupes) spaceDupesLoad(); if (SP.view === "old" && !SP.old) spaceOldLoad(); renderSpace(); };
+  if ($("#sp-dupes-go")) $("#sp-dupes-go").onclick = async () => { try { await api("/api/space/dupes?path=" + encodeURIComponent(SP.root), { method: "POST" }); SP.dupes = { busy: true }; renderSpace(); loadJobs(); } catch (e) { toast(e.message, true); } };
+  for (const b of document.querySelectorAll("[data-sp-dupe-all]")) b.onclick = () => { const g = SP.dupes.groups[+b.dataset.spDupeAll]; g.paths.forEach((p, i) => { if (i) SP.sel.add(p); else SP.sel.delete(p); }); renderSpace(); };
+  for (const el of document.querySelectorAll("[data-sp-keep]")) el.onchange = () => {
+    // In a set of identical files, one is kept and the rest ticked.
+    const g = SP.dupes.groups[+el.dataset.spKeep];
+    for (const p of g.paths) SP.sel.delete(p);
+    for (const p of g.paths) if (p !== el.value) SP.sel.add(p);
+    renderSpace();
+  };
   const sus = document.querySelector(".sp-sus");
   if (sus) sus.ontoggle = () => { SP.susOpen = sus.open; };
   wireSunburst(d);
   if (!d && !SP.busy && place.done) spaceLoad();
   if (place.busy && !SP.busy) { SP.busy = true; renderSpace(); }
 }
+function spaceDupesHTML() {
+  const dd = SP.dupes;
+  if (!dd) return loadingGlyph("");
+  if (dd.busy) return `<div class="empty">${loadingGlyph("")}<h2>Reading files that share a size</h2><p>${bytes(dd.hashed || 0)} read so far. Only files the same length as another are read, and each is checksummed in full, so a match is a real one. See Activity.</p></div>`;
+  if (!dd.ready) return `<div class="empty">${ICON.copy}<h2>Find the same file twice</h2><p>Lumpy compares every file of 1 MB or more by length, then reads the ones that share a length and checksums them, so two files count as the same only when their contents are. Takes a while on a big disk; it runs in Activity.</p><p><button class="btn primary" id="sp-dupes-go">${ICON.play}Find duplicates</button></p></div>`;
+  if (!dd.groups.length) return `<div class="alert ok" style="margin-top:8px"><b>No duplicates</b> among ${dd.candidates.toLocaleString()} files of 1 MB or more.</div>`;
+  return `<div class="sp-head"><b>${bytes(dd.wasted)}</b><span class="hint">· in extra copies, ${dd.groups.length} set${dd.groups.length === 1 ? "" : "s"} of identical files</span></div>
+    <p class="hint" style="margin:0 0 8px">Pick which copy to keep in each set; the others are ticked for the Trash. Two copies on the same disk protect nothing: a backup lives on another drive.</p>
+    <div class="sp-dupes">${dd.groups.map((g, gi) => `<div class="sp-dgroup"><div class="sp-dhead"><b>${esc(g.paths[0].split("/").pop())}</b><span class="hint">· ${g.paths.length} copies · ${bytes(g.size)} each · ${bytes(g.wasted)} to free</span></div>
+      ${g.paths.map((p) => `<label class="sp-drow ${SP.sel.has(p) ? "go" : ""}"><input type="radio" name="keep${gi}" data-sp-keep="${gi}" value="${esc(p)}" ${!SP.sel.has(p) && g.paths.every((q) => q === p || SP.sel.has(q)) ? "checked" : ""} title="Keep this one"><span class="mono" title="${esc(p)}">${esc(p)}</span>${SP.sel.has(p) ? '<span class="vd check">to the Trash</span>' : '<span class="vd ok">keep</span>'}${native ? `<button class="icon-btn" data-sp-reveal="${esc(p)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</label>`).join("")}
+      <div class="sp-dpick"><button class="btn small" data-sp-dupe-all="${gi}" ${g.paths.filter((p) => SP.sel.has(p)).length === g.paths.length - 1 ? "disabled" : ""}>Keep the first, trash the rest</button></div></div>`).join("")}</div>`;
+}
+function spaceOldHTML() {
+  const od = SP.old;
+  if (!od) return loadingGlyph("");
+  const when2 = (t) => t ? new Date(t * 1000).toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "never";
+  return `<div class="sp-head"><b>${bytes(od.total)}</b><span class="hint">· in ${od.files.length}${od.files.length >= 400 ? "+" : ""} files of 1 MB or more neither changed nor opened in ${od.days} days</span></div>
+    <p class="hint" style="margin:0 0 8px">Opened means read by anything, which macOS records for its own disk. Old isn't the same as unneeded: an archive is meant to sit. Tick what should go.</p>
+    ${od.apps.length ? `<div class="sp-sus" style="margin-bottom:10px"><b>Apps not opened in ${od.days} days</b><div class="sp-list" style="margin-top:6px">${od.apps.map((a) => `<div class="sp-row" data-sp-row="${esc(a.rel)}"><input type="checkbox" class="pick" data-sp-pick="${esc(a.rel)}" ${SP.sel.has(a.rel) ? "checked" : ""}><span class="sp-name">${esc(a.name)}<small class="hint"> · last opened ${when2(a.lastUsed)}</small></span><span></span><span class="sp-size">${bytes(a.bytes)}</span><span class="sp-acts">${native ? `<button class="icon-btn" data-sp-reveal="${esc(a.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("")}</div><p class="hint" style="margin:6px 0 0">From Spotlight's last-used date. Apps it doesn't know about aren't listed.</p></div>` : ""}
+    <div class="sp-list">${od.files.map((f) => `<div class="sp-row" data-sp-row="${esc(f.rel)}"><input type="checkbox" class="pick" data-sp-pick="${esc(f.rel)}" ${SP.sel.has(f.rel) ? "checked" : ""}><span class="sp-name" title="${esc(f.rel)}">${esc(f.rel.split("/").pop())}<small class="hint mono"> ${esc(f.rel.includes("/") ? f.rel.slice(0, f.rel.lastIndexOf("/")) : "")}</small></span><span class="hint" style="white-space:nowrap">${when2(Math.max(f.mtime, f.atime))}</span><span class="sp-size">${bytes(f.disk)}</span><span class="sp-acts">${native ? `<button class="icon-btn" data-sp-reveal="${esc(f.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("") || '<div class="hint">Nothing that old.</div>'}</div>`;
+}
+async function spaceDupesLoad() {
+  try { SP.dupes = await api("/api/space/dupes?path=" + encodeURIComponent(SP.root)); } catch (e) { SP.dupes = { ready: false }; }
+  renderSpace();
+}
+async function spaceOldLoad() {
+  try { SP.old = await api("/api/space/old?path=" + encodeURIComponent(SP.root)); } catch (e) { toast(e.message, true); SP.old = { files: [], apps: [], total: 0, days: 365 }; }
+  renderSpace();
+}
 async function spaceLoad() {
   try {
     const r = await api(`/api/space?path=${encodeURIComponent(SP.root)}&at=${encodeURIComponent(SP.at)}&depth=4`);
     if (r.busy) { SP.busy = true; SP.data = { root: SP.root, bytes: r.bytes }; }
-    else { SP.busy = false; SP.data = r; }
+    else { if (SP.busy || !SP.data || SP.data.root !== SP.root || (SP.data.measured && r.measured !== SP.data.measured)) { SP.dupes = null; SP.old = null; } SP.busy = false; SP.data = r; }
   } catch (e) {
     SP.busy = false; SP.data = null;
     if (!/not measured/.test(e.message)) toast(e.message, true);
@@ -2860,6 +2901,7 @@ async function spaceLoad() {
 // spaceTick runs with the state refresh: while a measurement runs, ask
 // again; when it ends, show it.
 async function spaceTick() {
+  if (SP.dupes && SP.dupes.busy && SP.view === "dupes") { spaceDupesLoad(); }
   if (!SP.busy) return;
   try { SP.places = await api("/api/space/places"); } catch {}
   const place = (SP.places || []).find((p) => p.path === SP.root);
@@ -2956,6 +2998,8 @@ async function spaceTrash(d) {
         const r = await api("/api/space/trash", { method: "POST", body: { path: SP.root, items: [...on] } });
         close(); SP.sel.clear();
         toast(`${r.trashed.length} moved to the Trash · ${bytes(r.freed)} once it's emptied`);
+        if (SP.dupes && SP.dupes.ready) spaceDupesLoad();
+        if (SP.old) spaceOldLoad();
         spaceLoad();
       } catch (e) { toast(e.message, true); $("#st-ok").disabled = false; }
     };
