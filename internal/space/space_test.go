@@ -91,3 +91,26 @@ func TestDupesAndOld(t *testing.T) {
 		t.Fatalf("old: %+v", olds)
 	}
 }
+
+func TestSkipsTheDataVolumeMountedTwice(t *testing.T) {
+	sk := Skips("/")
+	for _, p := range []string{"/System/Volumes", "/Volumes", "/private/var/vm"} {
+		if !sk[p] {
+			t.Errorf("%s should be skipped under /", p)
+		}
+	}
+	if len(Skips("/Users/will")) != 0 {
+		t.Error("nothing is skipped under a plain folder")
+	}
+	// The walker honours its skip list.
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "twice"), 0o755)
+	os.WriteFile(filepath.Join(dir, "twice", "big"), make([]byte, 100000), 0o644)
+	os.WriteFile(filepath.Join(dir, "once"), make([]byte, 100), 0o644)
+	st, _ := os.Lstat(dir)
+	w := &walker{root: dir, dev: deviceOf(st), skip: map[string]bool{filepath.Join(dir, "twice"): true}}
+	n := w.walk(context.Background(), dir, st)
+	if n.Files != 1 || n.At("twice") != nil {
+		t.Fatalf("skipped folder still counted: files %d", n.Files)
+	}
+}

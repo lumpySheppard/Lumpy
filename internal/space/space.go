@@ -63,7 +63,7 @@ func ScanAll(ctx context.Context, root string, prog *Progress) (*Result, error) 
 	if err != nil {
 		return nil, err
 	}
-	w := &walker{root: root, dev: deviceOf(st), prog: prog}
+	w := &walker{root: root, dev: deviceOf(st), prog: prog, skip: Skips(root)}
 	n := w.walk(ctx, root, st)
 	n.Name = root
 	w.mu.Lock()
@@ -76,8 +76,27 @@ type walker struct {
 	root string
 	dev  uint64
 	prog *Progress
+	skip map[string]bool // folders left out: other volumes under the root
 	mu   sync.Mutex
 	big  []BigFile
+}
+
+// Skips lists what a scan of root leaves out. On a Mac the startup
+// disk is two volumes: the sealed System volume at / and the Data
+// volume, reached through firmlinks (/Users, /Applications, /Library,
+// /private, /opt…) and mounted again whole at /System/Volumes/Data.
+// Walking both counts everything twice, so the second mount is left
+// out, as are the other volumes under /System/Volumes (Preboot, VM,
+// Update), every drive mounted under /Volumes, and the swap files.
+func Skips(root string) map[string]bool {
+	out := map[string]bool{}
+	if root != "/" {
+		return out
+	}
+	for _, p := range []string{"/System/Volumes", "/Volumes", "/dev", "/private/var/vm", "/.vol", "/.fseventsd", "/.Spotlight-V100", "/.DocumentRevisions-V100", "/.TemporaryItems", "/.MobileBackups"} {
+		out[p] = true
+	}
+	return out
 }
 
 func deviceOf(st os.FileInfo) uint64 {
@@ -138,6 +157,9 @@ func (w *walker) walk(ctx context.Context, dir string, st os.FileInfo) *Node {
 		if e.IsDir() {
 			if d := deviceOf(info); d != 0 && d != dev {
 				continue // another volume mounted here
+			}
+			if w.skip[full] {
+				continue
 			}
 			add := func(c *Node) {
 				mu.Lock()

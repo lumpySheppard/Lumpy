@@ -546,7 +546,11 @@ what files take on disk; each folder keeps its 60 biggest items apart
 and rolls the rest into "smaller items". The measurement runs as a job
 (Activity shows the folder being read), is kept until Lumpy quits, and
 **Measure again** refreshes it. Symlinks aren't followed and other
-volumes mounted below the one measured are skipped. For Macintosh HD
+volumes mounted below the one measured are skipped; on the startup
+disk that includes the Data volume's second mount at
+/System/Volumes/Data (your files are counted once, under Users,
+Applications and Library), the Preboot, VM and Update volumes, swap,
+and everything under /Volumes. For Macintosh HD
 or Home, **Usual suspects** lists the places a Mac fills with things
 nobody needs (app caches, logs, Resolve's CacheClip, Adobe media
 cache, Xcode derived data and simulators, iOS backups, Downloads, the
