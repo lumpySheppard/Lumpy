@@ -541,7 +541,9 @@ a year** lists the big files neither changed nor opened in 365 days,
 biggest first (opened is the access time macOS keeps for its own
 disk), and apps not opened in a year by Spotlight's last-used date,
 with their sizes. Old isn't the same as unneeded, so nothing is ticked
-until you tick it, and the same check runs before anything goes. Show in Finder opens the item. Sizes are
+until you tick it, and the same check runs before anything goes. Show in Finder opens the item, and the eye on a picture or clip opens
+it large, with ← and → stepping through the folder; a file Lumpy can't
+render says why. Sizes are
 what files take on disk; each folder keeps its 60 biggest items apart
 and rolls the rest into "smaller items". The measurement runs as a job
 (Activity shows the folder being read), is kept until Lumpy quits, and

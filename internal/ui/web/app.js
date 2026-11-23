@@ -100,6 +100,7 @@ const ICON = {
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12h16M13 5l7 7-7 7"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>',
   right: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
   clapper: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9zM3 9l1.5-5L20 6.5 18.5 9M8 4.5L10 8M13 5l2 3.5"/></svg>',
@@ -2841,7 +2842,7 @@ async function renderSpace1() {
               <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : esc(c.name)}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}${d.copies && d.copies[c.name] ? ` <span class="badge ok" title="A file of this name and size is on ${d.copies[c.name]} logged drive${d.copies[c.name] === 1 ? "" : "s"}; check one before letting this go">${ICON.check}on ${d.copies[c.name]} drive${d.copies[c.name] === 1 ? "" : "s"}</span>` : ""}${d.verdicts && d.verdicts[c.name] ? ` <span class="vd ${d.verdicts[c.name].level}" title="${esc(d.verdicts[c.name].why)}">${VD_LABEL[d.verdicts[c.name].level]}</span>` : ""}</span>
               <span class="sp-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
               <span class="sp-size">${bytes(c.bytes)}</span>
-              <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>
+              <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${!c.dir && !c.rest && spPreviewable(c.name) ? `<button class="icon-btn" data-sp-peek="${esc(rel)}" title="Preview">${ICON.eye}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>
           <p class="hint" style="margin-top:10px">Sizes are what files take on disk. Each folder keeps its ${60} biggest items apart and rolls the rest into "smaller items". The Mac's own disk also holds system files, snapshots and purgeable space that no app can measure; what Finder says is used can be more than this.</p>`}
         </div></div>`}
   </div>`;
@@ -2854,6 +2855,7 @@ async function renderSpace1() {
   for (const b of document.querySelectorAll("[data-sp-go]")) b.onclick = () => { SP.at = b.dataset.spGo; spaceLoad(); };
   for (const b of document.querySelectorAll("[data-sp-open]")) b.onclick = () => { SP.at = b.dataset.spOpen; spaceLoad(); };
   for (const b of document.querySelectorAll("[data-sp-reveal]")) b.onclick = () => nativeCall("reveal", { path: SP.root.replace(/\/$/, "") + "/" + b.dataset.spReveal });
+  for (const b of document.querySelectorAll("[data-sp-peek]")) b.onclick = () => spacePeek(b.dataset.spPeek, d);
   for (const el of document.querySelectorAll("[data-sp-pick]")) el.onchange = () => { if (el.checked) SP.sel.add(el.dataset.spPick); else SP.sel.delete(el.dataset.spPick); renderSpace(); };
   for (const row of document.querySelectorAll("[data-sp-row]")) { row.onmouseenter = () => spHover(row.dataset.spRow); row.onmouseleave = () => spHover(null); row.ondblclick = () => { const c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === row.dataset.spRow); if (c && c.dir) { SP.at = row.dataset.spRow; spaceLoad(); } }; }
   if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
@@ -2879,6 +2881,34 @@ async function renderSpace1() {
   wireSunburst(d);
   if (!d && !SP.busy && place.done) spaceLoad();
   if (place.busy && !SP.busy) { SP.busy = true; renderSpace(); }
+}
+function spPreviewable(name) { const k = SP_KIND[(name.split(".").pop() || "").toLowerCase()]; return k === "image" || k === "video"; }
+// spacePeek shows one file large, with the others in the same folder a
+// key press away. A file Lumpy can't render says why.
+function spacePeek(rel, d) {
+  const here = SP.at ? SP.at + "/" : "";
+  const list = (d.node.children || []).filter((c) => !c.dir && !c.rest && spPreviewable(c.name)).map((c) => here + c.name);
+  let i = Math.max(0, list.indexOf(rel));
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; document.removeEventListener("keydown", keys); };
+  const keys = (e) => { if (e.key === "Escape") close(); else if (e.key === "ArrowRight" && i < list.length - 1) { i++; draw(); } else if (e.key === "ArrowLeft" && i > 0) { i--; draw(); } };
+  document.addEventListener("keydown", keys);
+  const draw = async () => {
+    const p = list[i], c = (d.node.children || []).find((x) => here + x.name === p) || {};
+    const src = `/api/space/thumb?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(p)}&w=1600&t=${token}`;
+    openSheet(`<div class="sheet-head"><div><h2>${esc(p.split("/").pop())}</h2><div class="sub">${bytes(c.bytes || 0)} · ${i + 1} of ${list.length} in this folder · ← → to step through</div></div><div class="actions">${native ? `<button class="btn small" data-sp-reveal="${esc(p)}">${ICON.reveal}Show in Finder</button>` : ""}<button class="icon-btn" id="pk-prev" ${i ? "" : "disabled"}>${ICON.back}</button><button class="icon-btn" id="pk-next" ${i < list.length - 1 ? "" : "disabled"}>${ICON.right}</button><button class="icon-btn" id="pk-close">${ICON.x}</button></div></div>
+      <div class="sheet-body peek"><div class="peek-box">${loadingGlyph("Rendering…")}</div></div>`, true);
+    $("#pk-close").onclick = close;
+    $("#pk-prev").onclick = () => { if (i > 0) { i--; draw(); } };
+    $("#pk-next").onclick = () => { if (i < list.length - 1) { i++; draw(); } };
+    for (const b of document.querySelectorAll(".sheet [data-sp-reveal]")) b.onclick = () => nativeCall("reveal", { path: SP.root.replace(/\/$/, "") + "/" + b.dataset.spReveal });
+    try {
+      const res = await fetch(src, { headers: { "X-Lumpy-Token": token } });
+      if (!res.ok) { let why = res.statusText; try { why = (await res.json()).error || why; } catch {} throw new Error(why); }
+      const url = URL.createObjectURL(await res.blob());
+      const box = $(".peek-box"); if (box) box.innerHTML = `<img src="${url}" alt="">`;
+    } catch (e) { const box = $(".peek-box"); if (box) box.innerHTML = `<div class="empty">${ICON.warn}<h2>No preview</h2><p>${esc(e.message)}</p><p class="hint">If this is a DPX or DNG Lumpy should read, tell the developer which camera or app wrote it.</p></div>`; }
+  };
+  draw();
 }
 // spaceCoverage says what the measurement covers of the disk's used
 // space, and what it can't: other places, and folders macOS keeps

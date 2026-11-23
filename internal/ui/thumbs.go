@@ -98,27 +98,32 @@ var videoExts = map[string]bool{".mov": true, ".mp4": true, ".m4v": true, ".mxf"
 
 // makeThumb renders one JPEG, thumbWidth wide, of the file.
 func makeThumb(ctx context.Context, full string, at float64) ([]byte, error) {
+	return makeThumbWidth(ctx, full, at, thumbWidth)
+}
+
+// makeThumbWidth renders one JPEG of the file, width pixels wide.
+func makeThumbWidth(ctx context.Context, full string, at float64, width int) ([]byte, error) {
 	ext := strings.ToLower(filepath.Ext(full))
 	switch ext {
 	case ".jpg", ".jpeg", ".png", ".gif":
-		return stillThumb(full)
+		return stillThumb(full, width)
 	case ".dpx":
-		img, err := media.DecodeDPX(full, thumbWidth)
+		img, err := media.DecodeDPX(full, width)
 		if err != nil {
 			return nil, err
 		}
-		return encodeThumb(img)
+		return encodeThumb(img, width)
 	case ".dng", ".tif", ".tiff", ".cr2", ".nef", ".arw":
 		img, err := media.DecodeDNGPreview(full)
 		if err != nil {
-			if b, err2 := sipsThumb(ctx, full); err2 == nil {
+			if b, err2 := sipsThumb(ctx, full, width); err2 == nil {
 				return b, nil
 			}
 			return nil, err
 		}
-		return encodeThumb(img)
+		return encodeThumb(img, width)
 	case ".heic", ".cr3", ".raf", ".psd", ".exr", ".webp":
-		return sipsThumb(ctx, full)
+		return sipsThumb(ctx, full, width)
 	}
 	if !videoExts[ext] {
 		return nil, fmt.Errorf("no preview for %s files", strings.TrimPrefix(ext, "."))
@@ -137,7 +142,7 @@ func makeThumb(ctx context.Context, full string, at float64) ([]byte, error) {
 	defer cancel()
 	for _, seek := range []float64{at, 0} {
 		cmd := exec.CommandContext(ctx, ff, "-v", "error", "-nostdin", "-ss", fmt.Sprintf("%.2f", seek), "-i", full,
-			"-frames:v", "1", "-vf", fmt.Sprintf("scale=%d:-2", thumbWidth), "-q:v", "5", "-f", "image2", "pipe:1")
+			"-frames:v", "1", "-vf", fmt.Sprintf("scale=%d:-2", width), "-q:v", "5", "-f", "image2", "pipe:1")
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		if err := cmd.Run(); err == nil && out.Len() > 0 {
@@ -152,9 +157,9 @@ func makeThumb(ctx context.Context, full string, at float64) ([]byte, error) {
 }
 
 // encodeThumb is a decoded image as the JPEG the page gets.
-func encodeThumb(img image.Image) ([]byte, error) {
+func encodeThumb(img image.Image, width int) ([]byte, error) {
 	var out bytes.Buffer
-	if err := jpeg.Encode(&out, shrink(img, thumbWidth), &jpeg.Options{Quality: 82}); err != nil {
+	if err := jpeg.Encode(&out, shrink(img, width), &jpeg.Options{Quality: 82}); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil
@@ -162,7 +167,7 @@ func encodeThumb(img image.Image) ([]byte, error) {
 
 // sipsThumb asks macOS to render a format Lumpy can't read itself
 // (HEIC, camera raws, Photoshop, EXR); elsewhere there is no preview.
-func sipsThumb(ctx context.Context, full string) ([]byte, error) {
+func sipsThumb(ctx context.Context, full string, width int) ([]byte, error) {
 	sips, err := exec.LookPath("sips")
 	if err != nil {
 		return nil, fmt.Errorf("no preview for %s files", strings.TrimPrefix(strings.ToLower(filepath.Ext(full)), "."))
@@ -175,14 +180,14 @@ func sipsThumb(ctx context.Context, full string) ([]byte, error) {
 	out := filepath.Join(dir, "t.jpg")
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := exec.CommandContext(ctx, sips, "-s", "format", "jpeg", "-Z", fmt.Sprint(thumbWidth), full, "--out", out).Run(); err != nil {
+	if err := exec.CommandContext(ctx, sips, "-s", "format", "jpeg", "-Z", fmt.Sprint(width), full, "--out", out).Run(); err != nil {
 		return nil, fmt.Errorf("macOS couldn't render a preview")
 	}
 	return os.ReadFile(out)
 }
 
 // stillThumb shrinks a JPEG, PNG or GIF.
-func stillThumb(full string) ([]byte, error) {
+func stillThumb(full string, width int) ([]byte, error) {
 	f, err := os.Open(full)
 	if err != nil {
 		return nil, err
@@ -200,11 +205,7 @@ func stillThumb(full string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not a readable image")
 	}
-	var out bytes.Buffer
-	if err := jpeg.Encode(&out, shrink(img, thumbWidth), &jpeg.Options{Quality: 82}); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
+	return encodeThumb(img, width)
 }
 
 // shrink scales an image down to width pixels wide, averaging the

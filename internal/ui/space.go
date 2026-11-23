@@ -698,7 +698,15 @@ func (s *Server) spaceThumb(w http.ResponseWriter, r *http.Request) (any, error)
 	if err != nil {
 		return nil, httpError{http.StatusNotFound, err.Error()}
 	}
-	key := fmt.Sprintf("%x", sha1sum(fmt.Sprintf("%s|%d|%d", full, st.Size(), st.ModTime().UnixNano())))
+	width := 320
+	fmt.Sscan(r.URL.Query().Get("w"), &width)
+	if width < 64 {
+		width = 64
+	}
+	if width > 2048 {
+		width = 2048
+	}
+	key := fmt.Sprintf("%x", sha1sum(fmt.Sprintf("%s|%d|%d|%d", full, st.Size(), st.ModTime().UnixNano(), width)))
 	dir := filepath.Join(s.thumbDir(), "space")
 	os.MkdirAll(dir, 0o755)
 	cached := filepath.Join(dir, key+".jpg")
@@ -708,7 +716,7 @@ func (s *Server) spaceThumb(w http.ResponseWriter, r *http.Request) (any, error)
 		w.Write(b)
 		return nil, nil
 	}
-	data, err := makeThumb(r.Context(), full, 0)
+	data, err := makeThumbWidth(r.Context(), full, 0, width)
 	if err != nil {
 		return nil, httpError{http.StatusUnsupportedMediaType, err.Error()}
 	}
