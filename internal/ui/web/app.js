@@ -157,6 +157,7 @@ async function loadState() {
     if (!first && (S.tab === "offload" || S.tab === "media")) renderCounts();
     else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }
     else if (!first && S.tab === "map") { renderCounts(); loadProjects(); }
+    else if (!first && S.tab === "space") renderCounts();
     else render();
   } catch (e) {
     if (!S.state) $("#main").innerHTML = `<div class="empty"><h2>Can't reach Lumpy</h2><p>${esc(e.message)}</p></div>`;
@@ -625,6 +626,7 @@ function render() {
   if (S.tab === "offload") return renderOffload();
   if (S.tab === "projects") return renderProjects();
   if (S.tab === "media") return renderMedia();
+  if (S.tab === "space") return renderSpace();
   main.innerHTML = (S.tab === "connected" ? renderConnected() : renderLogged()) + selectionBar();
   main.scrollTop = keepScroll;
 }
@@ -2783,6 +2785,240 @@ function wireMap(m) {
   for (const b of box.querySelectorAll("[data-eject]")) b.onclick = () => { b.disabled = true; ejectDrive(b.dataset.eject); };
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab === "map" && MAP.sel) { MAP.sel = null; renderMap(); } });
+
+// ---------- Space ----------
+// What takes room on this Mac or a drive, drawn as rings: the folder
+// shown in the middle, its contents around it, four levels out. Click a
+// folder to go into it, the middle to go back up. Collect what isn't
+// needed and move it to the Trash.
+const spN = (v) => Number(v).toLocaleString();
+const SP = { data: null, path: "", hover: null, picked: new Map(), timer: null, rootSize: 0 };
+
+async function loadSpace() {
+  clearTimeout(SP.timer);
+  try { SP.data = await api("/api/space?path=" + encodeURIComponent(SP.path)); } catch (e) { toast(e.message, true); return; }
+  const node = SP.data.node;
+  if (node) { SP.path = node.path; if (!node.path) SP.rootSize = node.size; }
+  if (S.tab !== "space") return;
+  renderSpace();
+}
+
+async function startSpaceScan(root) {
+  if (!root) return;
+  try {
+    await api("/api/space/scan", { method: "POST", body: { root } });
+    SP.path = ""; SP.picked.clear(); SP.hover = null; SP.rootSize = 0;
+    localSet("space.root", root);
+    loadSpace();
+  } catch (e) { toast(e.message, true); }
+}
+
+function spaceAbs(rel) { const r = SP.data.run.root.replace(/\/+$/, ""); return rel ? r + "/" + rel : r; }
+function spaceShort(p) { return p.length > 64 ? "…" + p.slice(-63) : p; }
+function spaceName(k) { return k.rest ? `${spN(k.files)} smaller files` : k.name; }
+function pct(a, b) { return b ? (a * 100 / b < 0.1 ? "<0.1" : (a * 100 / b).toFixed(a * 100 / b < 10 ? 1 : 0)) + "%" : ""; }
+
+function spacePlaceChips() {
+  const places = (SP.data && SP.data.places) || [];
+  const drives = (S.state.volumes || []).map((v) => ({ name: v.name, path: v.mount, free: v.free }));
+  const chip = (p) => `<button class="chip" data-space-root="${esc(p.path)}">${esc(p.name)}${p.free !== undefined ? `<small>${bytes(p.free)} free</small>` : ""}</button>`;
+  return `<div class="chips">${places.map(chip).join("")}${drives.map(chip).join("")}<button class="chip" id="space-choose">${ICON.folder}Choose a folder…</button></div>`;
+}
+
+// spaceRings lays the node's descendants out as ring slices. Each
+// top-level slice takes its colour from where it sits on the circle, and
+// everything inside it shares that hue.
+function spaceRings(node) {
+  const out = [];
+  const walk = (nd, a0, a1, depth, hue) => {
+    if (!nd.kids || depth > 4) return;
+    let a = a0;
+    for (const k of nd.kids) {
+      const da = (a1 - a0) * k.size / (nd.size || 1);
+      const h = depth === 1 ? ((a + da / 2) / (2 * Math.PI)) * 330 : hue;
+      if (da > 0.006) { out.push({ k, a0: a, a1: a + da, depth, hue: h }); walk(k, a, a + da, depth + 1, h); }
+      a += da;
+    }
+  };
+  walk(node, 0, 2 * Math.PI, 1, 0);
+  return out;
+}
+
+const SP_R0 = 78, SP_W = 50;
+function spaceArc(r0, r1, a0, a1) {
+  if (a1 - a0 > 2 * Math.PI - 1e-4) a1 = a0 + 2 * Math.PI - 1e-4;
+  const p = (r, a) => `${(r * Math.sin(a)).toFixed(2)},${(-r * Math.cos(a)).toFixed(2)}`;
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  return `M${p(r1, a0)}A${r1},${r1} 0 ${large} 1 ${p(r1, a1)}L${p(r0, a1)}A${r0},${r0} 0 ${large} 0 ${p(r0, a0)}Z`;
+}
+function spaceColor(s) {
+  if (s.k.rest) return "hsl(0 0% 34%)";
+  if (!s.k.dir) return `hsl(${s.hue} 18% ${44 - s.depth * 3}%)`;
+  return `hsl(${s.hue} 72% ${62 - s.depth * 7}%)`;
+}
+
+function renderSpace() {
+  const main = $("#main");
+  const d = SP.data;
+  if (!d) { main.innerHTML = `<div class="empty"><p>Loading…</p></div>`; loadSpace(); return; }
+  const run = d.run;
+  if (!run || (run.error && !d.node)) {
+    main.innerHTML = `<div class="space-start">
+      <h2>What's taking up space?</h2>
+      <p class="hint">Lumpy measures every folder and file and draws them as rings, biggest first. Go into a folder by clicking it, collect what you don't need, and move it to the Trash. Nothing is removed until you confirm, and the space comes back when you empty the Trash.</p>
+      ${run && run.error ? `<p class="space-err">${esc(run.error)}</p>` : ""}
+      ${spacePlaceChips()}
+    </div>`;
+    wireSpace();
+    return;
+  }
+  if (run.scanning) {
+    clearTimeout(SP.timer);
+    SP.timer = setTimeout(loadSpace, 400);
+    main.innerHTML = `<div class="space-start">
+      <h2>Measuring ${esc(run.root)}…</h2>
+      <div class="space-progress"><span><b>${spN(run.files)}</b> files</span><span><b>${bytes(run.bytes)}</b></span>${run.unreadable ? `<span>${spN(run.unreadable)} folders it may not read</span>` : ""}</div>
+      <p class="hint mono-path">${esc(run.current || "")}</p>
+      <button class="btn" id="space-stop">${ICON.x}Stop</button>
+    </div>`;
+    wireSpace();
+    return;
+  }
+  const node = d.node;
+  const rings = spaceRings(node);
+  SP.rings = rings;
+  const crumbs = [["", run.root.split("/").filter(Boolean).pop() || run.root]];
+  let acc = "";
+  for (const seg of (node.path ? node.path.split("/") : [])) { acc = acc ? acc + "/" + seg : seg; crumbs.push([acc, seg]); }
+  const vol = run.volume || {};
+  const hidden = vol.root && SP.rootSize ? Math.max(0, vol.total - vol.free - SP.rootSize) : 0;
+  const pickedBytes = [...SP.picked.values()].reduce((a, p) => a + p.size, 0);
+  const size = (SP_R0 + 4 * SP_W) * 2 + 8;
+  main.innerHTML = `<div class="space">
+    <div class="space-head">
+      <div class="crumbs">${crumbs.map(([p, name], i) => `<button class="crumb${i === crumbs.length - 1 ? " on" : ""}" data-space-go="${esc(p)}">${esc(name)}</button>`).join(`<span class="crumb-sep">›</span>`)}</div>
+      <div class="space-meta">${vol.total ? `<span>${bytes(vol.free)} free of ${bytes(vol.total)}</span>` : ""}${hidden ? `<span title="Used on the drive but not in any folder Lumpy could read: the system, snapshots, other users, and folders macOS keeps private">${bytes(hidden)} hidden</span>` : ""}<span>Scanned ${when(run.finished)}</span>
+        <button class="btn small" id="space-rescan">${ICON.refresh}Rescan</button><button class="btn small" id="space-other">Scan something else…</button></div>
+    </div>
+    ${run.unreadable ? `<p class="hint space-note">${spN(run.unreadable)} folder${run.unreadable === 1 ? "" : "s"} couldn't be read, so they count as empty. For the full picture, give Lumpy Full Disk Access in System Settings → Privacy &amp; Security, then rescan.</p>` : ""}
+    <div class="space-body">
+      <div class="space-chart">
+        <svg viewBox="${-size / 2} ${-size / 2} ${size} ${size}" id="space-svg">
+          ${rings.map((s, i) => `<path d="${spaceArc(SP_R0 + (s.depth - 1) * SP_W + 1, SP_R0 + s.depth * SP_W - 1, s.a0 + 0.002, s.a1 - 0.002)}" fill="${spaceColor(s)}" data-ring="${i}" class="${s.k.dir ? "dir" : ""}"/>`).join("")}
+          <circle r="${SP_R0 - 3}" class="space-hub" id="space-hub"/>
+          <text y="-6" class="space-hub-name" id="hub-name"></text>
+          <text y="16" class="space-hub-size" id="hub-size"></text>
+        </svg>
+      </div>
+      <div class="space-side">
+        <div class="space-list">${(node.kids || []).map((k) => {
+          const picked = !k.rest && SP.picked.has(k.path);
+          return `<div class="space-row${picked ? " picked" : ""}" data-space-row="${esc(k.path)}" data-dir="${k.dir ? 1 : ""}">
+            <span class="space-dot" style="background:${spaceColor({ k, hue: spaceHueOf(k.path), depth: 1 })}"></span>
+            <span class="space-name">${k.dir ? ICON.folder : ""}${esc(spaceName(k))}${k.unreadable ? ` <small class="hint">can't read</small>` : ""}</span>
+            <span class="space-size">${bytes(k.size)}</span><span class="space-pct">${pct(k.size, node.size)}</span>
+            <span class="space-acts">${!k.rest && native ? `<button class="icon-btn" data-space-reveal="${esc(k.path)}" title="Show in Finder">${ICON.reveal}</button>` : ""}${k.rest ? "" : `<button class="icon-btn" data-space-pick="${esc(k.path)}" title="${picked ? "Take out of the collector" : "Collect, to move to the Trash"}">${picked ? ICON.x : ICON.plus}</button>`}</span>
+          </div>`;
+        }).join("")}${node.more ? `<p class="hint" style="margin:8px 10px">and ${spN(node.more)} more, each too small to show</p>` : ""}${!(node.kids || []).length ? `<p class="hint" style="margin:10px">Empty.</p>` : ""}</div>
+        <div class="space-collector${SP.picked.size ? "" : " empty"}">
+          <div class="sec-title">${ICON.trash}Collector</div>
+          ${SP.picked.size ? `<div class="collector-items">${[...SP.picked.entries()].map(([p, v]) => `<div class="collector-item"><span title="${esc(spaceAbs(p))}">${esc(v.name)}</span><small>${bytes(v.size)}</small><button class="icon-btn" data-space-unpick="${esc(p)}" title="Take out">${ICON.x}</button></div>`).join("")}</div>
+          <div class="confirm-actions" style="justify-content:space-between"><span><b>${bytes(pickedBytes)}</b> in ${SP.picked.size} item${SP.picked.size === 1 ? "" : "s"}</span><button class="btn danger-fill" id="space-trash">${ICON.trash}Move to Trash…</button></div>`
+          : `<p class="hint">Click ${ICON.plus} on anything you don't need. It collects here until you move it to the Trash.</p>`}
+        </div>
+      </div>
+    </div>
+  </div>`;
+  spaceHub(null);
+  wireSpace();
+}
+
+// spaceHueOf is the hue a child of the folder shown gets on the rings.
+function spaceHueOf(path) {
+  const s = (SP.rings || []).find((r) => r.depth === 1 && r.k.path === path);
+  return s ? s.hue : 0;
+}
+
+function spaceHub(s) {
+  const node = SP.data.node;
+  const name = $("#hub-name"), size = $("#hub-size");
+  if (!name) return;
+  const k = s ? s.k : node;
+  let label = s ? spaceName(k) : (node.path ? node.path.split("/").pop() : SP.data.run.root);
+  if (label.length > 22) label = label.slice(0, 20) + "…";
+  name.textContent = label;
+  size.textContent = bytes(k.size) + (s ? "" : node.path ? "  ·  ↑ back" : "");
+  for (const r of document.querySelectorAll(".space-row")) r.classList.toggle("hover", !!s && s.depth === 1 && r.dataset.spaceRow === k.path && !k.rest);
+}
+
+function spacePick(path) {
+  const find = (nd) => { for (const k of nd.kids || []) { if (k.path === path) return k; const f = find(k); if (f) return f; } return null; };
+  const k = find(SP.data.node);
+  if (!k || k.rest) return;
+  if (SP.picked.has(path)) { SP.picked.delete(path); return renderSpace(); }
+  const inside = [...SP.picked.keys()].find((q) => path.startsWith(q + "/"));
+  if (inside) return toast(`It's already collected with ${SP.picked.get(inside).name}`);
+  for (const q of [...SP.picked.keys()]) if (q.startsWith(path + "/")) SP.picked.delete(q);
+  SP.picked.set(path, { name: spaceName(k), size: k.size });
+  renderSpace();
+}
+
+function spaceConfirmTrash() {
+  const items = [...SP.picked.entries()];
+  const total = items.reduce((a, [, v]) => a + v.size, 0);
+  openSheet(`<div class="sheet-head"><h2>Move ${items.length} item${items.length === 1 ? "" : "s"} to the Trash?</h2><div class="actions"><button class="icon-btn" id="sp-close">${ICON.x}</button></div></div>
+    <div class="sheet-body" style="padding-top:14px">
+      <div class="box collector-confirm">${items.map(([p, v]) => `<div class="collector-item"><span title="${esc(spaceAbs(p))}">${esc(spaceShort(spaceAbs(p)))}</span><small>${bytes(v.size)}</small></div>`).join("")}</div>
+      <p class="hint">${bytes(total)} in all. They stay in the Trash until you empty it, and can be put back from there (Finder → Trash → Put Back). The space is freed when the Trash is emptied.</p>
+      <div class="confirm-actions"><button class="btn" id="sp-no">Cancel</button><button class="btn danger-fill" id="sp-yes">${ICON.trash}Move to Trash</button></div>
+    </div>`, true);
+  $("#sp-close").onclick = $("#sp-no").onclick = () => closeSheet();
+  $("#sp-yes").onclick = async () => {
+    $("#sp-yes").disabled = true;
+    try {
+      const r = await api("/api/space/trash", { method: "POST", body: { paths: items.map(([p]) => p) } });
+      closeSheet();
+      for (const p of r.moved || []) SP.picked.delete(p);
+      if ((r.failed || []).length) toast(`${r.failed.length} not moved: ${r.failed.map((f) => (f.path.split("/").pop() || f.path) + " (" + f.error + ")").join(", ")}`, true);
+      else toast(`Moved ${bytes(r.bytes)} to the Trash. Empty the Trash to get the space back.`);
+      loadSpace();
+    } catch (e) { toast(e.message, true); $("#sp-yes").disabled = false; }
+  };
+}
+
+function wireSpace() {
+  for (const b of document.querySelectorAll("[data-space-root]")) b.onclick = () => startSpaceScan(b.dataset.spaceRoot);
+  const choose = async () => { const p = await pickFolder(localGet("space.root", "")); if (p) startSpaceScan(p); };
+  if ($("#space-choose")) $("#space-choose").onclick = choose;
+  if ($("#space-stop")) $("#space-stop").onclick = async () => { try { await api("/api/space/cancel", { method: "POST" }); } catch {} loadSpace(); };
+  if ($("#space-rescan")) $("#space-rescan").onclick = () => startSpaceScan(SP.data.run.root);
+  if ($("#space-other")) $("#space-other").onclick = () => {
+    openSheet(`<div class="sheet-head"><h2>Scan something else</h2><div class="actions"><button class="icon-btn" id="so-close">${ICON.x}</button></div></div><div class="sheet-body" style="padding-top:14px">${spacePlaceChips()}</div>`, true);
+    $("#so-close").onclick = () => closeSheet();
+    for (const b of document.querySelectorAll("#sheet [data-space-root]")) b.onclick = () => { closeSheet(); startSpaceScan(b.dataset.spaceRoot); };
+    $("#sheet #space-choose").onclick = () => { closeSheet(); choose(); };
+  };
+  for (const b of document.querySelectorAll("[data-space-go]")) b.onclick = () => { SP.path = b.dataset.spaceGo; loadSpace(); };
+  for (const b of document.querySelectorAll("[data-space-pick]")) b.onclick = (e) => { e.stopPropagation(); spacePick(b.dataset.spacePick); };
+  for (const b of document.querySelectorAll("[data-space-unpick]")) b.onclick = () => { SP.picked.delete(b.dataset.spaceUnpick); renderSpace(); };
+  for (const b of document.querySelectorAll("[data-space-reveal]")) b.onclick = (e) => { e.stopPropagation(); nativeCall("reveal", { path: spaceAbs(b.dataset.spaceReveal) }); };
+  for (const r of document.querySelectorAll(".space-row")) {
+    r.onclick = () => { if (r.dataset.dir && r.dataset.spaceRow) { SP.path = r.dataset.spaceRow; loadSpace(); } };
+    r.onmouseenter = () => spaceHub((SP.rings || []).find((s) => s.depth === 1 && s.k.path === r.dataset.spaceRow) || null);
+    r.onmouseleave = () => spaceHub(null);
+  }
+  if ($("#space-trash")) $("#space-trash").onclick = spaceConfirmTrash;
+  const svg = $("#space-svg");
+  if (svg) {
+    svg.onmouseover = (e) => { const i = e.target.dataset && e.target.dataset.ring; spaceHub(i !== undefined ? SP.rings[+i] : null); };
+    svg.onmouseleave = () => spaceHub(null);
+    svg.onclick = (e) => {
+      const i = e.target.dataset && e.target.dataset.ring;
+      if (i !== undefined) { const s = SP.rings[+i]; if (s.k.dir) { SP.path = s.k.path; loadSpace(); } return; }
+      if (e.target.closest("#space-hub, text") && SP.data.node.path) { SP.path = SP.data.node.path.split("/").slice(0, -1).join("/"); loadSpace(); }
+    };
+  }
+}
 
 // ---------- events ----------
 document.querySelector(".tabs").onclick = (e) => {

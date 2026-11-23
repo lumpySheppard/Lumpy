@@ -1030,3 +1030,54 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] ::-webkit-scrollbar { width: 15px; height: 15px; }
 :root[data-style="classic"] ::-webkit-scrollbar-track { background: var(--bg-2); border-left: 1px solid var(--ink); }
 :root[data-style="classic"] ::-webkit-scrollbar-thumb, :root[data-style="classic"] ::-webkit-scrollbar-thumb:hover { background: var(--paper); border: 1px solid var(--ink); border-radius: 0; background-clip: border-box; }
+
+/* ---------- Space ---------- */
+.space-start { max-width: 620px; margin: 64px auto; padding: 0 16px; text-align: center; }
+.space-start h2 { font-size: 20px; margin: 0 0 8px; }
+.space-start .chips { justify-content: center; margin-top: 18px; }
+.space-start .chip svg { width: 13px; height: 13px; margin-right: 4px; vertical-align: -2px; }
+.space-err { color: var(--bad); }
+.space-progress { display: flex; gap: 22px; justify-content: center; margin: 18px 0 6px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.space-progress b { color: var(--text); font-size: 18px; }
+.mono-path { font-family: var(--mono); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.4em; }
+.space { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.space-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
+.crumbs { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; min-width: 0; }
+.crumb { background: none; border: 0; color: var(--text-2); font: inherit; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+.crumb:hover { background: var(--line); color: var(--text); }
+.crumb.on { color: var(--text); font-weight: 600; }
+.crumb-sep { color: var(--muted); }
+.space-meta { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+.space-note { margin: 0; }
+.space-body { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, 420px); gap: 18px; align-items: start; }
+@media (max-width: 860px) { .space-body { grid-template-columns: 1fr; } }
+.space-chart svg { width: 100%; max-height: calc(100vh - 190px); display: block; }
+.space-chart path { stroke: var(--bg); stroke-width: 1; transition: filter .12s; }
+.space-chart path:hover { filter: brightness(1.25); }
+.space-chart path.dir { cursor: pointer; }
+.space-hub { fill: var(--panel-2); stroke: var(--line-2); cursor: pointer; }
+.space-hub-name { fill: var(--text); font-size: 14px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+.space-hub-size { fill: var(--text-2); font-size: 12px; text-anchor: middle; pointer-events: none; font-variant-numeric: tabular-nums; }
+.space-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.space-list { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; max-height: calc(100vh - 380px); min-height: 160px; overflow: auto; }
+.space-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 44px auto; gap: 8px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.space-row[data-dir="1"] { cursor: pointer; }
+.space-row:hover, .space-row.hover { background: var(--line); }
+.space-row.picked { background: var(--accent-soft); }
+.space-dot { width: 10px; height: 10px; border-radius: 3px; }
+.space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.space-name svg { width: 13px; height: 13px; margin-right: 5px; vertical-align: -2px; color: var(--muted); }
+.space-size { font-variant-numeric: tabular-nums; }
+.space-pct { color: var(--muted); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+.space-acts { display: flex; gap: 2px; }
+.space-acts .icon-btn { width: 24px; height: 24px; }
+.space-acts svg { width: 13px; height: 13px; }
+.space-collector { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.space-collector .sec-title svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; }
+.space-collector .hint svg { width: 12px; height: 12px; vertical-align: -1px; }
+.collector-items { max-height: 160px; overflow: auto; margin: 6px 0 8px; }
+.collector-item { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 2px 0; }
+.collector-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.collector-item small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.collector-confirm { max-height: 260px; overflow: auto; }
+.collector-confirm span { font-family: var(--mono); font-size: 12px; }
