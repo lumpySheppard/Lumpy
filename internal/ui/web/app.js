@@ -2790,6 +2790,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab ==
 // Like DaisyDisk: measure a disk, see it as rings, drill in, put the
 // big things in the Trash. The measurement lives on the server; the
 // page asks for the rings around the folder in view.
+const VD_LABEL = { safe: "safe to clear", check: "look first", critical: "critical", ok: "nothing against it" };
 const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true };
 async function renderSpace() {
   const main = $("#main");
@@ -2822,7 +2823,7 @@ async function renderSpace() {
             <p class="hint" style="margin:6px 0 2px">Safe to clear means the app makes it again. Quit the app first. The Trash itself can only be emptied from the Finder.</p></details>` : ""}
           <div class="sp-list">${(d.node.children || []).map((c, i) => { const rel = SP.at ? SP.at + "/" + c.name : c.name; const pct = d.node.bytes ? (c.bytes / d.node.bytes) * 100 : 0; return `<div class="sp-row ${c.rest ? "rest" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" style="--sc:${c.rest ? "var(--muted)" : spColor(i, 0)}">
               ${c.rest ? '<span class="pickcell"></span>' : `<input type="checkbox" class="pick" data-sp-pick="${esc(rel)}" ${SP.sel.has(rel) ? "checked" : ""}>`}
-              <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : esc(c.name)}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}${d.copies && d.copies[c.name] ? ` <span class="badge ok" title="A file of this name and size is on ${d.copies[c.name]} logged drive${d.copies[c.name] === 1 ? "" : "s"}; check one before letting this go">${ICON.check}on ${d.copies[c.name]} drive${d.copies[c.name] === 1 ? "" : "s"}</span>` : ""}</span>
+              <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : esc(c.name)}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}${d.copies && d.copies[c.name] ? ` <span class="badge ok" title="A file of this name and size is on ${d.copies[c.name]} logged drive${d.copies[c.name] === 1 ? "" : "s"}; check one before letting this go">${ICON.check}on ${d.copies[c.name]} drive${d.copies[c.name] === 1 ? "" : "s"}</span>` : ""}${d.verdicts && d.verdicts[c.name] ? ` <span class="vd ${d.verdicts[c.name].level}" title="${esc(d.verdicts[c.name].why)}">${VD_LABEL[d.verdicts[c.name].level]}</span>` : ""}</span>
               <span class="sp-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
               <span class="sp-size">${bytes(c.bytes)}</span>
               <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>
@@ -2929,21 +2930,37 @@ function wireSunburst(d) {
 }
 async function spaceTrash(d) {
   const items = [...SP.sel];
-  const total = items.reduce((t, rel) => { const n = (d.node.children || []).find((c) => (SP.at ? SP.at + "/" + c.name : c.name) === rel) || (d.suspects || []).find((x) => x.rel === rel); return t + (n ? n.bytes : 0); }, 0);
-  openSheet(`<div class="sheet-head"><h2>Move ${items.length} item${items.length === 1 ? "" : "s"} to the Trash?</h2><div class="actions"><button class="icon-btn" id="st-close">${ICON.x}</button></div></div>
-    <div class="sheet-body" style="padding-top:12px"><div class="chips">${items.map((x) => `<span class="chip">${esc(x.split("/").pop())}</span>`).join("")}</div><p class="hint" style="margin:10px 0 0">${bytes(total)} goes to the Trash through the Finder, so it can be put back. The space is freed when you empty the Trash.</p></div>
-    <div class="sheet-foot"><button class="btn" id="st-cancel">Keep them</button><button class="btn danger-fill" id="st-ok">${ICON.trash}Move to the Trash</button></div>`, true);
   const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
-  $("#st-close").onclick = $("#st-cancel").onclick = close;
-  $("#st-ok").onclick = async () => {
-    $("#st-ok").disabled = true;
-    try {
-      const r = await api("/api/space/trash", { method: "POST", body: { path: SP.root, items } });
-      close(); SP.sel.clear();
-      toast(`${r.trashed.length} moved to the Trash · ${bytes(r.freed)} once it's emptied`);
-      spaceLoad();
-    } catch (e) { toast(e.message, true); $("#st-ok").disabled = false; }
+  openSheet(`<div class="sheet-head"><h2>Before anything goes</h2><div class="actions"><button class="icon-btn" id="st-close">${ICON.x}</button></div></div><div class="sheet-body">${loadingGlyph("Looking at each one…")}</div>`);
+  $("#st-close").onclick = close;
+  let checks;
+  try { checks = await api("/api/space/check", { method: "POST", body: { path: SP.root, items } }); }
+  catch (e) { toast(e.message, true); close(); return; }
+  const on = new Set(checks.filter((c) => c.level !== "critical").map((c) => c.rel));
+  const draw = () => {
+    const chosen = checks.filter((c) => on.has(c.rel));
+    const total = chosen.reduce((t, c) => t + c.bytes, 0);
+    const crit = checks.filter((c) => c.level === "critical").length;
+    openSheet(`<div class="sheet-head"><h2>Before anything goes</h2><div class="actions"><button class="icon-btn" id="st-close">${ICON.x}</button></div></div>
+      <div class="sheet-body">
+        <p class="hint" style="margin:0 0 10px">Lumpy looked at each item: where it sits, when it last changed, whether an app has it open, whether it belongs to a project, and whether the library holds a copy. ${crit ? `<b>${crit} critical item${crit === 1 ? " is" : "s are"} unticked</b>; tick ${crit === 1 ? "it" : "them"} only if you're sure.` : "Nothing here looks critical."}</p>
+        <div class="checks vd-list">${checks.map((c) => `<label class="vd-row ${c.level}"><input type="checkbox" data-vd="${esc(c.rel)}" ${on.has(c.rel) ? "checked" : ""}><span class="vd-main"><span class="vd-name">${esc(c.rel.split("/").pop())}<small class="hint mono">${esc(c.rel.includes("/") ? c.rel.slice(0, c.rel.lastIndexOf("/")) : "")}</small></span><span class="vd-why">${c.reasons.map(esc).join(" · ")}</span></span><span class="vd ${c.level}">${VD_LABEL[c.level] || c.level}</span><span class="sp-size">${bytes(c.bytes)}</span></label>`).join("")}</div>
+        <p class="hint" style="margin:10px 0 0">${bytes(total)} goes to the Trash through the Finder, so it can be put back. The space is freed when you empty the Trash.</p>
+      </div>
+      <div class="sheet-foot"><button class="btn" id="st-cancel">Keep everything</button><button class="btn danger-fill" id="st-ok" ${chosen.length ? "" : "disabled"}>${ICON.trash}Move ${chosen.length} to the Trash</button></div>`);
+    $("#st-close").onclick = $("#st-cancel").onclick = close;
+    for (const el of document.querySelectorAll("[data-vd]")) el.onchange = () => { if (el.checked) on.add(el.dataset.vd); else on.delete(el.dataset.vd); draw(); };
+    $("#st-ok").onclick = async () => {
+      $("#st-ok").disabled = true;
+      try {
+        const r = await api("/api/space/trash", { method: "POST", body: { path: SP.root, items: [...on] } });
+        close(); SP.sel.clear();
+        toast(`${r.trashed.length} moved to the Trash · ${bytes(r.freed)} once it's emptied`);
+        spaceLoad();
+      } catch (e) { toast(e.message, true); $("#st-ok").disabled = false; }
+    };
   };
+  draw();
 }
 
 // ---------- events ----------

@@ -234,6 +234,7 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/space/scan", s.spaceStart)
 	api("GET /api/space", s.spaceTree)
 	api("POST /api/space/trash", s.spaceTrash)
+	api("POST /api/space/check", s.spaceCheck)
 	api("POST /api/pull", s.analysePull)
 	api("POST /api/pull/run", s.runPull)
 	api("POST /api/pull/paths", s.pullPaths)

@@ -495,9 +495,15 @@ folder is drawn as rings, the bigger the slice the more it holds, with
 a list beside it of what's inside the folder in view, biggest first.
 Click a slice (or a row's chevron, or double-click a row) to look
 inside, hover for a size, click the centre to go back up, and the
-crumbs at the top of the list jump anywhere. Tick what should go and
-**Move to the Trash**: it goes through the Finder, so it can be put
-back, and the rings update. Show in Finder opens the item. Sizes are
+crumbs at the top of the list jump anywhere. Every row carries a verdict from where it
+sits: **safe to clear** (an app makes it again), **look first** (your
+own files, downloads, apps) or **critical** (macOS, an app's data,
+keychains, mail, Photos). Tick what should go and **Move to the
+Trash**, and before anything goes Lumpy looks at each item properly:
+where it sits, when it last changed, whether a running app has it
+open, whether it is a folder of a Lumpy project, and whether the
+library holds a copy; critical items come unticked. Then it goes
+through the Finder, so it can be put back, and the rings update. Show in Finder opens the item. Sizes are
 what files take on disk; each folder keeps its 60 biggest items apart
 and rolls the rest into "smaller items". The measurement runs as a job
 (Activity shows the folder being read), is kept until Lumpy quits, and

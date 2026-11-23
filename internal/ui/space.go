@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -188,13 +190,29 @@ func (s *Server) spaceTree(w http.ResponseWriter, r *http.Request) (any, error) 
 		}
 	}
 	var suspects []space.Suspect
-	if home, err := os.UserHomeDir(); err == nil && at == "" && (root == "/" || root == filepath.Clean(home)) {
+	home, _ := os.UserHomeDir()
+	if home != "" && at == "" && (root == "/" || root == filepath.Clean(home)) {
 		suspects = space.FindSuspects(sc.tree, root, home)
 	}
 	if suspects == nil {
 		suspects = []space.Suspect{}
 	}
-	return map[string]any{"root": root, "at": at, "node": n.Trim(depth), "total": sc.tree.Bytes, "files": sc.tree.Files, "size": size, "free": free, "measured": sc.at.Unix(), "copies": copies, "suspects": suspects}, nil
+	// A verdict per thing in view, from where it sits.
+	verdicts := map[string]space.Verdict{}
+	hrel := homeRel(root, home)
+	for _, c := range n.Children {
+		if c.Rest > 0 {
+			continue
+		}
+		rel := c.Name
+		if at != "" {
+			rel = at + "/" + c.Name
+		}
+		if v := space.Judge(rel, hrel, c.Dir); v.Level != "" {
+			verdicts[c.Name] = v
+		}
+	}
+	return map[string]any{"root": root, "at": at, "node": n.Trim(depth), "total": sc.tree.Bytes, "files": sc.tree.Files, "size": size, "free": free, "measured": sc.at.Unix(), "copies": copies, "suspects": suspects, "verdicts": verdicts}, nil
 }
 
 // spaceTrash puts items in the Trash through the Finder and takes them
@@ -247,4 +265,190 @@ func (s *Server) spaceTrash(w http.ResponseWriter, r *http.Request) (any, error)
 		gone = []string{}
 	}
 	return map[string]any{"trashed": gone, "freed": freed}, nil
+}
+
+// homeRel is the home folder relative to the measured root: "." when
+// home is the root, "" when home is not below it.
+func homeRel(root, home string) string {
+	if home == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(root, home)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
+// spaceCheck is the look before the Trash: for each item, the verdict
+// from where it sits plus what can only be known by looking: when it
+// last changed, whether a running app has it open, whether it is a
+// folder of a Lumpy project, and whether the library holds a copy.
+func (s *Server) spaceCheck(w http.ResponseWriter, r *http.Request) (any, error) {
+	var body struct {
+		Path  string   `json:"path"`
+		Items []string `json:"items"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, badRequest("bad request: %v", err)
+	}
+	root := filepath.Clean(body.Path)
+	s.spc.mu.Lock()
+	sc := s.spc.scans[root]
+	s.spc.mu.Unlock()
+	if sc == nil || sc.tree == nil {
+		return nil, badRequest("measure it first")
+	}
+	type check struct {
+		Rel     string   `json:"rel"`
+		Level   string   `json:"level"`
+		Reasons []string `json:"reasons"`
+		Bytes   int64    `json:"bytes"`
+		Changed int64    `json:"changed,omitempty"` // newest mtime inside, unix
+	}
+	home, _ := os.UserHomeDir()
+	hrel := homeRel(root, home)
+	projects, _ := s.db.Projects()
+	v, _ := volume.Of(root)
+	var out []check
+	for _, it := range body.Items {
+		rel := strings.Trim(it, "/")
+		n := sc.tree.At(rel)
+		if rel == "" || strings.Contains(rel, "..") || n == nil {
+			continue
+		}
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		c := check{Rel: rel, Bytes: n.Bytes}
+		worst := ""
+		raise := func(level, why string) {
+			if rank(level) > rank(worst) {
+				worst = level
+			}
+			c.Reasons = append(c.Reasons, why)
+		}
+		if j := space.Judge(rel, hrel, n.Dir); j.Level != "" {
+			raise(j.Level, j.Why)
+		}
+		// Part of a Lumpy project?
+		if v != nil {
+			if d, err := s.db.Drive(v.ID); err == nil {
+				drel, _ := filepath.Rel(v.Mount, full)
+				drel = filepath.ToSlash(drel)
+				for _, p := range projects {
+					for _, src := range p.Sources {
+						if src.DriveID != d.ID {
+							continue
+						}
+						if src.Folder == "" || drel == src.Folder || strings.HasPrefix(drel, src.Folder+"/") || strings.HasPrefix(src.Folder, drel+"/") {
+							raise("critical", "part of the project "+p.Name+" in Lumpy")
+						}
+					}
+				}
+			}
+		}
+		// Newest change inside, from a bounded walk.
+		if newest := newestChange(full, 20000); !newest.IsZero() {
+			c.Changed = newest.Unix()
+			if time.Since(newest) < 7*24*time.Hour && worst != "safe" {
+				raise("check", "changed "+when(newest)) // a cache changes all the time; that's not a reason to keep it
+			} else {
+				c.Reasons = append(c.Reasons, "changed "+when(newest))
+			}
+		}
+		// Open by a running app?
+		if apps := openBy(full, n.Dir, n.Files); len(apps) > 0 {
+			raise("check", "open in "+strings.Join(apps, ", "))
+		}
+		// A copy in the library?
+		if !n.Dir && n.Len > 0 {
+			if k, err := s.db.CopiesOf(n.Name, n.Len); err == nil && k > 0 {
+				c.Reasons = append(c.Reasons, fmt.Sprintf("a file of this name and size is on %d logged drive%s", k, plural(k)))
+			}
+		}
+		if worst == "" {
+			worst = "ok"
+			if len(c.Reasons) == 0 {
+				c.Reasons = append(c.Reasons, "nothing Lumpy knows against it")
+			}
+		}
+		c.Level = worst
+		out = append(out, c)
+	}
+	if out == nil {
+		out = []check{}
+	}
+	return out, nil
+}
+
+func rank(level string) int {
+	switch level {
+	case "critical":
+		return 3
+	case "check":
+		return 2
+	case "safe":
+		return 1
+	}
+	return 0
+}
+
+func when(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Hour:
+		return "in the last hour"
+	case d < 24*time.Hour:
+		return "today"
+	case d < 48*time.Hour:
+		return "yesterday"
+	default:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	}
+}
+
+// newestChange is the newest modification time under p, looking at up
+// to limit entries so a huge folder doesn't take all day.
+func newestChange(p string, limit int) time.Time {
+	var newest time.Time
+	seen := 0
+	filepath.WalkDir(p, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		seen++
+		if seen > limit {
+			return filepath.SkipAll
+		}
+		if info, err := d.Info(); err == nil && info.Mode().IsRegular() && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	})
+	return newest
+}
+
+// openBy names the apps that have the file, or something inside a
+// small folder, open. lsof is slow on big folders, so those are not
+// asked about.
+func openBy(p string, dir bool, files int64) []string {
+	if _, err := exec.LookPath("lsof"); err != nil || (dir && files > 500) {
+		return nil
+	}
+	args := []string{"-F", "c", "--", p}
+	if dir {
+		args = []string{"-F", "c", "+D", p}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, "lsof", args...).Output()
+	seen := map[string]bool{}
+	var apps []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "c") && len(line) > 1 && !seen[line[1:]] {
+			seen[line[1:]] = true
+			apps = append(apps, line[1:])
+		}
+	}
+	sort.Strings(apps)
+	return apps
 }
