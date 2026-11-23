@@ -676,6 +676,10 @@ main.map-main { padding: 0; overflow: hidden; }
 .map.has-sel .island:not(.hot) { opacity: .4; }
 .island { position: absolute; box-sizing: border-box; border-radius: 22px; background: color-mix(in srgb, var(--pc, var(--accent)) 7%, transparent); border: 1px solid color-mix(in srgb, var(--pc, var(--accent)) 28%, transparent); transition: opacity .2s; }
 .island.loose { background: rgba(255,255,255,.025); border-style: dashed; border-color: var(--line-2); }
+.island.shared { background: rgba(255,255,255,.03); border-color: color-mix(in srgb, var(--pc, var(--muted)) 40%, var(--line-2)); }
+.node.slice { padding: 6px 12px; }
+.node.slice .n-tag { width: 22px; height: 22px; }
+.node.head b { font-size: 14px; }
 .island-lbl { position: absolute; left: 18px; top: 10px; font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
 .node.away { opacity: .62; }
 .node.away .n-pic { filter: grayscale(1) opacity(.7); }

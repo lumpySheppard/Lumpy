@@ -153,17 +153,20 @@ both drives at once. No manifest is needed.
 
 ### Map
 
-The first tab is a map of islands, one per project: the project's
-header on top (how many copies it wants, its size, file and drive
-counts, its backup bar and what is still to copy) and its drives in a
-grid beneath, tinted in the project's colour. Being inside the island
-is what says a drive is in the project, so there is no wire per drive;
-each drive node carries its own line instead: how that part of the
-project is backed up (green verified, yellow partly, red not at all,
-grey unproven), a **backup** tag on the project's backup drives, and a
-green dot for plugged in. Drives in no project share a grey island at
-the end. A drive in a second project keeps a wire to that project's
-header, so membership across islands stays visible. Click a node and
+The first tab is a map of islands. A project whose drives hold nothing
+else gets a **project island**: the project's header on top (how many
+copies it wants, its size, file and drive counts, its backup bar and
+what is still to copy) and those drives in a grid beneath, tinted in
+the project's colour. A drive that holds several projects gets a
+**drive island** instead: the drive on top, and a node per project
+beneath it saying how much of that project is on the drive and how
+it's backed up. A project that has drives of its own and also sits on
+a shared drive gets both, with a wire from its header to its node in
+the drive island. Being inside an island is what says what belongs
+where, so there is no wire per drive; each node carries its own line
+instead: green verified, yellow partly, red not at all, grey unproven,
+a **backup** tag on backup drives, and a green dot for plugged in.
+Drives in no project share a grey island at the end. Click a node and
 its island lights up, with a card that opens the project or the
 drive's details; double-click a drive for its details, a project for
 its page. Drag to pan, ⌘ + scroll to zoom, drag a drive to move it,
