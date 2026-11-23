@@ -106,6 +106,13 @@ func deviceOf(st os.FileInfo) uint64 {
 	return 0
 }
 
+func inodeOf(st os.FileInfo) uint64 {
+	if s, ok := st.Sys().(*syscall.Stat_t); ok {
+		return uint64(s.Ino)
+	}
+	return 0
+}
+
 // onDisk is the space a file takes, from its allocated blocks when the
 // system reports them, else its length.
 func onDisk(st os.FileInfo) int64 {
@@ -188,7 +195,7 @@ func (w *walker) walk(ctx context.Context, dir string, st os.FileInfo) *Node {
 		if info.Size() >= BigSize {
 			if rel, err := filepath.Rel(w.root, full); err == nil {
 				w.mu.Lock()
-				w.big = append(w.big, BigFile{Rel: filepath.ToSlash(rel), Size: info.Size(), Disk: size, Mtime: info.ModTime().Unix(), Atime: atimeOf(info)})
+				w.big = append(w.big, BigFile{Rel: filepath.ToSlash(rel), Size: info.Size(), Disk: size, Mtime: info.ModTime().Unix(), Atime: atimeOf(info), Ino: inodeOf(info)})
 				w.mu.Unlock()
 			}
 		}

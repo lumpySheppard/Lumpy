@@ -79,6 +79,9 @@ func TestDupesAndOld(t *testing.T) {
 	if len(r.Big) != 4 {
 		t.Fatalf("big files: %d", len(r.Big))
 	}
+	// A hard link to a copy is the same file: not a fourth copy.
+	os.Link(filepath.Join(dir, "a", "x.mov"), filepath.Join(dir, "a", "x again.mov"))
+	r, _ = ScanAll(context.Background(), dir, nil)
 	groups, wasted, err := Dupes(context.Background(), dir, r.Big, nil)
 	if err != nil {
 		t.Fatal(err)

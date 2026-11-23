@@ -23,6 +23,7 @@ type BigFile struct {
 	Disk  int64  `json:"disk"` // on disk
 	Mtime int64  `json:"mtime"`
 	Atime int64  `json:"atime"`
+	Ino   uint64 `json:"-"` // the file on disk: two paths with one inode are one file, not two
 }
 
 // BigSize is the smallest file a scan remembers for the finders.
@@ -51,9 +52,18 @@ func Dupes(ctx context.Context, root string, big []BigFile, prog *Progress) ([]D
 			continue
 		}
 		byHash := map[string][]string{}
+		// One file reached by two names (a firmlink, a hard link) is
+		// not a duplicate of itself.
+		inodes := map[uint64]bool{}
 		for _, f := range fs {
 			if ctx.Err() != nil {
 				return nil, 0, ctx.Err()
+			}
+			if f.Ino != 0 {
+				if inodes[f.Ino] {
+					continue
+				}
+				inodes[f.Ino] = true
 			}
 			if prog != nil {
 				prog.Current.Store(f.Rel)
