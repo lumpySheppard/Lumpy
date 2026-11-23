@@ -66,6 +66,17 @@ The app has four tabs:
   it, and a Run button on each step whose drives are plugged in.
 - **Offload**: pick a card and destinations (or click the drive chips), then
   start. Progress, speed and time left are shown live in a terminal view.
+- **Space**: what's taking room on this Mac or a drive, like DaisyDisk.
+  Pick Macintosh HD, your home folder, a drive or any folder; Lumpy
+  measures it and draws it as rings, biggest first. Click a folder to go
+  into it and the middle to come back up. Click **+** on anything you don't
+  need to collect it, then **Move to Trash…**. Nothing is removed until you
+  confirm, items can be put back from the Trash, and the space is freed
+  when you empty it. On the startup disk only things in Users and
+  Applications can be moved, never your home or Library folder itself.
+  For a complete picture, give Lumpy Full Disk Access (System Settings →
+  Privacy & Security); without it, folders macOS keeps private count as
+  empty.
 - **Activity**: every offload, check and rescan with its full log.
 
 The command-line tool is inside the app. To use it in Terminal:

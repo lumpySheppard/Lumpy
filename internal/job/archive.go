@@ -119,8 +119,11 @@ func ArchiveFiles(ctx context.Context, db *catalog.DB, v *volume.Volume, ops []A
 	return ctx.Err()
 }
 
-// trashPaths puts files in the Trash through the Finder, so they can be
-// put back; elsewhere than a Mac it deletes them.
+// Trash puts files and folders in the Trash through the Finder, so they
+// can be put back; elsewhere than a Mac it deletes them.
+func Trash(paths []string) error { return trashPaths(paths) }
+
+// trashPaths is Trash, replaceable in tests.
 var trashPaths = func(paths []string) error {
 	if runtime.GOOS != "darwin" {
 		for _, p := range paths {
