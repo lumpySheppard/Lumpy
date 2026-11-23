@@ -5,12 +5,12 @@ import "testing"
 func TestCleanName(t *testing.T) {
 	ig := map[string]bool{"BS": true}
 	for in, want := range map[string][2]string{
-		"04_BS_REDHAND":                        {"REDHAND", "REDHAND"},
-		"03_BS_LATEAUGUST_2025-11-16_JJ":       {"LATEAUGUST", "LATEAUGUST"},
-		"01_PROJECTS/02_ICEMAN_EP2":            {"ICEMAN EP2", "ICEMAN"},
-		"01_PROJECTS/FT_PILOT":                 {"FT PILOT", "FT"},
-		"07_CS-Teaser_v2":                      {"CS Teaser v2", "CS"},
-		"01_PROJECTS/BS":                       {"", ""},
+		"04_BS_REDHAND":                  {"REDHAND", "REDHAND"},
+		"03_BS_LATEAUGUST_2025-11-16_JJ": {"LATEAUGUST", "LATEAUGUST"},
+		"01_PROJECTS/02_ICEMAN_EP2":      {"ICEMAN EP2", "ICEMAN"},
+		"01_PROJECTS/FT_PILOT":           {"FT PILOT", "FT"},
+		"07_CS-Teaser_v2":                {"CS Teaser v2", "CS"},
+		"01_PROJECTS/BS":                 {"", ""},
 	} {
 		name, key := cleanName(in, ig)
 		if name != want[0] || key != want[1] {
