@@ -397,6 +397,18 @@ spin down* takes it out of the count. Turn on **Keep the Mac awake too**
 and `pmset -g assertions` lists a `caffeinate` assertion that goes away
 when Lumpy quits.
 
+## 18. Space
+
+Open the Space tab, choose **Home**, **Measure**. Activity shows
+"Measure Home" reading folders; within a minute or two the rings appear.
+
+**Expect:** the biggest folders are the biggest slices, hovering a
+slice names it with its size, clicking one drills in and the crumbs
+show the path, the centre goes back up. Make a folder with a 1 GB
+junk file (`mkfile 1g ~/Desktop/junk/big.bin`), **Measure again**,
+tick it in the list and **Move to the Trash**: it appears in the Trash
+and the rings shrink by 1 GB.
+
 ## Afterwards
 
 Delete the `LUMPY_TEST` folders from both drives when you're done. To

@@ -487,6 +487,25 @@ forgotten. The Trash is the Mac's own, so nothing is gone until you
 empty it. The first time, macOS may ask whether Lumpy may control the
 Finder, which is how files reach the Trash.
 
+### Space
+
+The Space tab is for the Mac itself, the way DaisyDisk works: pick
+Macintosh HD, Home or a plugged-in drive, **Measure**, and every
+folder is drawn as rings, the bigger the slice the more it holds, with
+a list beside it of what's inside the folder in view, biggest first.
+Click a slice (or a row's chevron, or double-click a row) to look
+inside, hover for a size, click the centre to go back up, and the
+crumbs at the top of the list jump anywhere. Tick what should go and
+**Move to the Trash**: it goes through the Finder, so it can be put
+back, and the rings update. Show in Finder opens the item. Sizes are
+what files take on disk; each folder keeps its 60 biggest items apart
+and rolls the rest into "smaller items". The measurement runs as a job
+(Activity shows the folder being read), is kept until Lumpy quits, and
+**Measure again** refreshes it. Symlinks aren't followed and other
+volumes mounted below the one measured are skipped. The Mac's own
+disk also holds system files, snapshots and purgeable space no app can
+measure, so Finder's "used" can be more than what Lumpy finds.
+
 ### Menu bar
 
 Lumpy.app also lives in the menu bar: the NAS glyph shows the running

@@ -99,6 +99,7 @@ const ICON = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 5l-7 7 7 7"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12h16M13 5l7 7-7 7"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>',
+  right: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
   clapper: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9zM3 9l1.5-5L20 6.5 18.5 9M8 4.5L10 8M13 5l2 3.5"/></svg>',
@@ -154,7 +155,7 @@ async function loadState() {
     S.state = await api("/api/state");
     if (first || !S.settings) S.settings = await api("/api/settings").catch(() => null);
     // The offload form keeps what's being typed; only the counts refresh.
-    if (!first && (S.tab === "offload" || S.tab === "media")) renderCounts();
+    if (!first && (S.tab === "offload" || S.tab === "media" || S.tab === "space")) { renderCounts(); if (S.tab === "space") spaceTick(); }
     else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }
     else if (!first && S.tab === "map") { renderCounts(); loadProjects(); }
     else render();
@@ -623,6 +624,7 @@ function render() {
   main.classList.toggle("map-main", S.tab === "map");
   if (S.tab === "map") return renderMap();
   if (S.tab === "offload") return renderOffload();
+  if (S.tab === "space") return renderSpace();
   if (S.tab === "projects") return renderProjects();
   if (S.tab === "media") return renderMedia();
   main.innerHTML = (S.tab === "connected" ? renderConnected() : renderLogged()) + selectionBar();
@@ -2783,6 +2785,156 @@ function wireMap(m) {
   for (const b of box.querySelectorAll("[data-eject]")) b.onclick = () => { b.disabled = true; ejectDrive(b.dataset.eject); };
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab === "map" && MAP.sel) { MAP.sel = null; renderMap(); } });
+
+// ---------- Space: what takes the room ----------
+// Like DaisyDisk: measure a disk, see it as rings, drill in, put the
+// big things in the Trash. The measurement lives on the server; the
+// page asks for the rings around the folder in view.
+const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "" };
+async function renderSpace() {
+  const main = $("#main");
+  if (!SP.places) { main.innerHTML = loadingGlyph("Looking at the disks…"); try { SP.places = await api("/api/space/places"); } catch (e) { main.innerHTML = `<div class="empty"><h2>Can't look</h2><p>${esc(e.message)}</p></div>`; return; } }
+  if (!SP.root || !SP.places.some((p) => p.path === SP.root)) SP.root = (SP.places[1] || SP.places[0] || {}).path || "";
+  const place = SP.places.find((p) => p.path === SP.root) || {};
+  const d = SP.data && SP.data.root === SP.root ? SP.data : null;
+  const crumbs = SP.at ? SP.at.split("/") : [];
+  main.innerHTML = `<div class="space">
+    <div class="page-bar"><div class="toolbar-title">${ICON.pie}Space</div>
+      <label class="select"><select id="sp-place">${SP.places.map((p) => `<option value="${esc(p.path)}" ${p.path === SP.root ? "selected" : ""}>${esc(p.name)}${p.size ? ` · ${bytes(p.size - p.free)} of ${bytes(p.size)} used` : ""}</option>`).join("")}</select></label>
+      <button class="btn ${d ? "" : "primary"}" id="sp-scan" ${SP.busy ? "disabled" : ""}>${SP.busy ? "Measuring…" : d ? ICON.refresh + "Measure again" : ICON.play + "Measure"}</button>
+      ${place.size ? `<span class="pills"><span class="pill">Used:<b>${bytes(place.size - place.free)}</b></span><span class="pill">Free:<b>${bytes(place.free)}</b></span>${d ? `<span class="pill" title="What the measurement found; the rest is hidden system files, snapshots and purgeable space">Measured:<b>${bytes(d.total)}</b></span>` : ""}</span>` : ""}
+      <div class="right">${SP.sel.size ? `<button class="btn danger" id="sp-trash">${ICON.trash}Move ${SP.sel.size} to the Trash…</button>` : ""}</div>
+    </div>
+    ${SP.busy ? `<div class="empty">${loadingGlyph("")}<h2>Measuring ${esc(place.name || SP.root)}</h2><p id="sp-prog">${bytes(SP.data && SP.data.bytes || 0)} so far · see Activity for the folder it's reading</p></div>`
+    : !d ? `<div class="empty">${ICON.pie}<h2>What's taking the room?</h2><p>Lumpy measures every folder on ${esc(place.name || "the disk")} and draws it as rings: the bigger the slice, the more it holds. Click a slice to look inside, hover for its size, tick the things to go and move them to the Trash in one go. Nothing is touched until you say so.</p><p><button class="btn primary" id="sp-scan2">${ICON.play}Measure ${esc(place.name || "")}</button></p></div>`
+    : `<div class="sp-body">
+        <div class="sp-chart" id="sp-chart">${sunburst(d.node)}</div>
+        <div class="sp-side">
+          <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
+          <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span></div>
+          <div class="sp-list">${(d.node.children || []).map((c, i) => { const rel = SP.at ? SP.at + "/" + c.name : c.name; const pct = d.node.bytes ? (c.bytes / d.node.bytes) * 100 : 0; return `<div class="sp-row ${c.rest ? "rest" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" style="--sc:${c.rest ? "var(--muted)" : spColor(i, 0)}">
+              ${c.rest ? '<span class="pickcell"></span>' : `<input type="checkbox" class="pick" data-sp-pick="${esc(rel)}" ${SP.sel.has(rel) ? "checked" : ""}>`}
+              <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : esc(c.name)}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}</span>
+              <span class="sp-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
+              <span class="sp-size">${bytes(c.bytes)}</span>
+              <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>
+          <p class="hint" style="margin-top:10px">Sizes are what files take on disk. Each folder keeps its ${60} biggest items apart and rolls the rest into "smaller items". The Mac's own disk also holds system files, snapshots and purgeable space that no app can measure; what Finder says is used can be more than this.</p>
+        </div></div>`}
+  </div>`;
+  $("#sp-place").onchange = (e) => { SP.root = e.target.value; localSet("space.root", SP.root); SP.at = ""; SP.sel.clear(); SP.data = null; spaceLoad(); };
+  const scan = async () => { try { await api("/api/space/scan", { method: "POST", body: { path: SP.root } }); SP.busy = true; renderSpace(); loadJobs(); } catch (e) { toast(e.message, true); } };
+  $("#sp-scan").onclick = scan;
+  if ($("#sp-scan2")) $("#sp-scan2").onclick = scan;
+  for (const b of document.querySelectorAll("[data-sp-go]")) b.onclick = () => { SP.at = b.dataset.spGo; spaceLoad(); };
+  for (const b of document.querySelectorAll("[data-sp-open]")) b.onclick = () => { SP.at = b.dataset.spOpen; spaceLoad(); };
+  for (const b of document.querySelectorAll("[data-sp-reveal]")) b.onclick = () => nativeCall("reveal", { path: SP.root.replace(/\/$/, "") + "/" + b.dataset.spReveal });
+  for (const el of document.querySelectorAll("[data-sp-pick]")) el.onchange = () => { if (el.checked) SP.sel.add(el.dataset.spPick); else SP.sel.delete(el.dataset.spPick); renderSpace(); };
+  for (const row of document.querySelectorAll("[data-sp-row]")) { row.onmouseenter = () => spHover(row.dataset.spRow); row.onmouseleave = () => spHover(null); row.ondblclick = () => { const c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === row.dataset.spRow); if (c && c.dir) { SP.at = row.dataset.spRow; spaceLoad(); } }; }
+  if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
+  wireSunburst(d);
+  if (!d && !SP.busy && place.done) spaceLoad();
+  if (place.busy && !SP.busy) { SP.busy = true; renderSpace(); }
+}
+async function spaceLoad() {
+  try {
+    const r = await api(`/api/space?path=${encodeURIComponent(SP.root)}&at=${encodeURIComponent(SP.at)}&depth=4`);
+    if (r.busy) { SP.busy = true; SP.data = { root: SP.root, bytes: r.bytes }; }
+    else { SP.busy = false; SP.data = r; }
+  } catch (e) {
+    SP.busy = false; SP.data = null;
+    if (!/not measured/.test(e.message)) toast(e.message, true);
+  }
+  renderSpace();
+}
+// spaceTick runs with the state refresh: while a measurement runs, ask
+// again; when it ends, show it.
+async function spaceTick() {
+  if (!SP.busy) return;
+  try { SP.places = await api("/api/space/places"); } catch {}
+  const place = (SP.places || []).find((p) => p.path === SP.root);
+  if (place && !place.busy) { SP.busy = false; spaceLoad(); }
+  else { const el = $("#sp-prog"); if (el && place) el.textContent = `${bytes(place.measured)} so far · see Activity for the folder it's reading`; }
+}
+function spHover(rel) {
+  SP.hover = rel;
+  for (const el of document.querySelectorAll("[data-sp-row]")) el.classList.toggle("hot", el.dataset.spRow === rel);
+  for (const el of document.querySelectorAll("[data-sp-seg]")) el.classList.toggle("hot", rel !== null && (el.dataset.spSeg === rel || el.dataset.spSeg.startsWith(rel + "/")));
+  const tip = $("#sp-tip");
+  if (!tip) return;
+  const seg = rel !== null && document.querySelector(`[data-sp-seg="${CSS.escape(rel)}"]`);
+  if (!seg) { tip.hidden = true; return; }
+  tip.hidden = false;
+  tip.innerHTML = `<b>${esc(seg.dataset.spName)}</b><span>${seg.dataset.spSize} · ${seg.dataset.spPct}%</span>`;
+}
+// spColor gives each top-level slice a hue of its own, lighter the
+// deeper the ring, the way DaisyDisk does.
+function spColor(i, depth) {
+  const h = (i * 137.508) % 360;
+  return `hsl(${h.toFixed(0)} ${Math.max(35, 72 - depth * 8)}% ${Math.min(74, 50 + depth * 7)}%)`;
+}
+function sunburst(node) {
+  const R0 = 64, RING = 34, RINGS = 4, size = 2 * (R0 + RING * RINGS + 6), cx = size / 2, cy = size / 2;
+  const total = node.bytes || 1;
+  const segs = [];
+  const arc = (r0, r1, a0, a1) => {
+    const p = (r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+    const big = a1 - a0 > Math.PI ? 1 : 0;
+    const [x0, y0] = p(r1, a0), [x1, y1] = p(r1, a1), [x2, y2] = p(r0, a1), [x3, y3] = p(r0, a0);
+    return `M${x0.toFixed(1)} ${y0.toFixed(1)}A${r1} ${r1} 0 ${big} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}L${x2.toFixed(1)} ${y2.toFixed(1)}A${r0} ${r0} 0 ${big} 0 ${x3.toFixed(1)} ${y3.toFixed(1)}Z`;
+  };
+  const walk = (n, depth, a0, a1, rel, top) => {
+    if (depth >= RINGS) return;
+    let a = a0;
+    (n.children || []).forEach((c, i) => {
+      const span = (c.bytes / total) * 2 * Math.PI * ((a1 - a0) / (2 * Math.PI)) / ((n.bytes || 1) / total);
+      const b = a + span;
+      if (span > 0.004) {
+        const t = depth === 0 ? i : top, crel = rel ? rel + "/" + c.name : c.name;
+        const pct = ((c.bytes / total) * 100);
+        segs.push(`<path class="sp-seg ${c.rest ? "rest" : ""}" d="${arc(R0 + depth * RING, R0 + (depth + 1) * RING - 1.5, a - Math.PI / 2, b - Math.PI / 2)}" fill="${c.rest ? "var(--line-2)" : spColor(t, depth)}" data-sp-seg="${esc(crel)}" data-sp-name="${esc(c.rest ? c.rest.toLocaleString() + " smaller items" : c.name)}" data-sp-size="${bytes(c.bytes)}" data-sp-pct="${pct < 1 ? pct.toFixed(1) : pct.toFixed(0)}" data-sp-dir="${c.dir && !c.rest ? 1 : 0}"/>`);
+        if (c.dir) walk(c, depth + 1, a, b, crel, t);
+      }
+      a = b;
+    });
+  };
+  walk(node, 0, 0, 2 * Math.PI, SP.at, 0);
+  return `<svg viewBox="0 0 ${size} ${size}" class="sp-svg">${segs.join("")}<circle class="sp-center" cx="${cx}" cy="${cy}" r="${R0 - 4}" data-sp-up="1"/><text class="sp-ct" x="${cx}" y="${cy - 4}" text-anchor="middle">${esc(bytes(node.bytes))}</text><text class="sp-cs" x="${cx}" y="${cy + 13}" text-anchor="middle">${SP.at ? "click to go up" : esc((node.name || "").split("/").pop() || "disk")}</text></svg><div class="sp-tip" id="sp-tip" hidden></div>`;
+}
+function wireSunburst(d) {
+  const chart = $("#sp-chart");
+  if (!chart) return;
+  chart.onmousemove = (e) => {
+    const seg = e.target.closest("[data-sp-seg]");
+    const rel = seg ? seg.dataset.spSeg : null;
+    if (rel !== SP.hover) spHover(rel);
+    const tip = $("#sp-tip");
+    if (tip && !tip.hidden) { const r = chart.getBoundingClientRect(); tip.style.left = (e.clientX - r.left + 14) + "px"; tip.style.top = (e.clientY - r.top + 14) + "px"; }
+  };
+  chart.onmouseleave = () => spHover(null);
+  chart.onclick = (e) => {
+    const seg = e.target.closest("[data-sp-seg]");
+    if (seg) { if (seg.dataset.spDir === "1") { SP.at = seg.dataset.spSeg; spaceLoad(); } return; }
+    if (e.target.closest("[data-sp-up]") && SP.at) { SP.at = SP.at.split("/").slice(0, -1).join("/"); spaceLoad(); }
+  };
+}
+async function spaceTrash(d) {
+  const items = [...SP.sel];
+  const total = items.reduce((t, rel) => { const n = (d.node.children || []).find((c) => (SP.at ? SP.at + "/" + c.name : c.name) === rel); return t + (n ? n.bytes : 0); }, 0);
+  openSheet(`<div class="sheet-head"><h2>Move ${items.length} item${items.length === 1 ? "" : "s"} to the Trash?</h2><div class="actions"><button class="icon-btn" id="st-close">${ICON.x}</button></div></div>
+    <div class="sheet-body" style="padding-top:12px"><div class="chips">${items.map((x) => `<span class="chip">${esc(x.split("/").pop())}</span>`).join("")}</div><p class="hint" style="margin:10px 0 0">${bytes(total)} goes to the Trash through the Finder, so it can be put back. The space is freed when you empty the Trash.</p></div>
+    <div class="sheet-foot"><button class="btn" id="st-cancel">Keep them</button><button class="btn danger-fill" id="st-ok">${ICON.trash}Move to the Trash</button></div>`, true);
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  $("#st-close").onclick = $("#st-cancel").onclick = close;
+  $("#st-ok").onclick = async () => {
+    $("#st-ok").disabled = true;
+    try {
+      const r = await api("/api/space/trash", { method: "POST", body: { path: SP.root, items } });
+      close(); SP.sel.clear();
+      toast(`${r.trashed.length} moved to the Trash · ${bytes(r.freed)} once it's emptied`);
+      spaceLoad();
+    } catch (e) { toast(e.message, true); $("#st-ok").disabled = false; }
+  };
+}
 
 // ---------- events ----------
 document.querySelector(".tabs").onclick = (e) => {

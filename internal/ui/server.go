@@ -63,6 +63,7 @@ type Server struct {
 	archMu   sync.Mutex
 	archives map[string]*archiveRun // archive analyses waiting to be applied
 	pulls    map[string]*pullRun    // pull analyses waiting to be copied
+	spc      spaceStore             // measured disks, for the Space tab
 }
 
 type driveExtra struct {
@@ -229,6 +230,10 @@ func (s *Server) Handler() http.Handler {
 	api("DELETE /api/projects/{id}", s.deleteProject)
 	api("POST /api/projects/{id}/transfer", s.runTransfer)
 	api("GET /api/projects/{id}/proxies", s.projectProxies)
+	api("GET /api/space/places", s.spacePlaces)
+	api("POST /api/space/scan", s.spaceStart)
+	api("GET /api/space", s.spaceTree)
+	api("POST /api/space/trash", s.spaceTrash)
 	api("POST /api/pull", s.analysePull)
 	api("POST /api/pull/run", s.runPull)
 	api("POST /api/pull/paths", s.pullPaths)
