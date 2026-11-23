@@ -398,6 +398,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
             }
             resolve(id, true, in: from)
+        case "open":
+            // A URL to hand to macOS: System Settings panes, mostly.
+            if let s = body["url"] as? String, let url = URL(string: s) {
+                NSWorkspace.shared.open(url)
+            }
+            resolve(id, true, in: from)
         case "relaunch":
             // After an update: quit, and have a detached shell reopen the
             // (now replaced) bundle once this process has gone.

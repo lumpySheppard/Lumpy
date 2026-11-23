@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/volume"
@@ -144,10 +145,14 @@ var trashPaths = func(paths []string) error {
 		b.WriteString(`POSIX file "` + quote.Replace(p) + `"`)
 	}
 	b.WriteString("}")
-	out, err := exec.Command("osascript", "-e", b.String()).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "osascript", "-e", b.String()).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
-		if msg == "" {
+		if ctx.Err() != nil {
+			msg = "the Finder didn't answer; if macOS asked whether Lumpy may control the Finder, allow it and try again"
+		} else if msg == "" {
 			msg = err.Error()
 		}
 		return fmt.Errorf("the Finder could not move it to the Trash: %s", msg)

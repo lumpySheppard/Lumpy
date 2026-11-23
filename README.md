@@ -277,6 +277,16 @@ checksummed and has at least two verified copies on other drives. With
 exactly one copy everywhere it says **Backed up once · keep the card**,
 because the card is still the second copy.
 
+### Stills and raws without Resolve
+
+Previews (the Filmstrip, a clip's details, duplicates in Space) are
+made by Lumpy itself for JPEG, PNG and GIF, for **DPX** frames
+(DaVinci Resolve's gallery stills and film scans: 8, 10, 12 and 16-bit
+RGB, log stills brought up to a viewable picture) and for **DNG** and
+other camera raws that carry a developed preview inside (Adobe's and
+Blackmagic's do), and by macOS for HEIC, Canon CR3, Fujifilm RAF,
+Photoshop and OpenEXR. Video frames come from ffmpeg.
+
 ### Filmstrip
 
 The Clips page has a **Filmstrip** view beside the table: a tile per
@@ -511,7 +521,11 @@ is compared by length, the ones that share a length are read and
 checksummed in full, and only identical contents count; pick which
 copy to keep in each set and the rest are ticked for the Trash (two
 copies on one disk protect nothing; a backup lives on another drive).
-It runs in Activity, since a big disk takes a while. **Not touched in
+It runs in Activity, since a big disk takes a while. The sets can be
+narrowed to pictures, clips, audio, documents or archives, and to one
+top-level folder; pictures and clips show their previews side by side
+so a match can be seen as well as proven; **Apply to all shown** keeps
+the first copy of every set in view and ticks the rest. **Not touched in
 a year** lists the big files neither changed nor opened in 365 days,
 biggest first (opened is the access time macOS keeps for its own
 disk), and apps not opened in a year by Spotlight's last-used date,
@@ -531,7 +545,11 @@ its own tick box. A file the library already holds, by name and size,
 on logged drives gets an **on N drives** badge, so footage copied to
 the Mac for an edit can go once its originals are checked. The Mac's own
 disk also holds system files, snapshots and purgeable space no app can
-measure, so Finder's "used" can be more than what Lumpy finds.
+measure, so Finder's "used" can be more than what Lumpy finds. When
+the measurement covers much less than the disk's used space, Lumpy
+says so and offers to measure Macintosh HD; when macOS kept folders
+from it (parts of Library are off limits without **Full Disk Access**),
+it says how many and opens Privacy & Security so Lumpy can be added.
 
 ### Menu bar
 

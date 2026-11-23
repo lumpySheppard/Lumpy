@@ -102,6 +102,23 @@ func makeThumb(ctx context.Context, full string, at float64) ([]byte, error) {
 	switch ext {
 	case ".jpg", ".jpeg", ".png", ".gif":
 		return stillThumb(full)
+	case ".dpx":
+		img, err := media.DecodeDPX(full, thumbWidth)
+		if err != nil {
+			return nil, err
+		}
+		return encodeThumb(img)
+	case ".dng", ".tif", ".tiff", ".cr2", ".nef", ".arw":
+		img, err := media.DecodeDNGPreview(full)
+		if err != nil {
+			if b, err2 := sipsThumb(ctx, full); err2 == nil {
+				return b, nil
+			}
+			return nil, err
+		}
+		return encodeThumb(img)
+	case ".heic", ".cr3", ".raf", ".psd", ".exr", ".webp":
+		return sipsThumb(ctx, full)
 	}
 	if !videoExts[ext] {
 		return nil, fmt.Errorf("no preview for %s files", strings.TrimPrefix(ext, "."))
@@ -132,6 +149,36 @@ func makeThumb(ctx context.Context, full string, at float64) ([]byte, error) {
 		// Past the end, or the stream has no frame there: take the first.
 	}
 	return nil, fmt.Errorf("ffmpeg couldn't read a frame")
+}
+
+// encodeThumb is a decoded image as the JPEG the page gets.
+func encodeThumb(img image.Image) ([]byte, error) {
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, shrink(img, thumbWidth), &jpeg.Options{Quality: 82}); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+// sipsThumb asks macOS to render a format Lumpy can't read itself
+// (HEIC, camera raws, Photoshop, EXR); elsewhere there is no preview.
+func sipsThumb(ctx context.Context, full string) ([]byte, error) {
+	sips, err := exec.LookPath("sips")
+	if err != nil {
+		return nil, fmt.Errorf("no preview for %s files", strings.TrimPrefix(strings.ToLower(filepath.Ext(full)), "."))
+	}
+	dir, err := os.MkdirTemp("", "lumpy-thumb")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	out := filepath.Join(dir, "t.jpg")
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, sips, "-s", "format", "jpeg", "-Z", fmt.Sprint(thumbWidth), full, "--out", out).Run(); err != nil {
+		return nil, fmt.Errorf("macOS couldn't render a preview")
+	}
+	return os.ReadFile(out)
 }
 
 // stillThumb shrinks a JPEG, PNG or GIF.

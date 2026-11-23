@@ -238,6 +238,7 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/space/dupes", s.spaceDupes)
 	api("POST /api/space/dupes", s.spaceDupes)
 	api("GET /api/space/old", s.spaceOld)
+	api("GET /api/space/thumb", s.spaceThumb)
 	api("POST /api/pull", s.analysePull)
 	api("POST /api/pull/run", s.runPull)
 	api("POST /api/pull/paths", s.pullPaths)

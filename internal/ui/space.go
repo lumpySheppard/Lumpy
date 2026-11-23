@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -222,7 +223,7 @@ func (s *Server) spaceTree(w http.ResponseWriter, r *http.Request) (any, error) 
 			verdicts[c.Name] = v
 		}
 	}
-	return map[string]any{"root": root, "at": at, "node": n.Trim(depth), "total": sc.tree.Bytes, "files": sc.tree.Files, "size": size, "free": free, "measured": sc.at.Unix(), "copies": copies, "suspects": suspects, "verdicts": verdicts}, nil
+	return map[string]any{"root": root, "at": at, "node": n.Trim(depth, n.Bytes/400), "unreadable": sc.tree.Unreadable(), "total": sc.tree.Bytes, "files": sc.tree.Files, "size": size, "free": free, "measured": sc.at.Unix(), "copies": copies, "suspects": suspects, "verdicts": verdicts}, nil
 }
 
 // spaceTrash puts items in the Trash through the Finder and takes them
@@ -481,13 +482,13 @@ func (sc *spaceScan) bigAt(rel string) *space.BigFile {
 	return nil
 }
 func (sc *spaceScan) dropBig(rel string) {
-	for i := range sc.big {
-		if sc.big[i].Rel == rel || strings.HasPrefix(sc.big[i].Rel, rel+"/") {
-			sc.big = append(sc.big[:i], sc.big[i+1:]...)
-			sc.dropBig(rel)
-			return
+	kept := sc.big[:0]
+	for _, b := range sc.big {
+		if b.Rel != rel && !strings.HasPrefix(b.Rel, rel+"/") {
+			kept = append(kept, b)
 		}
 	}
+	sc.big = kept
 	for gi := range sc.dupes {
 		g := &sc.dupes[gi]
 		kept := g.Paths[:0]
@@ -676,4 +677,50 @@ func lastUsed(p string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+// spaceThumb is a preview of a file in a measured place, for looking
+// at duplicates side by side: ?path= the place, ?rel= the file.
+func (s *Server) spaceThumb(w http.ResponseWriter, r *http.Request) (any, error) {
+	root := filepath.Clean(r.URL.Query().Get("path"))
+	rel := strings.Trim(r.URL.Query().Get("rel"), "/")
+	s.spc.mu.Lock()
+	sc := s.spc.scans[root]
+	s.spc.mu.Unlock()
+	if sc == nil || sc.tree == nil || rel == "" || strings.Contains(rel, "..") {
+		return nil, badRequest("measure it first")
+	}
+	if sc.tree.At(rel) == nil && sc.bigAt(rel) == nil {
+		return nil, httpError{http.StatusNotFound, "not in the measurement"}
+	}
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	st, err := os.Stat(full)
+	if err != nil {
+		return nil, httpError{http.StatusNotFound, err.Error()}
+	}
+	key := fmt.Sprintf("%x", sha1sum(fmt.Sprintf("%s|%d|%d", full, st.Size(), st.ModTime().UnixNano())))
+	dir := filepath.Join(s.thumbDir(), "space")
+	os.MkdirAll(dir, 0o755)
+	cached := filepath.Join(dir, key+".jpg")
+	if b, err := os.ReadFile(cached); err == nil {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "private, max-age=86400")
+		w.Write(b)
+		return nil, nil
+	}
+	data, err := makeThumb(r.Context(), full, 0)
+	if err != nil {
+		return nil, httpError{http.StatusUnsupportedMediaType, err.Error()}
+	}
+	os.WriteFile(cached, data, 0o644)
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Write(data)
+	return nil, nil
+}
+
+func sha1sum(s string) []byte {
+	h := sha1.New()
+	h.Write([]byte(s))
+	return h.Sum(nil)
 }

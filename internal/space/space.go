@@ -227,17 +227,50 @@ func (n *Node) At(rel string) *Node {
 }
 
 // Trim returns a copy of n cut to depth levels of children, for the
-// page: the rings around the focused folder.
-func (n *Node) Trim(depth int) *Node {
+// page: the rings around the focused folder. Below the first level,
+// only children of at least minBytes are kept apart (the rest roll
+// into one entry), so a bushy tree never becomes millions of nodes.
+func (n *Node) Trim(depth int, minBytes int64) *Node {
 	c := *n
 	c.Children = nil
 	if depth <= 0 {
 		return &c
 	}
+	var rest *Node
 	for _, ch := range n.Children {
-		c.Children = append(c.Children, ch.Trim(depth-1))
+		if depth < 4 && ch.Bytes < minBytes && len(n.Children) > 8 {
+			if rest == nil {
+				rest = &Node{}
+			}
+			rest.Bytes += ch.Bytes
+			rest.Files += ch.Files
+			if ch.Rest > 0 {
+				rest.Rest += ch.Rest // an existing roll-up folds in
+			} else {
+				rest.Rest++
+			}
+			continue
+		}
+		c.Children = append(c.Children, ch.Trim(depth-1, minBytes))
+	}
+	if rest != nil {
+		c.Children = append(c.Children, rest)
 	}
 	return &c
+}
+
+// Unreadable counts the folders a scan couldn't read, and the bytes
+// they might hold is unknown: macOS keeps some of a home folder from
+// apps without Full Disk Access.
+func (n *Node) Unreadable() int {
+	k := 0
+	if n.Error != "" {
+		k++
+	}
+	for _, c := range n.Children {
+		k += c.Unreadable()
+	}
+	return k
 }
 
 // Remove takes the node at rel out of the tree and subtracts its size

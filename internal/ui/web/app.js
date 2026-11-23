@@ -152,8 +152,11 @@ const S = {
 async function loadState() {
   try {
     const first = !S.state;
+    const before = S.state ? S.state.drives.map((d) => d.id + (d.connected ? "+" : "-")).join() : "";
     S.state = await api("/api/state");
     if (first || !S.settings) S.settings = await api("/api/settings").catch(() => null);
+    const after = S.state.drives.map((d) => d.id + (d.connected ? "+" : "-")).join();
+    if (before !== after && S.onDrives) S.onDrives();
     // The offload form keeps what's being typed; only the counts refresh.
     if (!first && (S.tab === "offload" || S.tab === "media" || S.tab === "space")) { renderCounts(); if (S.tab === "space") spaceTick(); }
     else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }
@@ -1461,7 +1464,7 @@ function addSourceDialog(done, startDrive, opts = {}) {
 // folder.
 async function pullDialog() {
   const st = S.pull || (S.pull = { paths: [], uploads: [], a: null, pick: {}, dest: localGet("pull.dest", ""), name: "" });
-  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; S.onDrives = null; };
   const run = async () => {
     if (!st.paths.length && !st.uploads.length) { st.a = null; draw(); return; }
     draw(true);
@@ -1470,6 +1473,8 @@ async function pullDialog() {
     draw();
   };
   const hitOf = (ref, i) => st.pick[i] !== undefined ? ref.hits[st.pick[i]] : ref.hits[0];
+  // Drives come and go while the sheet is open: redraw it live.
+  S.onDrives = () => { if (!$("#sheet").hidden && $("#pl-pick")) draw(); else S.onDrives = null; };
   const draw = (busy) => {
     const a = st.a;
     const chosen = a ? a.refs.map((r, i) => r.hits.length ? { i, h: hitOf(r, i) } : null).filter(Boolean) : [];
@@ -2791,11 +2796,15 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab ==
 // big things in the Trash. The measurement lives on the server; the
 // page asks for the rings around the folder in view.
 const VD_LABEL = { safe: "safe to clear", check: "look first", critical: "critical", ok: "nothing against it" };
-const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null };
+const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "" };
 async function renderSpace() {
+  // A fault in this page must never take the tabs with it.
+  try { await renderSpace1(); } catch (e) { console.error(e); $("#main").innerHTML = `<div class="empty"><h2>Space hit a snag</h2><p>${esc(e.message)}</p><p><button class="btn" onclick="SP.at='';SP.data=null;spaceLoad()">Start again</button></p></div>`; }
+}
+async function renderSpace1() {
   const main = $("#main");
   if (!SP.places) { main.innerHTML = loadingGlyph("Looking at the disks…"); try { SP.places = await api("/api/space/places"); } catch (e) { main.innerHTML = `<div class="empty"><h2>Can't look</h2><p>${esc(e.message)}</p></div>`; return; } }
-  if (!SP.root || !SP.places.some((p) => p.path === SP.root)) SP.root = (SP.places[1] || SP.places[0] || {}).path || "";
+  if (!SP.root || !SP.places.some((p) => p.path === SP.root)) SP.root = (SP.places[0] || {}).path || "";
   const place = SP.places.find((p) => p.path === SP.root) || {};
   const d = SP.data && SP.data.root === SP.root ? SP.data : null;
   const crumbs = SP.at ? SP.at.split("/") : [];
@@ -2815,6 +2824,7 @@ async function renderSpace() {
           ${SP.view === "dupes" ? spaceDupesHTML() : SP.view === "old" ? spaceOldHTML() : `
           <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
           <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span></div>
+          ${!SP.at && place.size ? spaceCoverage(d, place) : ""}
           ${(d.suspects || []).length ? `<details class="sp-sus" ${SP.susOpen ? "open" : ""}><summary><b>Usual suspects</b><span class="hint">· ${bytes(d.suspects.reduce((t, x) => t + (x.risk === "keep" ? 0 : x.bytes), 0))} in caches, renders and leftovers that can go</span></summary>
             <div class="sp-list" style="margin-top:6px">${d.suspects.map((x) => `<div class="sp-row sus ${x.risk}" data-sp-row="${esc(x.rel)}" title="${esc(x.note)}">
               ${x.risk === "keep" ? '<span class="pickcell"></span>' : `<input type="checkbox" class="pick" data-sp-pick="${esc(x.rel)}" ${SP.sel.has(x.rel) ? "checked" : ""}>`}
@@ -2832,7 +2842,9 @@ async function renderSpace() {
           <p class="hint" style="margin-top:10px">Sizes are what files take on disk. Each folder keeps its ${60} biggest items apart and rolls the rest into "smaller items". The Mac's own disk also holds system files, snapshots and purgeable space that no app can measure; what Finder says is used can be more than this.</p>`}
         </div></div>`}
   </div>`;
-  $("#sp-place").onchange = (e) => { SP.root = e.target.value; localSet("space.root", SP.root); SP.at = ""; SP.sel.clear(); SP.data = null; spaceLoad(); };
+  $("#sp-place").onchange = (e) => { SP.root = e.target.value; localSet("space.root", SP.root); SP.at = ""; SP.sel.clear(); SP.data = null; SP.dupes = null; SP.old = null; spaceLoad(); };
+  for (const b of document.querySelectorAll("[data-sp-root]")) b.onclick = () => { SP.root = b.dataset.spRoot; localSet("space.root", SP.root); SP.at = ""; SP.sel.clear(); SP.data = null; SP.dupes = null; SP.old = null; SP.places = null; renderSpace().then(() => { const pl = (SP.places || []).find((x) => x.path === SP.root); if (pl && !pl.done && !pl.busy) $("#sp-scan") && $("#sp-scan").click(); }); };
+  for (const b of document.querySelectorAll("[data-sp-fda]")) b.onclick = () => nativeCall("open", { url: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" });
   const scan = async () => { try { await api("/api/space/scan", { method: "POST", body: { path: SP.root } }); SP.busy = true; renderSpace(); loadJobs(); } catch (e) { toast(e.message, true); } };
   $("#sp-scan").onclick = scan;
   if ($("#sp-scan2")) $("#sp-scan2").onclick = scan;
@@ -2844,6 +2856,13 @@ async function renderSpace() {
   if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
   for (const b of document.querySelectorAll("[data-spv]")) b.onclick = () => { SP.view = b.dataset.spv; if (SP.view === "dupes" && !SP.dupes) spaceDupesLoad(); if (SP.view === "old" && !SP.old) spaceOldLoad(); renderSpace(); };
   if ($("#sp-dupes-go")) $("#sp-dupes-go").onclick = async () => { try { await api("/api/space/dupes?path=" + encodeURIComponent(SP.root), { method: "POST" }); SP.dupes = { busy: true }; renderSpace(); loadJobs(); } catch (e) { toast(e.message, true); } };
+  for (const b of document.querySelectorAll("[data-sp-dkind]")) b.onclick = () => { SP.dkind = b.dataset.spDkind; renderSpace(); };
+  if ($("#sp-dfolder")) $("#sp-dfolder").onchange = (e) => { SP.dfolder = e.target.value; renderSpace(); };
+  if ($("#sp-dupes-all")) $("#sp-dupes-all").onclick = () => {
+    const kindOf = (p) => SP_KIND[(p.split(".").pop() || "").toLowerCase()] || "other", topOf = (p) => p.includes("/") ? p.slice(0, p.indexOf("/")) : "";
+    for (const g of SP.dupes.groups) if ((!SP.dkind || kindOf(g.paths[0]) === SP.dkind) && (!SP.dfolder || g.paths.some((p) => topOf(p) === SP.dfolder))) g.paths.forEach((p, i) => { if (i) SP.sel.add(p); else SP.sel.delete(p); });
+    renderSpace();
+  };
   for (const b of document.querySelectorAll("[data-sp-dupe-all]")) b.onclick = () => { const g = SP.dupes.groups[+b.dataset.spDupeAll]; g.paths.forEach((p, i) => { if (i) SP.sel.add(p); else SP.sel.delete(p); }); renderSpace(); };
   for (const el of document.querySelectorAll("[data-sp-keep]")) el.onchange = () => {
     // In a set of identical files, one is kept and the rest ticked.
@@ -2858,18 +2877,46 @@ async function renderSpace() {
   if (!d && !SP.busy && place.done) spaceLoad();
   if (place.busy && !SP.busy) { SP.busy = true; renderSpace(); }
 }
+// spaceCoverage says what the measurement covers of the disk's used
+// space, and what it can't: other places, and folders macOS keeps
+// from apps without Full Disk Access.
+function spaceCoverage(d, place) {
+  const used = place.size - place.free, rest = Math.max(0, used - d.total);
+  const isHome = SP.root !== "/";
+  if (rest < used * 0.05 && !d.unreadable) return "";
+  return `<div class="alert" style="margin:0 0 12px"><b>${bytes(d.total)} of the ${bytes(used)} used is here.</b> ${isHome ? `Home is one part of the disk: apps, macOS itself, other users and system data live outside it. <button class="btn small" data-sp-root="/">Measure Macintosh HD</button>` : "The rest is system data, local Time Machine snapshots and purgeable space that macOS doesn't let any app measure; Finder's Storage settings can clear snapshots."}${d.unreadable ? ` <span style="display:block;margin-top:6px">${d.unreadable} folder${d.unreadable === 1 ? "" : "s"} couldn't be read: macOS keeps parts of Library (Mail, Messages, Safari, some app data) from apps without <b>Full Disk Access</b>. ${native ? `<button class="btn small" data-sp-fda>Open Privacy &amp; Security…</button>` : "System Settings → Privacy &amp; Security → Full Disk Access"}, add Lumpy, then Measure again.</span>` : ""}</div>`;
+}
 function spaceDupesHTML() {
   const dd = SP.dupes;
   if (!dd) return loadingGlyph("");
   if (dd.busy) return `<div class="empty">${loadingGlyph("")}<h2>Reading files that share a size</h2><p>${bytes(dd.hashed || 0)} read so far. Only files the same length as another are read, and each is checksummed in full, so a match is a real one. See Activity.</p></div>`;
   if (!dd.ready) return `<div class="empty">${ICON.copy}<h2>Find the same file twice</h2><p>Lumpy compares every file of 1 MB or more by length, then reads the ones that share a length and checksums them, so two files count as the same only when their contents are. Takes a while on a big disk; it runs in Activity.</p><p><button class="btn primary" id="sp-dupes-go">${ICON.play}Find duplicates</button></p></div>`;
   if (!dd.groups.length) return `<div class="alert ok" style="margin-top:8px"><b>No duplicates</b> among ${dd.candidates.toLocaleString()} files of 1 MB or more.</div>`;
+  const kindOf = (p) => { const e = (p.split(".").pop() || "").toLowerCase(); return SP_KIND[e] || "other"; };
+  const topOf = (p) => p.includes("/") ? p.slice(0, p.indexOf("/")) : "";
+  const kinds = {}; const folders = {};
+  for (const g of dd.groups) { const k = kindOf(g.paths[0]); kinds[k] = (kinds[k] || 0) + g.wasted; for (const p of g.paths) { const t = topOf(p); folders[t] = (folders[t] || 0) + 1; } }
+  const shown = dd.groups.filter((g) => (!SP.dkind || kindOf(g.paths[0]) === SP.dkind) && (!SP.dfolder || g.paths.some((p) => topOf(p) === SP.dfolder)));
+  const shownWaste = shown.reduce((t, g) => t + g.wasted, 0);
+  const previewable = (p) => ["image", "video"].includes(kindOf(p));
+  const allDone = shown.every((g) => g.paths.filter((p) => SP.sel.has(p)).length === g.paths.length - 1);
   return `<div class="sp-head"><b>${bytes(dd.wasted)}</b><span class="hint">· in extra copies, ${dd.groups.length} set${dd.groups.length === 1 ? "" : "s"} of identical files</span></div>
-    <p class="hint" style="margin:0 0 8px">Pick which copy to keep in each set; the others are ticked for the Trash. Two copies on the same disk protect nothing: a backup lives on another drive.</p>
-    <div class="sp-dupes">${dd.groups.map((g, gi) => `<div class="sp-dgroup"><div class="sp-dhead"><b>${esc(g.paths[0].split("/").pop())}</b><span class="hint">· ${g.paths.length} copies · ${bytes(g.size)} each · ${bytes(g.wasted)} to free</span></div>
+    <div class="sp-filters"><span class="seg">${[["", "All"], ...Object.entries(SP_KIND_LABEL).filter(([k]) => kinds[k])].map(([k, l]) => `<button data-sp-dkind="${k}" class="${SP.dkind === k ? "on" : ""}">${l}${k && kinds[k] ? ` <small>${bytes(kinds[k])}</small>` : ""}</button>`).join("")}</span>
+      <label class="select"><select id="sp-dfolder"><option value="">Anywhere</option>${Object.keys(folders).sort().map((f) => `<option value="${esc(f)}" ${SP.dfolder === f ? "selected" : ""}>${esc(f || "(top level)")} · ${folders[f]}</option>`).join("")}</select></label>
+      <button class="btn small" id="sp-dupes-all" ${allDone ? "disabled" : ""} title="In every set shown, keep the first copy and tick the rest">${ICON.check}Apply to all shown: keep the first, trash the rest</button>
+      <span class="hint">${shown.length} set${shown.length === 1 ? "" : "s"} · ${bytes(shownWaste)} to free</span></div>
+    <p class="hint" style="margin:0 0 8px">Pick which copy to keep in each set; the others are ticked for the Trash. Two copies on the same disk protect nothing: a backup lives on another drive. Pictures and clips show side by side so you can see they're the same.</p>
+    <div class="sp-dupes">${shown.map((g) => { const gi = dd.groups.indexOf(g); return `<div class="sp-dgroup"><div class="sp-dhead"><b>${esc(g.paths[0].split("/").pop())}</b><span class="hint">· ${g.paths.length} copies · ${bytes(g.size)} each · ${bytes(g.wasted)} to free</span><span class="vd ok" style="margin-left:auto">${esc(SP_KIND_LABEL[kindOf(g.paths[0])] || "file")}</span></div>
+      ${previewable(g.paths[0]) ? `<div class="sp-dpics">${g.paths.map((p) => `<figure class="${SP.sel.has(p) ? "go" : ""}" title="${esc(p)}"><img loading="lazy" src="/api/space/thumb?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(p)}&t=${token}" onerror="this.parentNode.classList.add('nopic')"><figcaption>${esc(topOf(p) || "top level")}</figcaption></figure>`).join("")}</div>` : ""}
       ${g.paths.map((p) => `<label class="sp-drow ${SP.sel.has(p) ? "go" : ""}"><input type="radio" name="keep${gi}" data-sp-keep="${gi}" value="${esc(p)}" ${!SP.sel.has(p) && g.paths.every((q) => q === p || SP.sel.has(q)) ? "checked" : ""} title="Keep this one"><span class="mono" title="${esc(p)}">${esc(p)}</span>${SP.sel.has(p) ? '<span class="vd check">to the Trash</span>' : '<span class="vd ok">keep</span>'}${native ? `<button class="icon-btn" data-sp-reveal="${esc(p)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</label>`).join("")}
-      <div class="sp-dpick"><button class="btn small" data-sp-dupe-all="${gi}" ${g.paths.filter((p) => SP.sel.has(p)).length === g.paths.length - 1 ? "disabled" : ""}>Keep the first, trash the rest</button></div></div>`).join("")}</div>`;
+      <div class="sp-dpick"><button class="btn small" data-sp-dupe-all="${gi}" ${g.paths.filter((p) => SP.sel.has(p)).length === g.paths.length - 1 ? "disabled" : ""}>Keep the first, trash the rest</button></div></div>`; }).join("")}</div>`;
 }
+const SP_KIND = { jpg: "image", jpeg: "image", png: "image", gif: "image", tif: "image", tiff: "image", dng: "image", dpx: "image", heic: "image", cr2: "image", cr3: "image", arw: "image", nef: "image", raf: "image", psd: "image", exr: "image", webp: "image",
+  mov: "video", mp4: "video", m4v: "video", mxf: "video", avi: "video", mkv: "video", mts: "video", m2ts: "video", braw: "video", r3d: "video", ari: "video", crm: "video", webm: "video",
+  wav: "audio", aif: "audio", aiff: "audio", mp3: "audio", flac: "audio", m4a: "audio", caf: "audio", bwf: "audio",
+  pdf: "document", doc: "document", docx: "document", xls: "document", xlsx: "document", key: "document", pages: "document", numbers: "document", txt: "document", prproj: "document", drp: "document", fcpbundle: "document",
+  zip: "archive", dmg: "archive", pkg: "archive", iso: "archive", tar: "archive", gz: "archive", "7z": "archive", rar: "archive", app: "app" };
+const SP_KIND_LABEL = { image: "Pictures", video: "Clips", audio: "Audio", document: "Documents", archive: "Archives & installers", app: "Apps", other: "Other" };
 function spaceOldHTML() {
   const od = SP.old;
   if (!od) return loadingGlyph("");
@@ -3000,6 +3047,10 @@ async function spaceTrash(d) {
         toast(`${r.trashed.length} moved to the Trash · ${bytes(r.freed)} once it's emptied`);
         if (SP.dupes && SP.dupes.ready) spaceDupesLoad();
         if (SP.old) spaceOldLoad();
+        // The folder in view may have nothing left in it: step up.
+        const here = SP.at ? SP.at + "/" : "";
+        const left = (d.node.children || []).filter((c) => !c.rest && !r.trashed.includes(here + c.name)).length;
+        if (SP.at && !left) SP.at = SP.at.split("/").slice(0, -1).join("/");
         spaceLoad();
       } catch (e) { toast(e.message, true); $("#st-ok").disabled = false; }
     };

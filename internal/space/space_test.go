@@ -44,9 +44,15 @@ func TestScanPrunesAndSums(t *testing.T) {
 	if !n.Remove("big/deep/clip.mov") || n.Bytes != before-clip.Bytes || n.At("big").Files != 0 {
 		t.Fatalf("remove: bytes %d of %d, big files %d", n.Bytes, before, n.At("big").Files)
 	}
-	tr := n.Trim(1)
+	tr := n.Trim(1, 0)
 	if len(tr.Children) == 0 || tr.Children[0].Children != nil {
 		t.Fatal("trim keeps one level")
+	}
+	// Below the first level, small children roll up.
+	tr = n.Trim(3, 1<<40)
+	m := tr.At("many")
+	if m == nil || len(m.Children) != 1 || m.Children[0].Rest != Keep+40 {
+		t.Fatalf("deep trim should roll many's children into one: %+v", m)
 	}
 }
 

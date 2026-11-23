@@ -56,7 +56,7 @@ func (i *Info) Marshal() string {
 
 var kinds = map[string]Kind{
 	".mov": Video, ".mp4": Video, ".m4v": Video, ".mxf": Video, ".r3d": Video, ".braw": Video, ".ari": Video, ".arx": Video,
-	".avi": Video, ".mkv": Video, ".mts": Video, ".m2ts": Video, ".mpg": Video, ".mpeg": Video, ".crm": Video, ".dpx": Image,
+	".avi": Video, ".mkv": Video, ".mts": Video, ".m2ts": Video, ".mpg": Video, ".mpeg": Video, ".crm": Video,
 	".wav": Audio, ".bwf": Audio, ".aif": Audio, ".aiff": Audio, ".mp3": Audio, ".flac": Audio, ".m4a": Audio, ".caf": Audio,
 	".jpg": Image, ".jpeg": Image, ".png": Image, ".tif": Image, ".tiff": Image, ".dng": Image, ".cr2": Image, ".cr3": Image,
 	".arw": Image, ".nef": Image, ".raf": Image, ".heic": Image, ".exr": Image, ".psd": Image, ".gif": Image, ".webp": Image,
@@ -64,6 +64,8 @@ var kinds = map[string]Kind{
 	".xls": Document, ".xlsx": Document, ".edl": Document, ".ale": Document, ".fcpxml": Document, ".prproj": Document, ".drp": Document,
 	".md": Document, ".rtf": Document, ".numbers": Document, ".pages": Document, ".key": Document, ".ppt": Document, ".pptx": Document,
 }
+
+func init() { kinds[".dpx"] = Image }
 
 // KindOf classifies a file by extension.
 func KindOf(name string) Kind {
