@@ -453,3 +453,21 @@ func safeFolder(title string) string {
 	}
 	return b.String()
 }
+
+// discover lists folders that look like projects, grouped by first
+// word, for the Find projects sheet. ?ignore= lists tokens left out of
+// names (default BS).
+func (s *Server) discover(w http.ResponseWriter, r *http.Request) (any, error) {
+	ignore := []string{"BS"}
+	if v, ok := r.URL.Query()["ignore"]; ok {
+		ignore = strings.Split(strings.Join(v, ","), ",")
+	}
+	groups, err := s.db.Discover(ignore)
+	if err != nil {
+		return nil, err
+	}
+	if groups == nil {
+		groups = []catalog.Group{}
+	}
+	return groups, nil
+}

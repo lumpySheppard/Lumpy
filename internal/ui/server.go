@@ -221,6 +221,7 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/templates", s.listTemplates)
 	api("POST /api/templates/create", s.createFromTemplate)
 	api("GET /api/projects", s.projects)
+	api("GET /api/projects/discover", s.discover)
 	api("POST /api/projects", s.createProject)
 	api("GET /api/projects/{id}", s.projectDetail)
 	api("PATCH /api/projects/{id}", s.updateProject)

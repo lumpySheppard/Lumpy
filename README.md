@@ -381,6 +381,24 @@ on one copy and every copy has them. **Export CSV…** writes the current
 list with every column; a project page has the same button for just its
 clips.
 
+### Find projects
+
+**Projects → Find projects…** looks through every logged drive's
+index for folders that look like projects: numbered folders at a
+drive's root the way Post Haste makes them (`04_BS_REDHAND_2025-03-01`)
+and anything inside a folder named like `01_PROJECTS`. Template
+subfolders (01_RAW, 09_OUTPUT…) and size-named folders (01_1TB) are
+skipped. Each folder gets a name with the number, a house prefix (BS by
+default; change the words to leave out and **Look again**), dates and
+trailing initials dropped, and folders that start with the same word
+are grouped as one project, so ICEMAN_EP1 and ICEMAN_EP2 on one drive
+and REDHAND dailies on another land together. Rename a group (FT to
+Family Ties), move a folder to another group or its own project with
+the menu beside it, untick what isn't a project, and **Create**: one
+project per ticked group, two copies wanted, every folder a source.
+Folders already in a project are shown greyed with the project's name.
+Nothing on any drive is touched.
+
 ### New project folder
 
 **Projects → New project folder…** makes a job's folders from a

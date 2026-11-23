@@ -985,9 +985,9 @@ function renderProjects() {
   if (!ps.length) {
     main.innerHTML = `<div class="empty">${ICON.film}<h2>No projects yet</h2>
       <p>A project is the folders that hold one piece of work: a feature across five drives, or one music video that shares a shuttle with three other jobs. Lumpy shows how well it's backed up, wherever the copies are, and plans the copies that get every file onto two drives.</p>
-      <p><button class="btn primary" id="new-project">${ICON.plus}New project</button> <button class="btn" id="new-folder">${ICON.folder}New project folder…</button></p></div>`;
+      <p><button class="btn primary" id="find-projects">${ICON.search}Find projects on my drives…</button> <button class="btn" id="new-project">${ICON.plus}New project</button> <button class="btn" id="new-folder">${ICON.folder}New project folder…</button></p></div>`;
   } else {
-    main.innerHTML = `<div class="page-bar"><div class="toolbar-title">${ICON.film}Projects<span class="count">${ps.length}</span></div><div class="right"><button class="btn" id="new-folder" title="Make a project's folders from your Post Haste template">${ICON.folder}New project folder…</button><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
+    main.innerHTML = `<div class="page-bar"><div class="toolbar-title">${ICON.film}Projects<span class="count">${ps.length}</span></div><div class="right"><button class="btn" id="find-projects" title="Look through every logged drive for project folders">${ICON.search}Find projects…</button><button class="btn" id="new-folder" title="Make a project's folders from your Post Haste template">${ICON.folder}New project folder…</button><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
       <div class="grid">${ps.map((p) => {
         const h = p.health;
         const bad = h.soleBytes + h.shortBytes;
@@ -1000,6 +1000,7 @@ function renderProjects() {
       }).join("")}</div>`;
   }
   $("#new-project").onclick = () => newProjectDialog([]);
+  $("#find-projects").onclick = () => findProjectsDialog();
   const nf = $("#new-folder");
   if (nf) nf.onclick = () => templateDialog();
 }
@@ -1449,6 +1450,66 @@ function addSourceDialog(done, startDrive, opts = {}) {
     $("#as-ok").onclick = () => { close(); done({ driveId, folder: dir }); };
   };
   show();
+}
+
+// findProjectsDialog looks through every logged drive for folders that
+// look like projects, groups the ones that share a first word, and
+// creates a project per ticked group.
+async function findProjectsDialog() {
+  const ignoreKey = "discover.ignore";
+  let ignore = localGet(ignoreKey, "BS");
+  let groups;
+  const load = async () => {
+    openSheet(`<div class="sheet-head"><h2>Find projects</h2><div class="actions"><button class="icon-btn" id="fp-close">${ICON.x}</button></div></div><div class="sheet-body">${loadingGlyph("Looking through every drive…")}</div>`);
+    $("#fp-close").onclick = close;
+    try { groups = await api("/api/projects/discover?ignore=" + encodeURIComponent(ignore)); } catch (e) { toast(e.message, true); close(); return; }
+    // Every folder remembers which group it sits in; moving one between
+    // groups is a select.
+    groups.forEach((g, gi) => { g.on = g.folders.some((f) => !f.inProject); g.folders.forEach((f) => { f.gi = gi; f.on = !f.inProject; }); });
+    draw();
+  };
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  const draw = () => {
+    const all = groups.flatMap((g) => g.folders);
+    const live = groups.map((g, gi) => ({ g, gi, fs: all.filter((f) => f.gi === gi) })).filter((x) => x.fs.length);
+    const count = live.filter((x) => x.g.on && x.fs.some((f) => f.on)).length;
+    openSheet(`<div class="sheet-head"><h2>Find projects</h2><div class="actions"><button class="icon-btn" id="fp-close">${ICON.x}</button></div></div>
+      <div class="sheet-body">
+        <p class="hint" style="margin:0 0 10px">Folders on your logged drives that look like projects: numbered ones at a drive's root (Post Haste style) and anything inside a projects folder. Folders that start with the same word are grouped as one project; rename a group, move a folder with its menu, or untick what isn't a project. Nothing on any drive is touched.</p>
+        <div class="fields" style="margin-bottom:12px"><div class="field"><label>Words to leave out of names <span class="hint">· a house prefix, comma-separated</span></label><div style="display:flex;gap:8px"><input id="fp-ignore" value="${esc(ignore)}" placeholder="BS" spellcheck="false" style="flex:1"><button class="btn small" id="fp-again">Look again</button></div></div></div>
+        ${live.length ? live.map(({ g, gi, fs }) => `<div class="box fp-group ${g.on ? "" : "off"}" style="margin-bottom:10px">
+          <div class="fp-head"><input type="checkbox" data-fp-g="${gi}" ${g.on ? "checked" : ""}><input class="inline-input fp-name" data-fp-name="${gi}" value="${esc(g.name)}"><span class="hint">${fs.length} folder${fs.length === 1 ? "" : "s"} · ${bytes(fs.reduce((a, f) => a + f.bytes, 0))}</span></div>
+          <div class="checks" style="margin-top:8px">${fs.map((f) => { const fi = all.indexOf(f); return `<label class="fp-row"><input type="checkbox" data-fp-f="${fi}" ${f.on ? "checked" : ""} ${f.inProject ? "disabled" : ""}><span class="fp-src">${sourceLabel(f)}</span><span class="hint">${bytes(f.bytes)} · ${f.files.toLocaleString()} files${f.inProject ? ` · already in ${esc((S.projects.find((p) => p.id === f.inProject) || {}).name || "a project")}` : ""}</span>
+            <select class="plain small" data-fp-move="${fi}" title="Move to another group">${live.map(({ g: g2, gi: gi2 }) => `<option value="${gi2}" ${gi2 === gi ? "selected" : ""}>${esc(g2.name)}</option>`).join("")}<option value="new">Its own project</option></select></label>`; }).join("")}</div></div>`).join("")
+        : `<div class="empty">${ICON.film}<h2>Nothing that looks like a project</h2><p>Lumpy looks for numbered folders at a drive's root and anything inside a folder named like 01_PROJECTS. Log the drives that hold your work and try again.</p></div>`}
+      </div>
+      <div class="sheet-foot"><button class="btn" id="fp-cancel">Cancel</button><button class="btn primary" id="fp-ok" ${count ? "" : "disabled"}>Create ${count} project${count === 1 ? "" : "s"}</button></div>`);
+    $("#fp-close").onclick = $("#fp-cancel").onclick = close;
+    $("#fp-again").onclick = () => { ignore = $("#fp-ignore").value.trim() || "BS"; localSet(ignoreKey, ignore); load(); };
+    for (const el of document.querySelectorAll("[data-fp-g]")) el.onchange = () => { groups[+el.dataset.fpG].on = el.checked; draw(); };
+    for (const el of document.querySelectorAll("[data-fp-name]")) el.onchange = () => { groups[+el.dataset.fpName].name = el.value.trim() || groups[+el.dataset.fpName].name; };
+    for (const el of document.querySelectorAll("[data-fp-f]")) el.onchange = () => { all[+el.dataset.fpF].on = el.checked; draw(); };
+    for (const el of document.querySelectorAll("[data-fp-move]")) el.onchange = () => {
+      const f = all[+el.dataset.fpMove];
+      if (el.value === "new") { groups.push({ key: f.name.toUpperCase(), name: f.name, folders: [], on: true }); f.gi = groups.length - 1; }
+      else f.gi = +el.value;
+      draw();
+    };
+    $("#fp-ok").onclick = async () => {
+      $("#fp-ok").disabled = true;
+      let made = 0;
+      for (const { g, fs } of live) {
+        const chosen = fs.filter((f) => f.on && !f.inProject).map((f) => ({ driveId: f.driveId, folder: f.folder }));
+        if (!g.on || !chosen.length) continue;
+        try { await api("/api/projects", { method: "POST", body: { name: $(`[data-fp-name="${groups.indexOf(g)}"]`).value.trim() || g.name, target: 2, sources: chosen } }); made++; }
+        catch (e) { toast(`${g.name}: ${e.message}`, true); }
+      }
+      close();
+      toast(`${made} project${made === 1 ? "" : "s"} created`);
+      S.projects = null; await loadState(); render();
+    };
+  };
+  await load();
 }
 
 function newProjectDialog(sources) {
