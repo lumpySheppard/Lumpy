@@ -169,12 +169,20 @@ func (s *Server) kickAwake() {
 // awakeStatus is the keep-awake summary the page shows.
 func (s *Server) awakeStatus() map[string]any {
 	p := s.db.Prefs()
+	// The drives are the ones that will be touched, not the ones touched
+	// so far: the count is right the moment the switch goes on.
+	ids := []string{}
+	if p.KeepAwake {
+		for _, v := range s.mounted() {
+			if d, err := s.db.Drive(v.ID); err == nil && keepAwake(d) && !isCard(v.Mount, d.Bus) {
+				ids = append(ids, v.ID)
+			}
+		}
+	}
 	s.awk.mu.Lock()
 	defer s.awk.mu.Unlock()
-	ids := []string{}
 	var last time.Time
-	for id, t := range s.awk.at {
-		ids = append(ids, id)
+	for _, t := range s.awk.at {
 		if t.After(last) {
 			last = t
 		}

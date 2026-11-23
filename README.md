@@ -319,7 +319,9 @@ plugged-in hard drive and RAID, so none goes idle long enough. SSDs and
 camera cards don't spin and are left alone, as is a drive that is
 busy with a job or can't be written. Any drive can opt out with **Let
 it spin down** in its details. The top bar says how many drives are
-being kept awake, and the map's legend too. Drives can only be kept
+being kept awake, and the map's legend too, and the menu bar panel has
+the same two switches, so it can be turned on for a long copy and off
+again without opening the app. Drives can only be kept
 awake while the Mac is: **Keep the Mac awake too** runs macOS's
 `caffeinate` while Lumpy is open, so the Mac never idle-sleeps (the
 display still can), and it stops the moment Lumpy quits.

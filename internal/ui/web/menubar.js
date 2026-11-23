@@ -59,6 +59,7 @@ function render() {
   const recent = jobs.filter((j) => j.state !== "running").slice(0, 1);
   const vols = state.drives.filter((d) => d.connected);
   const low = (d) => d.size > 0 && d.free < d.size * 0.1;
+  const aw = state.awake || {}, pf = (settings && settings.prefs) || {}, n = (aw.drives || []).length;
   el.innerHTML = `
     <div class="mb-head">${GLYPH}<b>Lumpy</b><span class="hint">${esc(state.version || "")}</span></div>
     <div class="mb-sec mb-jobs">
@@ -74,12 +75,19 @@ function render() {
     </div>
     <div class="mb-sec mb-stats"><span><b>${vols.length}</b> plugged in</span><i>·</i><span><b>${state.drives.length}</b> in the library</span><i>·</i><span><b>${lib ? lib.media.toLocaleString() : "…"}</b> clips</span></div>
     ${vols.length ? `<div class="mb-sec mb-drives">${vols.slice(0, 8).map((d) => { const [st, label] = backupOf(d.backups, d); return `<div class="mb-drive"><span class="sdot ${st || "none"}" title="${esc(label)}"></span><span class="n">${esc(d.title)}<small>${esc(label)}</small></span><span class="f ${low(d) ? "low" : ""}">${bytes(d.free)} free</span></div>`; }).join("")}${vols.length > 8 ? `<div class="mb-empty">and ${vols.length - 8} more</div>` : ""}</div>` : ""}
+    <div class="mb-sec mb-awake">
+      <label class="switch"><span class="w">☕ Keep drives awake${aw.on && n ? `<small>${n} drive${n === 1 ? "" : "s"}</small>` : aw.on ? `<small>none to keep</small>` : ""}</span><input type="checkbox" id="mb-awake" ${aw.on ? "checked" : ""}></label>
+      <label class="switch ${aw.on ? "" : "dim"}" title="Runs caffeinate while Lumpy is open: the Mac won't idle-sleep, though the display still can"><span class="w">Mac too</span><input type="checkbox" id="mb-mac" ${pf.keepMacAwake ? "checked" : ""} ${aw.on ? "" : "disabled"}></label>
+    </div>
     <div class="mb-foot">
       <span class="hint">${settings && settings.last && settings.last.ok ? "Status page · " + clock(Math.floor(new Date(settings.last.at).getTime() / 1000)) : state.agent && state.agent.startsWith("installed and running") ? "Auto-logging on" : "Logging while open"}</span>
       <button class="btn small" id="quit">Quit</button>
       <button class="btn small primary" id="open">Open Lumpy</button>
     </div>`;
   $("#open").onclick = () => nativeCall("openApp");
+  const pref = async (body) => { try { const p = await api("/api/prefs", { method: "PUT", body }); if (settings) settings.prefs = p; refresh(); } catch {} };
+  $("#mb-awake").onchange = (e) => pref({ keepAwake: e.target.checked });
+  $("#mb-mac").onchange = (e) => pref({ keepMacAwake: e.target.checked });
   $("#quit").onclick = () => nativeCall("quit");
   for (const b of el.querySelectorAll("[data-cancel]")) b.onclick = async () => { try { await api(`/api/jobs/${b.dataset.cancel}/cancel`, { method: "POST" }); } catch {} };
   for (const b of el.querySelectorAll("[data-again]")) b.onclick = () => nativeCall("openApp", { again: +b.dataset.again });
