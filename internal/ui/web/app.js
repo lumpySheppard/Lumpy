@@ -2218,61 +2218,82 @@ async function openSettings(focus) {
 // it touches lights up; open it from the card, or double-click.
 const MAP = { k: 1, x: 0, y: 0, pos: {}, sel: null, drag: null, fitted: false, dirty: false };
 try { MAP.pos = JSON.parse(localGet("map.pos", "{}")) || {}; } catch { MAP.pos = {}; }
-const NODE = { mac: [176, 62], project: [300, 96], drive: [250, 72] };
+const NODE = { project: [300, 96], drive: [296, 72] };
 const EDGE_LABEL = { full: "verified", none: "no backup", unknown: "unproven", likely: "probably backed up", empty: "empty" };
 
+// mapModel groups every drive into the island of the first project that
+// holds it (loose drives share a grey island). A drive in a second
+// project keeps a wire to that project's header, so membership across
+// islands stays visible without a wire for every drive.
 function mapModel() {
   const projects = S.projects || [];
-  const nodes = [{ id: "mac", type: "mac" }], edges = [];
-  for (const p of projects) nodes.push({ id: "p" + p.id, type: "project", p });
-  // Drives in the order of the projects that hold them, then the rest.
-  const seen = new Set(), order = [];
-  for (const p of projects) for (const sh of (p.health && p.health.sources) || []) {
-    const d = driveOf(sh.driveId);
-    if (d && !seen.has(d.id)) { seen.add(d.id); order.push(d); }
-  }
-  for (const d of sortDrives(S.state.drives)) if (!seen.has(d.id)) { seen.add(d.id); order.push(d); }
-  for (const d of order) nodes.push({ id: "d" + d.id, type: "drive", d });
+  const nodes = [], edges = [], islands = [];
+  const home = new Map(); // drive id -> island
   for (const p of projects) {
+    const pn = { id: "p" + p.id, type: "project", p };
+    nodes.push(pn);
+    const isl = { id: "p" + p.id, p, head: pn, drives: [], color: COLORS[p.color] || "var(--accent)" };
+    islands.push(isl);
     const by = new Map();
     for (const sh of (p.health && p.health.sources) || []) {
       const a = by.get(sh.driveId) || { bytes: 0, files: 0, backed: 0, unknown: 0, likely: 0, folders: 0 };
       a.bytes += sh.bytes; a.files += sh.files; a.backed += sh.backedBytes; a.unknown += sh.unknownBytes; a.likely += sh.likelyBytes || 0; a.folders++;
       by.set(sh.driveId, a);
     }
-    for (const [id, a] of by) {
-      if (!driveOf(id)) continue;
-      const st = backupState(a.backed, a.bytes, a.unknown, a.likely);
-      edges.push({ from: "p" + p.id, to: "d" + id, cls: st, label: a.bytes ? `${bytes(a.bytes)} · ${EDGE_LABEL[st] || Math.round((a.backed / a.bytes) * 100) + "% backed up"}` : "empty" });
+    for (const src of p.sources || []) if (!by.has(src.driveId)) by.set(src.driveId, { bytes: 0, files: 0, backed: 0, unknown: 0, likely: 0, folders: 0 });
+    const backup = new Set((p.sources || []).filter((x) => x.role === "backup").map((x) => x.driveId));
+    const ids = [...by.keys()].filter(driveOf).sort((x, y) => (backup.has(x) - backup.has(y)) || driveOf(x).title.localeCompare(driveOf(y).title, undefined, { numeric: true }));
+    for (const id of ids) {
+      const a = by.get(id), st = a.bytes ? backupState(a.backed, a.bytes, a.unknown, a.likely) : "empty";
+      const label = a.bytes ? `${bytes(a.bytes)} · ${EDGE_LABEL[st] || Math.round((a.backed / a.bytes) * 100) + "% backed up"}` : "nothing recorded";
+      let dn = nodes.find((n) => n.id === "d" + id);
+      if (!dn) {
+        dn = { id: "d" + id, type: "drive", d: driveOf(id), st, label, backup: backup.has(id), island: isl };
+        nodes.push(dn); isl.drives.push(dn); home.set(id, isl);
+      } else {
+        edges.push({ from: pn.id, to: dn.id, cls: st, label });
+      }
     }
   }
-  // The Mac's wires carry no label: the dotted green line says plugged
-  // in, and the Mac's card lists the bus of each.
-  for (const d of order) if (d.connected) edges.push({ from: "mac", to: "d" + d.id, cls: "live", label: "" });
-  return { nodes, edges };
+  const loose = { id: "loose", p: null, head: null, drives: [], color: "var(--muted)" };
+  for (const d of [...S.state.drives].sort((x, y) => x.title.localeCompare(y.title, undefined, { numeric: true }))) if (!home.has(d.id)) {
+    const dn = { id: "d" + d.id, type: "drive", d, st: "", label: "", island: loose };
+    nodes.push(dn); loose.drives.push(dn);
+  }
+  if (loose.drives.length) islands.push(loose);
+  return { nodes, edges, islands };
 }
 
-// mapLayout puts the Mac on the left, projects in the middle, drives on
-// the right, each project level with the drives it uses. Dragged
-// positions win.
+// mapLayout lays each island out as a header with its drives in a grid
+// beneath, and flows the islands left to right, wrapping like text.
+// Dragged positions win; an island's frame always wraps its members.
+const ISL = { pad: 18, gap: 14, row: 40, wrap: 1420 };
 function mapLayout(m) {
-  const GAP = 94, X = { mac: 40, project: 900, drive: 430 };
-  const drives = m.nodes.filter((n) => n.type === "drive");
-  drives.forEach((n, i) => { n.x = X.drive; n.y = 40 + i * GAP; });
-  const yOf = Object.fromEntries(drives.map((n) => [n.id, n.y]));
-  const projects = m.nodes.filter((n) => n.type === "project");
-  for (const n of projects) {
-    const ys = m.edges.filter((e) => e.from === n.id).map((e) => yOf[e.to]).filter((y) => y !== undefined);
-    n.x = X.project; n.y = ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 40;
+  for (const n of m.nodes) [n.w, n.h] = NODE[n.type];
+  let x = 40, y = 40, rowH = 0;
+  for (const isl of m.islands) {
+    const n = isl.drives.length, cols = n <= 2 ? Math.max(1, n) : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
+    const gw = cols * NODE.drive[0] + (cols - 1) * ISL.gap;
+    const w = ISL.pad * 2 + Math.max(isl.head ? NODE.project[0] : 0, gw);
+    if (isl.head) isl.head.w = w - ISL.pad * 2;
+    const h = ISL.pad * 2 + (isl.head ? NODE.project[1] + ISL.gap : 26) + rows * NODE.drive[1] + (rows - 1) * ISL.gap;
+    if (x > 40 && x + w > ISL.wrap) { x = 40; y += rowH + ISL.row; rowH = 0; }
+    let cy = y + ISL.pad;
+    if (isl.head) { isl.head.x = x + ISL.pad; isl.head.y = cy; cy += NODE.project[1] + ISL.gap; }
+    else cy += 26;
+    isl.drives.forEach((dn, i) => { dn.x = x + ISL.pad + (i % cols) * (NODE.drive[0] + ISL.gap); dn.y = cy + Math.floor(i / cols) * (NODE.drive[1] + ISL.gap); });
+    x += w + ISL.row; rowH = Math.max(rowH, h);
   }
-  projects.sort((a, b) => a.y - b.y);
-  let last = -Infinity;
-  for (const n of projects) { if (n.y < last + GAP) n.y = last + GAP; last = n.y; }
-  const mac = m.nodes[0];
-  const live = drives.filter((n) => n.d.connected);
-  const mid = (list) => list.length ? list.reduce((a, n) => a + n.y, 0) / list.length : 40;
-  mac.x = X.mac; mac.y = live.length ? mid(live) : mid(drives);
-  for (const n of m.nodes) { const p = MAP.pos[n.id]; if (p) { n.x = p.x; n.y = p.y; } [n.w, n.h] = NODE[n.type]; }
+  for (const n of m.nodes) { const p = MAP.pos[n.id]; if (p) { n.x = p.x; n.y = p.y; } }
+  for (const isl of m.islands) islandFrame(isl);
+}
+// islandFrame is the box around an island's members, from wherever they
+// sit now.
+function islandFrame(isl) {
+  const ns = isl.head ? [isl.head, ...isl.drives] : isl.drives;
+  const top = isl.head ? 0 : 26;
+  isl.x = Math.min(...ns.map((n) => n.x)) - ISL.pad; isl.y = Math.min(...ns.map((n) => n.y)) - ISL.pad - top;
+  isl.w = Math.max(...ns.map((n) => n.x + n.w)) + ISL.pad - isl.x; isl.h = Math.max(...ns.map((n) => n.y + n.h)) + ISL.pad - isl.y;
 }
 
 // edgeGeom picks a connector on each node (left or right, or top and
@@ -2301,9 +2322,15 @@ function renderMap() {
   if (MAP.drag) { MAP.dirty = true; return; }
   const m = mapModel();
   mapLayout(m);
-  const W = Math.max(600, ...m.nodes.map((n) => n.x + n.w)) + 80, H = Math.max(400, ...m.nodes.map((n) => n.y + n.h)) + 80;
+  const W = Math.max(600, ...m.islands.map((i) => i.x + i.w)) + 80, H = Math.max(400, ...m.islands.map((i) => i.y + i.h)) + 80;
   const sel = MAP.sel, hot = new Set();
-  if (sel) { hot.add(sel); for (const e of m.edges) { if (e.from === sel) hot.add(e.to); if (e.to === sel) hot.add(e.from); } }
+  if (sel) {
+    hot.add(sel);
+    for (const e of m.edges) { if (e.from === sel) hot.add(e.to); if (e.to === sel) hot.add(e.from); }
+    const isl = m.islands.find((i) => i.id === sel || i.drives.some((n) => n.id === sel));
+    if (isl && isl.id === sel) for (const n of isl.drives) hot.add(n.id);
+    else if (isl && isl.head) hot.add(isl.head.id);
+  }
   const at = (id) => m.nodes.find((n) => n.id === id);
   const edgeSVG = (e) => {
     const g = edgeGeom(at(e.from), at(e.to));
@@ -2319,7 +2346,6 @@ function renderMap() {
   const node = (n) => {
     const cls = `node ${n.type} ${n.id === sel ? "sel" : ""} ${hot.has(n.id) ? "hot" : ""}`;
     const box = `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px`;
-    if (n.type === "mac") return `<div class="${cls}" data-node="mac" style="${box};--pc:var(--accent)"><div class="n-pic"><svg class="pic on" viewBox="0 0 64 48">${PIC.mac}</svg></div><div class="n-body"><b>This Mac</b><small>${live.length} drive${live.length === 1 ? "" : "s"} plugged in</small></div></div>`;
     if (n.type === "project") {
       const p = n.p, h = p.health || {}, pct = h.bytes ? Math.round((h.backedBytes / h.bytes) * 100) : 0;
       const st = backupState(h.backedBytes || 0, h.bytes || 0, h.unknownBytes || 0, h.likelyBytes || 0);
@@ -2329,15 +2355,19 @@ function renderMap() {
       return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}<em>${p.target}× copies</em></b><small>${h.bytes ? `${bytes(h.bytes)} · ${(h.contents || 0).toLocaleString()} files · ` : ""}${nd} drive${nd === 1 ? "" : "s"}</small><div class="n-bar"><i class="${st}" style="width:${pct}%"></i></div><small class="n-foot">${h.bytes ? pct + "% backed up" : ""}${h.bytes ? " · " : ""}${line}</small></div></div>`;
     }
     const d = n.d, color = cardColor(d);
-    return `<div class="${cls} ${d.connected ? "live" : ""}" data-node="${n.id}" style="${box};--pc:${color || "var(--muted)"}"><div class="n-pic">${drivePic(driveKind(d), color || "var(--muted)", d.connected)}</div><div class="n-body"><b>${esc(d.title)}</b><small>${safeToFormat(d) === "safe" ? `<span class="ok">Safe to format</span>` : safeToFormat(d) === "once" ? `<span class="warn">Backed up once</span>` : `${bytes(d.free)} free${d.connected ? "" : " · seen " + when(d.lastSeen)}`}</small></div>${capRing(Math.max(0, d.size - d.free), d.size, "sm")}</div>`;
+    const st = n.st ? `<span class="n-st ${n.st}">${esc(EDGE_LABEL[n.st] || n.label.split(" · ").pop())}</span>` : safeToFormat(d) === "safe" ? `<span class="n-st full">safe to format</span>` : safeToFormat(d) === "once" ? `<span class="n-st partial">backed up once</span>` : "";
+    const sub = d.connected ? `${bytes(d.free)} free` : `seen ${when(d.lastSeen)}`;
+    return `<div class="${cls} ${d.connected ? "live" : "away"} ${n.backup ? "backup" : ""}" data-node="${n.id}" style="${box};--pc:${color || "var(--muted)"}" title="${esc(d.title)}${n.label ? " · " + esc(n.label) : ""}"><div class="n-pic">${drivePic(driveKind(d), color || "var(--muted)", d.connected)}<i class="n-live" title="${d.connected ? "Plugged in" : "Not plugged in"}"></i></div><div class="n-body"><b>${esc(d.title)}</b><small>${n.backup ? '<span class="n-role">backup</span>' : ""}${st}${st ? " · " : ""}${sub}</small></div>${capRing(Math.max(0, d.size - d.free), d.size, "sm")}</div>`;
   };
+  const island = (i) => `<div class="island ${i.p ? "" : "loose"} ${sel && (i.id === sel || i.drives.some((n) => n.id === sel)) ? "hot" : ""}" data-island="${i.id}" style="left:${i.x}px;top:${i.y}px;width:${i.w}px;height:${i.h}px;--pc:${i.color}">${i.p ? "" : `<span class="island-lbl">Not in a project · ${i.drives.length}</span>`}</div>`;
   main.innerHTML = `<div class="map ${sel ? "has-sel" : ""}" id="map">
     <div class="map-world" id="map-world" style="width:${W}px;height:${H}px">
+      ${m.islands.map(island).join("")}
       <svg class="map-edges" width="${W}" height="${H}">${m.edges.map(edgeSVG).join("")}</svg>
       ${m.edges.map(edgeLabel).join("")}
       ${m.nodes.map(node).join("")}
     </div>
-    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="hint">· drag to pan, ⌘ + scroll to zoom, drag a node to move it, drag a connector onto a project to add or remove a drive</span></div>
+    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="sep">·</span><span><i class="dot" style="background:var(--ok)"></i>${live.length} plugged in</span><span class="hint">· drag a drive's edge onto a project to add or remove it · drag a project to move its island · ⌘ + scroll zooms</span></div>
     <div class="map-tools"><button class="icon-btn" data-map="out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button class="icon-btn" data-map="in" title="Zoom in">${ICON.plus}</button><button class="btn small" data-map="fit">Fit</button><button class="btn small" data-map="arrange" title="Put every node back where Lumpy lays it out">Arrange</button></div>
     ${sel ? mapCard(m, sel) : ""}
   </div>`;
@@ -2350,24 +2380,20 @@ function renderMap() {
 function mapCard(m, id) {
   const n = m.nodes.find((x) => x.id === id);
   if (!n) return "";
-  if (n.type === "mac") {
-    const live = S.state.drives.filter((d) => d.connected);
-    return `<div class="map-card"><div class="mc-head"><b>This Mac</b><button class="btn small primary" data-open="connected">Connected</button></div>
-      <div class="mc-list">${live.length ? live.map((d) => `<div><span class="dot live" style="background:var(--ok);color:var(--ok)"></span>${esc(d.title)}<small>${esc(d.bus || "")}</small></div>`).join("") : '<span class="hint">Nothing plugged in.</span>'}</div></div>`;
-  }
   if (n.type === "project") {
     const p = n.p, h = p.health || {};
-    const edges = m.edges.filter((e) => e.from === id);
+    const isl = m.islands.find((i) => i.id === id);
+    const edges = [...isl.drives.map((dn) => ({ to: dn.id, cls: dn.st, label: dn.label, backup: dn.backup })), ...m.edges.filter((e) => e.from === id)];
     return `<div class="map-card" style="--pc:${COLORS[p.color] || "var(--accent)"}"><div class="mc-head"><span class="n-tag">${ICON.film}</span><b>${esc(p.name)}</b><button class="btn small primary" data-open="project" data-id="${p.id}">Open project</button></div>
       ${h.bytes ? backupBar(h.backedBytes, h.bytes, h.unknownBytes, h.likelyBytes || 0, { compact: true }) : '<span class="hint">No files recorded yet.</span>'}
-      <div class="mc-list">${edges.map((e) => { const d = driveOf(e.to.slice(1)); return `<div data-node-go="${e.to}"><span class="dot ${d.connected ? "live" : ""}" style="background:${d.connected ? "var(--ok)" : "var(--muted)"};color:var(--ok)"></span>${esc(d.title)}<small class="${e.cls}">${esc(e.label)}</small></div>`; }).join("") || '<span class="hint">No drives yet. Open the project to add folders.</span>'}</div></div>`;
+      <div class="mc-list">${edges.map((e) => { const d = driveOf(e.to.slice(1)); return `<div data-node-go="${e.to}"><span class="dot ${d.connected ? "live" : ""}" style="background:${d.connected ? "var(--ok)" : "var(--muted)"};color:var(--ok)"></span>${esc(d.title)}${e.backup ? '<em class="role">backup</em>' : ""}<small class="${e.cls}">${esc(e.label)}</small></div>`; }).join("") || '<span class="hint">No drives yet. Drag a drive\'s edge onto this project, or open it to add folders.</span>'}</div></div>`;
   }
   const d = n.d;
-  const ins = m.edges.filter((e) => e.to === id && e.from !== "mac");
+  const ins = [...(n.island.p ? [{ from: n.island.id, cls: n.st, label: n.label }] : []), ...m.edges.filter((e) => e.to === id)];
   return `<div class="map-card" style="--pc:${cardColor(d) || "var(--accent)"}"><div class="mc-head"><b>${esc(d.title)}</b>${d.connected ? `<button class="btn small" data-eject="${esc(d.id)}" title="Unmount it so it can be unplugged">${ICON.eject}Eject</button>` : ""}<button class="btn small primary" data-open="drive" data-id="${esc(d.id)}">Details</button></div>
     <div class="cap"><b>${bytes(d.size)}</b><span class="sep">•</span><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)} free</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
     <div class="badges" style="margin-top:6px">${backupBadge(d)}${checkBadge(d)}</div>
-    <div class="mc-list">${ins.map((e) => { const p = (S.projects || []).find((x) => "p" + x.id === e.from); return p ? `<div data-node-go="${e.from}"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span>${esc(p.name)}<small class="${e.cls}">${esc(e.label)}</small></div>` : ""; }).join("") || '<span class="hint">In no project.</span>'}</div></div>`;
+    <div class="mc-list">${ins.map((e) => { const p = (S.projects || []).find((x) => "p" + x.id === e.from); return p ? `<div data-node-go="${e.from}"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span>${esc(p.name)}<small class="${e.cls}">${esc(e.label)}</small></div>` : ""; }).join("") || '<span class="hint">In no project. Drag its edge onto a project to add it.</span>'}</div></div>`;
 }
 
 function applyMap() {
@@ -2376,9 +2402,9 @@ function applyMap() {
 }
 function mapFit(m) {
   const box = $("#map");
-  if (!box || !m.nodes.length) return;
-  const minX = Math.min(...m.nodes.map((n) => n.x)) - 30, minY = Math.min(...m.nodes.map((n) => n.y)) - 30;
-  const maxX = Math.max(...m.nodes.map((n) => n.x + n.w)) + 30, maxY = Math.max(...m.nodes.map((n) => n.y + n.h)) + 30;
+  if (!box || !m.islands.length) return;
+  const minX = Math.min(...m.islands.map((i) => i.x)) - 20, minY = Math.min(...m.islands.map((i) => i.y)) - 20;
+  const maxX = Math.max(...m.islands.map((i) => i.x + i.w)) + 20, maxY = Math.max(...m.islands.map((i) => i.y + i.h)) + 20;
   const W = box.clientWidth, H = box.clientHeight;
   MAP.k = Math.max(0.35, Math.min(1.15, (W - 40) / (maxX - minX), (H - 110) / (maxY - minY)));
   MAP.x = (W - (maxX - minX) * MAP.k) / 2 - minX * MAP.k;
@@ -2413,7 +2439,6 @@ function wireDrop(a, b) {
   $("#wd-ok").onclick = () => { close(); change({ remove: held }); };
 }
 function openNode(id) {
-  if (id === "mac") { S.tab = "connected"; localSet("tab", S.tab); render(); return; }
   if (id[0] === "p") { S.tab = "projects"; S.project = +id.slice(1); localSet("tab", S.tab); render(); return; }
   openDetail(id.slice(1));
 }
@@ -2430,7 +2455,7 @@ function wireMap(m) {
   const socketOf = (node, n, e) => {
     // A press within the connector zone at either edge of a drive or
     // project node starts a wire instead of moving the node.
-    if (!n || n.type === "mac") return null;
+    if (!n) return null;
     const r = node.getBoundingClientRect(), zone = 14 * MAP.k;
     if (e.clientX - r.left <= zone) return { x: n.x, y: n.y + node.offsetHeight / 2 };
     if (r.right - e.clientX <= zone) return { x: n.x + node.offsetWidth, y: n.y + node.offsetHeight / 2 };
@@ -2447,7 +2472,8 @@ function wireMap(m) {
       box.classList.add("wiring");
       return;
     }
-    MAP.drag = { sx: e.clientX, sy: e.clientY, x: MAP.x, y: MAP.y, node, n, nx: n && n.x, ny: n && n.y, moved: false };
+    const group = n ? (n.type === "project" ? [n, ...m.islands.find((i) => i.id === n.id).drives] : [n]) : [];
+    MAP.drag = { sx: e.clientX, sy: e.clientY, x: MAP.x, y: MAP.y, node, n, group: group.map((g) => ({ n: g, x: g.x, y: g.y, el: world.querySelector(`[data-node="${CSS.escape(g.id)}"]`) })), moved: false };
     box.setPointerCapture(e.pointerId);
     if (!node) box.classList.add("panning");
   };
@@ -2455,7 +2481,7 @@ function wireMap(m) {
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const node = el && el.closest(".node");
     const n = node ? m.nodes.find((x) => x.id === node.dataset.node) : null;
-    if (!n || n === d.from || n.type === "mac" || n.type === d.from.type) return null;
+    if (!n || n === d.from || n.type === d.from.type) return null;
     return { node, n };
   };
   box.onpointermove = (e) => {
@@ -2475,10 +2501,15 @@ function wireMap(m) {
     const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
     if (d.node) {
-      d.n.x = d.nx + dx / MAP.k; d.n.y = d.ny + dy / MAP.k;
-      d.node.style.left = d.n.x + "px"; d.node.style.top = d.n.y + "px";
-      // Redraw just this node's edges.
-      MAP.pos[d.n.id] = { x: d.n.x, y: d.n.y };
+      for (const g of d.group) {
+        g.n.x = g.x + dx / MAP.k; g.n.y = g.y + dy / MAP.k;
+        if (g.el) { g.el.style.left = g.n.x + "px"; g.el.style.top = g.n.y + "px"; }
+        MAP.pos[g.n.id] = { x: g.n.x, y: g.n.y };
+      }
+      const isl = d.n.type === "project" ? m.islands.find((i) => i.id === d.n.id) : d.n.island;
+      islandFrame(isl);
+      const fe = world.querySelector(`[data-island="${CSS.escape(isl.id)}"]`);
+      if (fe) { fe.style.left = isl.x + "px"; fe.style.top = isl.y + "px"; fe.style.width = isl.w + "px"; fe.style.height = isl.h + "px"; }
       world.querySelector(".map-edges").innerHTML = m.edges.map((e2) => { const g = edgeGeom(m.nodes.find((x) => x.id === e2.from), m.nodes.find((x) => x.id === e2.to)); return g ? `<g class="edge-g ${e2.cls}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>` : ""; }).join("");
       world.querySelectorAll(".e-lbl").forEach((el) => el.remove());
     } else { MAP.x = d.x + dx; MAP.y = d.y + dy; applyMap(); }
@@ -2511,8 +2542,7 @@ function wireMap(m) {
     else { MAP.pos = {}; localSet("map.pos", "{}"); MAP.fitted = false; renderMap(); }
   };
   for (const b of box.querySelectorAll("[data-open]")) b.onclick = () => {
-    if (b.dataset.open === "connected") openNode("mac");
-    else if (b.dataset.open === "project") openNode("p" + b.dataset.id);
+    if (b.dataset.open === "project") openNode("p" + b.dataset.id);
     else openNode("d" + b.dataset.id);
   };
   for (const el of box.querySelectorAll("[data-node-go]")) el.onclick = () => { MAP.sel = el.dataset.nodeGo; renderMap(); };
