@@ -307,6 +307,23 @@ line is posted there, with the Mac's name, so the team hears when a
 copy is done. **Send a test** checks the URL. The first notification
 asks for permission, like any app.
 
+### Keep drives awake
+
+A spinning drive that nothing touches for a few minutes is spun down,
+by macOS or by its own firmware, and the next read waits ten seconds
+for it to come back, or finds it gone. Settings → Drives → **Keep
+spinning drives awake while Lumpy is open** does what Amphetamine's
+Drive Alive does: on a timer (every minute to every 10 minutes) Lumpy
+writes and removes a tiny file, `.lumpy-awake`, at the root of every
+plugged-in hard drive and RAID, so none goes idle long enough. SSDs and
+camera cards don't spin and are left alone, as is a drive that is
+busy with a job or can't be written. Any drive can opt out with **Let
+it spin down** in its details. The top bar says how many drives are
+being kept awake, and the map's legend too. Drives can only be kept
+awake while the Mac is: **Keep the Mac awake too** runs macOS's
+`caffeinate` while Lumpy is open, so the Mac never idle-sleeps (the
+display still can), and it stops the moment Lumpy quits.
+
 ### One job at a time per drive
 
 A drive does one thing at a time. Start a check while an offload is

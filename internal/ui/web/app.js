@@ -592,6 +592,14 @@ function renderCounts() {
   pill.className = "agent-pill" + (agentOn ? " on" : "");
   pill.textContent = agentOn ? "Auto-logging on" : "Logging while open";
   pill.title = "Background agent: " + st.agent;
+  const ap = $("#awake-pill"), aw = st.awake || {};
+  ap.hidden = !aw.on;
+  if (aw.on) {
+    const n = (aw.drives || []).length;
+    ap.className = "agent-pill on";
+    ap.textContent = `${ICON_TXT.coffee}${n ? n + (n === 1 ? " drive" : " drives") + " awake" : "Keeping drives awake"}${aw.mac ? " · Mac too" : ""}`;
+    ap.title = `Keep drives awake is on (Settings → Drives). ${n ? "Last touched " + (aw.last ? when(aw.last) : "") : "No spinning drive is plugged in."}${aw.mac ? " The Mac is held out of idle sleep while Lumpy is open." : ""}`;
+  }
   const pp = $("#publish-pill");
   if (S.settings && S.settings.publish.enabled) {
     const last = S.settings.last;
@@ -770,6 +778,7 @@ async function openDetail(id, refresh, focusLabels) {
         <div class="box rules">
           <label class="switch row"><span>Never put backups here<small>Project plans won't copy onto it: camera cards that get wiped, loaners, the edit SSD.</small></span><input type="checkbox" id="no-backups" ${l.noBackups ? "checked" : ""}></label>
           <label class="switch row"><span>Never log this drive<small>Lumpy leaves it alone when it's plugged in: no scan, no check, no card.</small></span><input type="checkbox" id="never-log" ${l.neverLog ? "checked" : ""}></label>
+          ${!d.solidState && !["ssd", "card"].includes(l.icon || "") ? `<label class="switch row"><span>Let it spin down<small>Left out of Keep drives awake (Settings). ${S.state.awake && S.state.awake.on ? (S.state.awake.drives.includes(d.id) ? "Kept awake now." : l.letSleep ? "" : d.connected ? "Not touched yet." : "") : "Keep drives awake is off."}</small></span><input type="checkbox" id="let-sleep" ${l.letSleep ? "checked" : ""}></label>` : ""}
         </div></div>
 
       <div class="sec"><div class="sec-title">${ICON.tag}Labels</div>
@@ -853,6 +862,7 @@ function wireDetail(d) {
   $("#close").onclick = closeSheet;
   $("#never-log").onchange = (e) => save({ neverLog: e.target.checked });
   $("#no-backups").onchange = (e) => save({ noBackups: e.target.checked });
+  if ($("#let-sleep")) $("#let-sleep").onchange = (e) => save({ letSleep: e.target.checked });
   for (const el of document.querySelectorAll("[data-project]")) el.onchange = async () => {
     try { await api(`/api/projects/${el.dataset.project}`, { method: "PATCH", body: el.checked ? { add: [{ driveId: d.id, folder: "" }] } : { remove: [{ driveId: d.id, folder: "" }] } }); loadState(); }
     catch (e) { toast(e.message, true); el.checked = !el.checked; }
@@ -2074,6 +2084,10 @@ async function openSettings(focus) {
               <label class="switch" style="margin-top:8px" title="Codec, frame rate, timecode and camera, read from clip headers during scans">Read clip metadata during scans <input type="checkbox" data-pref="autoMetadata" ${pf.autoMetadata ? "checked" : ""}></label></div>
             <div class="field"><label>Copies and checks</label>
               <label class="switch" style="margin-top:7px" title="One file at a time, reads held to about 150 MB/s: slower, but the Mac and the drive stay responsive for whoever is editing">Gentle mode <input type="checkbox" data-pref="gentle" ${pf.gentle ? "checked" : ""}></label></div>
+            <div class="field"><label>Keep drives awake <span class="hint">· a tiny file is written and removed on every plugged-in spinning drive, so none spins down and stalls the next read; SSDs and cards are left alone, and any drive can opt out in its details</span></label>
+              <label class="switch" style="margin-top:7px">Keep spinning drives awake while Lumpy is open <input type="checkbox" data-pref="keepAwake" ${pf.keepAwake ? "checked" : ""}></label>
+              <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap"><label class="select"><select class="plain" data-pref="keepAwakeMinutes">${[[1, "Touch every minute"], [2, "Every 2 minutes"], [5, "Every 5 minutes"], [10, "Every 10 minutes"]].map(([v, l]) => `<option value="${v}" ${+(pf.keepAwakeMinutes || 5) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+              <label class="switch" title="Runs macOS's caffeinate while Lumpy is open: the Mac won't idle-sleep, though the display still can. Drives can only be kept awake while the Mac is.">Keep the Mac awake too <input type="checkbox" data-pref="keepMacAwake" ${pf.keepMacAwake ? "checked" : ""}></label></div></div>
             <div class="field"><label>Rescan plugged-in drives while Lumpy is open <span class="hint">· off is recommended: a rescan reads every folder, which can get in the way of editing</span></label>
               <select class="plain" data-pref="rescanMinutes">${[[0, "Only when plugged in, or by hand"], [15, "Every 15 minutes"], [60, "Every hour"], [240, "Every 4 hours"]].map(([v, l]) => `<option value="${v}" ${+pf.rescanMinutes === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
             <div class="field"><label>Folder exclusions <span class="hint">· names left out of library scans at any depth; a trailing * matches a prefix</span></label><input data-pref="exclude" value="${esc(pf.exclude)}" placeholder=".git, node_modules, Private, Render*" spellcheck="false"></div>
@@ -2226,6 +2240,7 @@ async function openSettings(focus) {
 const MAP = { k: 1, x: 0, y: 0, pos: {}, sel: null, drag: null, fitted: false, dirty: false };
 try { MAP.pos = JSON.parse(localGet("map.pos", "{}")) || {}; } catch { MAP.pos = {}; }
 const NODE = { project: [300, 96], drive: [296, 72] };
+const ICON_TXT = { coffee: "☕ " };
 const EDGE_LABEL = { full: "verified", none: "no backup", unknown: "unproven", likely: "probably backed up", empty: "empty" };
 
 // mapModel groups every drive into the island of the first project that
@@ -2374,7 +2389,7 @@ function renderMap() {
       ${m.edges.map(edgeLabel).join("")}
       ${m.nodes.map(node).join("")}
     </div>
-    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="sep">·</span><span><i class="dot" style="background:var(--ok)"></i>${live.length} plugged in</span><span class="hint">· drag a drive's edge onto a project to add or remove it · drag a project to move its island · ⌘ + scroll zooms</span></div>
+    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="sep">·</span><span><i class="dot" style="background:var(--ok)"></i>${live.length} plugged in</span>${S.state.awake && S.state.awake.on ? `<span title="Keep drives awake is on">${ICON_TXT.coffee}${(S.state.awake.drives || []).length} kept awake</span>` : ""}<span class="hint">· drag a drive's edge onto a project to add or remove it · drag a project to move its island · ⌘ + scroll zooms</span></div>
     <div class="map-tools"><button class="icon-btn" data-map="out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button class="icon-btn" data-map="in" title="Zoom in">${ICON.plus}</button><button class="btn small" data-map="fit">Fit</button><button class="btn small" data-map="arrange" title="Put every node back where Lumpy lays it out">Arrange</button></div>
     ${sel ? mapCard(m, sel) : ""}
   </div>`;

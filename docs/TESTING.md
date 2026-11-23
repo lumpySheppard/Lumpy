@@ -380,6 +380,23 @@ lumpy drives
 **Expect:** the log shows the drive being mounted and logged, and `lumpy
 drives` lists it with a fresh *last seen* time.
 
+## 17. Keep drives awake
+
+Settings → Drives → turn on **Keep spinning drives awake**, set it to
+**Touch every minute**, and plug in a hard drive and a camera card.
+Within a minute the top bar reads *1 drive awake*, and in Terminal:
+
+```sh
+ls -la /Volumes/YOUR_HDD | grep lumpy-awake
+```
+
+**Expect:** nothing most of the time (the file is written and removed
+again within a moment; `fs_usage -f filesys | grep lumpy-awake` shows
+each touch), the card never gets one, and a drive's details → *Let it
+spin down* takes it out of the count. Turn on **Keep the Mac awake too**
+and `pmset -g assertions` lists a `caffeinate` assertion that goes away
+when Lumpy quits.
+
 ## Afterwards
 
 Delete the `LUMPY_TEST` folders from both drives when you're done. To

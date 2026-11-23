@@ -48,6 +48,7 @@ type Server struct {
 	pub     publisher
 	pubDone chan struct{}
 	upd     updater
+	awk     awake
 
 	mu         sync.Mutex
 	vols       []*volume.Volume
@@ -106,6 +107,7 @@ func (s *Server) Watch(ctx context.Context) {
 	go s.publishLoop(ctx)
 	go s.updateLoop(ctx)
 	go s.rescanLoop(ctx)
+	go s.awakeLoop(ctx)
 	// Whatever is plugged in when the app opens is logged (again) now,
 	// however the last session ended.
 	s.db.SetMounted(map[string]string{})
@@ -509,7 +511,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	return map[string]any{
 		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects, "ffmpeg": media.FFmpeg() != "",
 		"agent": agent.Status(), "version": s.meta.Version, "home": filepath.Dir(s.lockPath),
-		"update": s.updateSummary(), "recent": s.db.RecentOffloads(),
+		"update": s.updateSummary(), "recent": s.db.RecentOffloads(), "awake": s.awakeStatus(),
 	}, nil
 }
 

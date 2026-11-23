@@ -190,6 +190,7 @@ func Open(path string) (*DB, error) {
 		`project_sources ADD COLUMN role TEXT NOT NULL DEFAULT ''`,
 		`project_sources ADD COLUMN exclude TEXT NOT NULL DEFAULT ''`,
 		`project_sources ADD COLUMN route TEXT NOT NULL DEFAULT ''`,
+		`drives ADD COLUMN let_sleep INTEGER NOT NULL DEFAULT 0`,
 	} {
 		s.Exec(`ALTER TABLE ` + col)
 	}
@@ -283,6 +284,8 @@ type Labels struct {
 	// NoBackups keeps project plans from copying onto this drive: camera
 	// cards that get wiped, loaners, the edit SSD.
 	NoBackups bool `json:"noBackups"`
+	// LetSleep leaves this drive out of keep-awake: it may spin down.
+	LetSleep bool `json:"letSleep"`
 	// Icon overrides the picture the card shows: "" (from what macOS
 	// says about the drive), hdd, ssd, card or raid.
 	Icon string `json:"icon"`
@@ -312,7 +315,7 @@ func nullTime(t time.Time) any {
 
 const driveCols = `d.id, d.name, d.size, d.fstype, d.first_seen, d.last_seen, d.last_mount,
 	d.last_scan, d.last_verify, d.last_verify_ok, d.verify_requested,
-	d.free, d.nickname, d.client, d.project, d.contact, d.notes, d.color, d.never_log, d.no_backups,
+	d.free, d.nickname, d.client, d.project, d.contact, d.notes, d.color, d.never_log, d.no_backups, d.let_sleep,
 	d.solid_state, d.bus, d.icon,
 	d.files, d.bytes, d.hashed, d.damaged, d.health`
 
@@ -323,7 +326,7 @@ func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 	var health string
 	if err := row.Scan(&d.ID, &d.Name, &d.Size, &d.FSType, &first, &last, &d.LastMount,
 		&scanAt, &verAt, &verOK, &req,
-		&d.Free, &d.Nickname, &d.Client, &d.Project, &d.Contact, &d.Notes, &d.Color, &d.NeverLog, &d.NoBackups,
+		&d.Free, &d.Nickname, &d.Client, &d.Project, &d.Contact, &d.Notes, &d.Color, &d.NeverLog, &d.NoBackups, &d.LetSleep,
 		&d.SolidState, &d.Bus, &d.Icon,
 		&d.Files, &d.Bytes, &d.Hashed, &d.Damaged, &health); err != nil {
 		return nil, err

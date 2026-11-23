@@ -32,11 +32,18 @@ type Prefs struct {
 	Notify             bool   `json:"notify"`
 	NotifyProblemsOnly bool   `json:"notifyProblemsOnly"`
 	Webhook            string `json:"webhook"`
+	// KeepAwake touches every plugged-in spinning drive every
+	// KeepAwakeMinutes so macOS never spins it down (Amphetamine's
+	// Drive Alive); a drive can opt out with Labels.LetSleep. KeepMacAwake
+	// also holds the Mac out of idle sleep while Lumpy is open.
+	KeepAwake        bool `json:"keepAwake"`
+	KeepAwakeMinutes int  `json:"keepAwakeMinutes"`
+	KeepMacAwake     bool `json:"keepMacAwake"`
 }
 
 // DefaultPrefs are a fresh library's preferences.
 func DefaultPrefs() Prefs {
-	return Prefs{HideInternal: true, HideImages: true, AutoLog: true, AutoMetadata: true, Notify: true}
+	return Prefs{HideInternal: true, HideImages: true, AutoLog: true, AutoMetadata: true, Notify: true, KeepAwakeMinutes: 5}
 }
 
 // Prefs reads the preferences.

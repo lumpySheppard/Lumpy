@@ -29,6 +29,7 @@ func (s *Server) putPrefs(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	p = s.db.Prefs()
 	job.ApplyPrefs(p)
+	s.kickAwake()
 	// Drive filtering changed: list the volumes again.
 	s.mu.Lock()
 	s.volsAt = time.Time{}
