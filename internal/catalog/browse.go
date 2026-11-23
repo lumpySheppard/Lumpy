@@ -306,3 +306,12 @@ func backupsFrom(cov []Coverage, titles map[string]string, min int) *BackupSumma
 	}
 	return s
 }
+
+// CopiesOf counts the logged drives holding a file of this name and
+// size: what the library knows about a file somewhere it hasn't
+// logged, such as the Mac's own disk, without a checksum.
+func (db *DB) CopiesOf(name string, size int64) (int, error) {
+	var n int
+	err := db.sql.QueryRow(`SELECT COUNT(DISTINCT drive_id) FROM files WHERE name = ? AND size = ?`, name, size).Scan(&n)
+	return n, err
+}

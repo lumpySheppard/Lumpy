@@ -502,7 +502,15 @@ what files take on disk; each folder keeps its 60 biggest items apart
 and rolls the rest into "smaller items". The measurement runs as a job
 (Activity shows the folder being read), is kept until Lumpy quits, and
 **Measure again** refreshes it. Symlinks aren't followed and other
-volumes mounted below the one measured are skipped. The Mac's own
+volumes mounted below the one measured are skipped. For Macintosh HD
+or Home, **Usual suspects** lists the places a Mac fills with things
+nobody needs (app caches, logs, Resolve's CacheClip, Adobe media
+cache, Xcode derived data and simulators, iOS backups, Downloads, the
+Trash, npm, Go, Cargo and Homebrew caches…) with their sizes, marked
+*safe to clear* (the app makes it again) or *look first*, each with
+its own tick box. A file the library already holds, by name and size,
+on logged drives gets an **on N drives** badge, so footage copied to
+the Mac for an edit can go once its originals are checked. The Mac's own
 disk also holds system files, snapshots and purgeable space no app can
 measure, so Finder's "used" can be more than what Lumpy finds.
 

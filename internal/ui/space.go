@@ -176,7 +176,25 @@ func (s *Server) spaceTree(w http.ResponseWriter, r *http.Request) (any, error) 
 	if v != nil {
 		size, free = v.Size, v.Free
 	}
-	return map[string]any{"root": root, "at": at, "node": n.Trim(depth), "total": sc.tree.Bytes, "files": sc.tree.Files, "size": size, "free": free, "measured": sc.at.Unix()}, nil
+	// Files in view the library already holds elsewhere, by name and
+	// size: the ones that may be safe to let go.
+	copies := map[string]int{}
+	for _, c := range n.Children {
+		if c.Dir || c.Rest > 0 || c.Bytes < 64<<10 {
+			continue
+		}
+		if k, err := s.db.CopiesOf(c.Name, c.Len); err == nil && k > 0 {
+			copies[c.Name] = k
+		}
+	}
+	var suspects []space.Suspect
+	if home, err := os.UserHomeDir(); err == nil && at == "" && (root == "/" || root == filepath.Clean(home)) {
+		suspects = space.FindSuspects(sc.tree, root, home)
+	}
+	if suspects == nil {
+		suspects = []space.Suspect{}
+	}
+	return map[string]any{"root": root, "at": at, "node": n.Trim(depth), "total": sc.tree.Bytes, "files": sc.tree.Files, "size": size, "free": free, "measured": sc.at.Unix(), "copies": copies, "suspects": suspects}, nil
 }
 
 // spaceTrash puts items in the Trash through the Finder and takes them

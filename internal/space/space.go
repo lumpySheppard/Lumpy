@@ -22,6 +22,7 @@ type Node struct {
 	Name     string  `json:"name"`
 	Bytes    int64   `json:"bytes"`
 	Files    int64   `json:"files"` // files inside, 1 for a file
+	Len      int64   `json:"-"`     // a file's length, as the library records sizes
 	Dir      bool    `json:"dir,omitempty"`
 	Rest     int64   `json:"rest,omitempty"` // children rolled into this node ("smaller items")
 	Children []*Node `json:"children,omitempty"`
@@ -136,7 +137,7 @@ func walk(ctx context.Context, dir string, st os.FileInfo, dev uint64, prog *Pro
 		}
 		size := onDisk(info)
 		mu.Lock()
-		n.Children = append(n.Children, &Node{Name: name, Bytes: size, Files: 1})
+		n.Children = append(n.Children, &Node{Name: name, Bytes: size, Len: info.Size(), Files: 1})
 		n.Bytes += size
 		n.Files++
 		mu.Unlock()

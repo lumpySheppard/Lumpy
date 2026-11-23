@@ -2790,7 +2790,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab ==
 // Like DaisyDisk: measure a disk, see it as rings, drill in, put the
 // big things in the Trash. The measurement lives on the server; the
 // page asks for the rings around the folder in view.
-const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "" };
+const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true };
 async function renderSpace() {
   const main = $("#main");
   if (!SP.places) { main.innerHTML = loadingGlyph("Looking at the disks…"); try { SP.places = await api("/api/space/places"); } catch (e) { main.innerHTML = `<div class="empty"><h2>Can't look</h2><p>${esc(e.message)}</p></div>`; return; } }
@@ -2812,9 +2812,17 @@ async function renderSpace() {
         <div class="sp-side">
           <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
           <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span></div>
+          ${(d.suspects || []).length ? `<details class="sp-sus" ${SP.susOpen ? "open" : ""}><summary><b>Usual suspects</b><span class="hint">· ${bytes(d.suspects.reduce((t, x) => t + (x.risk === "keep" ? 0 : x.bytes), 0))} in caches, renders and leftovers that can go</span></summary>
+            <div class="sp-list" style="margin-top:6px">${d.suspects.map((x) => `<div class="sp-row sus ${x.risk}" data-sp-row="${esc(x.rel)}" title="${esc(x.note)}">
+              ${x.risk === "keep" ? '<span class="pickcell"></span>' : `<input type="checkbox" class="pick" data-sp-pick="${esc(x.rel)}" ${SP.sel.has(x.rel) ? "checked" : ""}>`}
+              <span class="sp-name"><span>${esc(x.name)}</span><small class="hint">${esc(x.note)}</small></span>
+              <span class="badge ${x.risk === "safe" ? "ok" : x.risk === "check" ? "warn" : ""}">${x.risk === "safe" ? "safe to clear" : x.risk === "check" ? "look first" : "keep"}</span>
+              <span class="sp-size">${bytes(x.bytes)}</span>
+              <span class="sp-acts"><button class="icon-btn" data-sp-open="${esc(x.rel)}" title="Look inside">${ICON.right}</button>${native ? `<button class="icon-btn" data-sp-reveal="${esc(x.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("")}</div>
+            <p class="hint" style="margin:6px 0 2px">Safe to clear means the app makes it again. Quit the app first. The Trash itself can only be emptied from the Finder.</p></details>` : ""}
           <div class="sp-list">${(d.node.children || []).map((c, i) => { const rel = SP.at ? SP.at + "/" + c.name : c.name; const pct = d.node.bytes ? (c.bytes / d.node.bytes) * 100 : 0; return `<div class="sp-row ${c.rest ? "rest" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" style="--sc:${c.rest ? "var(--muted)" : spColor(i, 0)}">
               ${c.rest ? '<span class="pickcell"></span>' : `<input type="checkbox" class="pick" data-sp-pick="${esc(rel)}" ${SP.sel.has(rel) ? "checked" : ""}>`}
-              <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : esc(c.name)}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}</span>
+              <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : esc(c.name)}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}${d.copies && d.copies[c.name] ? ` <span class="badge ok" title="A file of this name and size is on ${d.copies[c.name]} logged drive${d.copies[c.name] === 1 ? "" : "s"}; check one before letting this go">${ICON.check}on ${d.copies[c.name]} drive${d.copies[c.name] === 1 ? "" : "s"}</span>` : ""}</span>
               <span class="sp-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
               <span class="sp-size">${bytes(c.bytes)}</span>
               <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>
@@ -2831,6 +2839,8 @@ async function renderSpace() {
   for (const el of document.querySelectorAll("[data-sp-pick]")) el.onchange = () => { if (el.checked) SP.sel.add(el.dataset.spPick); else SP.sel.delete(el.dataset.spPick); renderSpace(); };
   for (const row of document.querySelectorAll("[data-sp-row]")) { row.onmouseenter = () => spHover(row.dataset.spRow); row.onmouseleave = () => spHover(null); row.ondblclick = () => { const c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === row.dataset.spRow); if (c && c.dir) { SP.at = row.dataset.spRow; spaceLoad(); } }; }
   if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
+  const sus = document.querySelector(".sp-sus");
+  if (sus) sus.ontoggle = () => { SP.susOpen = sus.open; };
   wireSunburst(d);
   if (!d && !SP.busy && place.done) spaceLoad();
   if (place.busy && !SP.busy) { SP.busy = true; renderSpace(); }
@@ -2919,7 +2929,7 @@ function wireSunburst(d) {
 }
 async function spaceTrash(d) {
   const items = [...SP.sel];
-  const total = items.reduce((t, rel) => { const n = (d.node.children || []).find((c) => (SP.at ? SP.at + "/" + c.name : c.name) === rel); return t + (n ? n.bytes : 0); }, 0);
+  const total = items.reduce((t, rel) => { const n = (d.node.children || []).find((c) => (SP.at ? SP.at + "/" + c.name : c.name) === rel) || (d.suspects || []).find((x) => x.rel === rel); return t + (n ? n.bytes : 0); }, 0);
   openSheet(`<div class="sheet-head"><h2>Move ${items.length} item${items.length === 1 ? "" : "s"} to the Trash?</h2><div class="actions"><button class="icon-btn" id="st-close">${ICON.x}</button></div></div>
     <div class="sheet-body" style="padding-top:12px"><div class="chips">${items.map((x) => `<span class="chip">${esc(x.split("/").pop())}</span>`).join("")}</div><p class="hint" style="margin:10px 0 0">${bytes(total)} goes to the Trash through the Finder, so it can be put back. The space is freed when you empty the Trash.</p></div>
     <div class="sheet-foot"><button class="btn" id="st-cancel">Keep them</button><button class="btn danger-fill" id="st-ok">${ICON.trash}Move to the Trash</button></div>`, true);
