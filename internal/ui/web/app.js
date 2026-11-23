@@ -748,10 +748,8 @@ async function openDetail(id, refresh, focusLabels) {
   openSheet(`
     <div class="sheet-head">
       <span class="drive-ico">${ICON.drive}</span>
-      <div><h2>${esc(d.title)}</h2><div class="sub">${esc(d.name)}${d.connected ? " · plugged in" : ""}</div></div>
+      <div><h2>${esc(d.title)}</h2><div class="sub">${esc(KINDS[driveKind(d)])}${l.nickname && d.name !== d.title ? " · " + esc(d.name) : ""} · ${d.connected ? "plugged in" : "last seen " + esc(when(d.lastSeen))}</div></div>
       <div class="actions">
-        <label class="switch" title="Project plans won't copy backups onto this drive: camera cards that get wiped, loaners, the edit SSD">No backups here <input type="checkbox" id="no-backups" ${l.noBackups ? "checked" : ""}></label>
-        <label class="switch" title="Lumpy will not log or check this drive when it's plugged in">Never log <input type="checkbox" id="never-log" ${l.neverLog ? "checked" : ""}></label>
         ${d.connected ? `<button class="icon-btn" id="eject" title="Eject: unmount it so it can be unplugged">${ICON.eject}</button>` : ""}
         <button class="btn danger" id="forget">Remove</button>
         <button class="icon-btn" id="close" title="Close">${ICON.x}</button>
@@ -767,6 +765,12 @@ async function openDetail(id, refresh, focusLabels) {
           <dt>First seen</dt><dd>${when(d.firstSeen)}</dd>
           <dt>Last seen</dt><dd>${d.connected ? "Plugged in now" : when(d.lastSeen)}</dd>
         </dl></div></div>
+
+      <div class="sec"><div class="sec-title">${ICON.shield}Rules for this drive</div>
+        <div class="box rules">
+          <label class="switch row"><span>Never put backups here<small>Project plans won't copy onto it: camera cards that get wiped, loaners, the edit SSD.</small></span><input type="checkbox" id="no-backups" ${l.noBackups ? "checked" : ""}></label>
+          <label class="switch row"><span>Never log this drive<small>Lumpy leaves it alone when it's plugged in: no scan, no check, no card.</small></span><input type="checkbox" id="never-log" ${l.neverLog ? "checked" : ""}></label>
+        </div></div>
 
       <div class="sec"><div class="sec-title">${ICON.tag}Labels</div>
         <div class="box"><div class="fields">
@@ -973,13 +977,12 @@ function renderProjects() {
       <p>A project is the folders that hold one piece of work: a feature across five drives, or one music video that shares a shuttle with three other jobs. Lumpy shows how well it's backed up, wherever the copies are, and plans the copies that get every file onto two drives.</p>
       <p><button class="btn primary" id="new-project">${ICON.plus}New project</button> <button class="btn" id="new-folder">${ICON.folder}New project folder…</button></p></div>`;
   } else {
-    main.innerHTML = `<div class="section-head"><h2>Projects</h2><span>${ps.length}</span><div class="right"><button class="btn" id="new-folder" title="Make a project's folders from your Post Haste template">${ICON.folder}New project folder…</button><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
+    main.innerHTML = `<div class="page-bar"><div class="toolbar-title">${ICON.film}Projects<span class="count">${ps.length}</span></div><div class="right"><button class="btn" id="new-folder" title="Make a project's folders from your Post Haste template">${ICON.folder}New project folder…</button><button class="btn primary" id="new-project">${ICON.plus}New project</button></div></div>
       <div class="grid">${ps.map((p) => {
         const h = p.health;
         const bad = h.soleBytes + h.shortBytes;
         return `<article class="card pcard" style="--tint:${COLORS[p.color] || "transparent"}" data-open-project="${p.id}">
-          <div class="card-top"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span><span class="drive-ico">${ICON.film}</span></div>
-          <div class="card-title"><h3>${esc(p.name)}</h3><span class="vol">${p.sources.length} folder${p.sources.length === 1 ? "" : "s"} · ${p.target} copies wanted</span></div>
+          <div class="card-top"><span class="n-tag" style="--pc:${COLORS[p.color] || "var(--accent)"}">${ICON.film}</span><div class="card-title"><h3>${esc(p.name)}</h3><span class="vol">${p.sources.length} folder${p.sources.length === 1 ? "" : "s"} · ${p.target} copies wanted</span></div></div>
           ${backupBar(h.backedBytes, h.bytes, h.unknownBytes, h.likelyBytes || 0, { compact: true })}
           <div class="cap">${bytes(h.bytes)}<span class="sep">•</span>${h.contents.toLocaleString()} files${bad ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(bad)} still to copy</span>` : ""}</div>
           <div class="badges">${h.damaged ? `<span class="badge bad">${h.damaged} damaged</span>` : ""}</div>
@@ -1026,9 +1029,9 @@ function renderProjectPage() {
   };
 
   main.innerHTML = `
-    <div class="phead">
+    <div class="phead page-bar">
       <button class="icon-btn" id="proj-back" title="All projects">${ICON.back}</button>
-      <span class="dot" style="width:12px;height:12px;background:${COLORS[p.color] || "var(--accent)"}"></span>
+      <span class="n-tag" style="--pc:${COLORS[p.color] || "var(--accent)"}">${ICON.film}</span>
       <input class="inline-input" id="proj-name" value="${esc(p.name)}" title="Rename">
       <label class="hint">Copies wanted <select class="plain" id="proj-target">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${p.target === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <div class="swatches">${Object.entries(COLORS).map(([k, c]) => `<button class="swatch ${p.color === k ? "on" : ""}" data-pcolor="${k}" style="background:${c}" title="${k}"></button>`).join("")}</div>
@@ -1098,7 +1101,7 @@ function renderProjectPage() {
           const inferred = routes.filter((r) => !r.explicit).map((r) => `${driveTitle(r.destId)} › ${r.folder || "(top level)"}`);
           return `<div class="step-card ${backup ? "backup" : ""}" style="margin-bottom:10px">
             <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : (d && COLORS[d.labels.color]) || "var(--muted)"}"></span><b style="min-width:0;overflow:hidden;text-overflow:ellipsis">${sourceLabel(sh)}</b>${backup ? `<span class="badge info">${ICON.shield}Backup</span>` : ""}
-              <div class="right"><button class="btn small" data-drive-open="${esc(sh.driveId)}">Drive</button><button class="icon-btn" data-remove-src="${i}" title="Remove from project">${ICON.x}</button></div></div>
+              <div class="right"><button class="btn small" data-drive-open="${esc(sh.driveId)}">Open drive</button><button class="icon-btn" data-remove-src="${i}" title="Remove from project">${ICON.x}</button></div></div>
             ${backupBar(sh.backedBytes, sh.bytes, sh.unknownBytes, sh.likelyBytes || 0, { compact: true })}
             <div class="cap">${bytes(sh.bytes)} · ${sh.files.toLocaleString()} files${sh.soleBytes + sh.shortBytes ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(sh.soleBytes + sh.shortBytes)} still to copy</span>` : ""}${sh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.extraBytes)} on more drives than needed</span>` : ""}${sh.orphanBytes ? `<span class="sep">•</span><span class="hint" title="Files only in this backup folder: nothing in the project's own folders matches them, so they are left alone">${bytes(sh.orphanBytes)} only here</span>` : ""}${sh.excludedBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.excludedBytes)} excluded</span>` : ""}${d && !d.connected ? `<span class="sep">•</span><span class="hint">last seen ${new Date(d.lastSeen * 1000).toLocaleDateString()}</span>` : ""}</div>
             <div class="src-ctl">
@@ -1503,14 +1506,15 @@ function renderOffload() {
         <div class="chips">${chips("src")}</div></div></div>
       <div class="step"><span class="step-n">2</span><div><h3>Destinations <span style="color:var(--muted);font-weight:400">(at least two recommended)</span></h3>
         ${o.dests.map((p, i) => `<div class="path-row"><input class="path-input" data-dest="${i}" value="${esc(p)}" placeholder="/Volumes/SHUTTLE_1/Day_01">${recentSel("dests", i)}<button class="btn" data-pick="dest" data-i="${i}">Choose…</button>${o.dests.length > 1 ? `<button class="icon-btn" data-rmdest="${i}" title="Remove">${ICON.x}</button>` : ""}</div>`).join("")}
-        <div class="chips"><button class="chip" id="add-dest">${"+ Add destination"}</button>${chips("dest")}</div></div></div>
+        <button class="btn small" id="add-dest" style="margin:2px 0 8px">${ICON.plus}Another destination</button>
+        <div class="chips">${chips("dest")}</div></div></div>
       <div class="step"><span class="step-n">3</span><div><h3>Folder name in each destination</h3>
         <div class="path-row"><input class="path-input" id="oname" value="${esc(o.name)}" placeholder="${esc(name || "Same as the source")}"></div>
         <label class="check-row"><input type="checkbox" id="source-check" ${o.sourceCheck ? "checked" : ""}><span>Read the card a second time while verifying<span class="note">Catches a faulty card or reader. Recommended; it runs alongside the copy checks.</span></span></label>
         <div class="go-row"><button class="btn primary" id="start-offload">${ICON.copy}Start offload</button>
           <span class="note" id="offload-note">${o.source && o.dests.some(Boolean) ? `Copies to ${o.dests.filter(Boolean).map((d) => esc(d.replace(/\/+$/, "") + "/" + (name || ""))).join(", ")}` : ""}</span></div></div></div>
     </section>
-    <div class="jobs-col"><div class="section-head"><h2>Offloads</h2></div><div class="jobs" id="offload-jobs"></div></div>
+    <div class="jobs-col"><h2 class="col-title">${ICON.activity}Offloads</h2><div class="jobs" id="offload-jobs"></div></div>
   </div>`;
   wireOffload();
   renderJobsInto($("#offload-jobs"), S.jobs.filter((j) => j.kind === "offload"), "No offloads yet.");
@@ -1794,6 +1798,13 @@ function renderMedia() {
   main.innerHTML = `<div class="media">
     <div class="media-bar">
       <div class="toolbar-title">${ICON.clapper}Clips</div>
+      <div class="seg" id="m-view">${[["table", "Table"], ["strip", "Filmstrip"]].map(([v, l]) => `<button data-mview="${v}" class="${S.mediaView === v ? "on" : ""}">${l}</button>`).join("")}</div>
+      <span class="sortgrp"><label class="select" title="Sort"><select id="m-sort">${SORTS.map(([k, v]) => opt(k, "Sort: " + v, S.mediaSort)).join("")}</select></label>
+      <button class="icon-btn" id="m-dir" title="Reverse order">${S.mediaDesc ? ICON.down : ICON.up}</button></span>
+      <div class="search"><span class="search-icon">${ICON.search}</span><input id="m-q" type="search" placeholder="Clip, scene, take, camera, reel, notes, tag…" value="${esc(m.q)}" autocomplete="off" spellcheck="false"></div>
+      <button class="btn" id="m-export" title="This list with every column, for post">${ICON.export}Export CSV…</button>
+    </div>
+    <div class="media-filters">
       <label class="select"><select id="m-project">${opt("", "All projects", m.project)}${(st.projects || []).map((p) => opt(p.id, p.name, m.project)).join("")}</select></label>
       <label class="select"><select id="m-drive">${opt("", "All drives", m.drive)}${st.drives.map((x) => opt(x.id, x.title, m.drive)).join("")}</select></label>
       <label class="select"><select id="m-kind">${opt("", "Any kind", m.kind)}${Object.entries(KIND_LABEL).map(([k, v]) => opt(k, v, m.kind)).join("")}</select></label>
@@ -1801,11 +1812,7 @@ function renderMedia() {
       <label class="select"><select id="m-codec">${catalogue(d.codecs || [], CODECS, m.codec, "Any codec")}</select></label>
       <label class="select"><select id="m-rate">${opt("", "Any frame rate", m.rate)}${(d.rates || []).map((r) => opt(r, fps(r) + " fps", m.rate)).join("")}</select></label>
       <label class="select"><select id="m-qc">${opt("", "Any QC", m.qc)}${opt("none", "Not checked", m.qc)}${opt("ok", "OK", m.qc)}${opt("flag", "Flagged", m.qc)}${opt("reject", "Rejected", m.qc)}</select></label>
-      <div class="search"><span class="search-icon">${ICON.search}</span><input id="m-q" type="search" placeholder="Clip, scene, take, camera, reel, notes, tag…" value="${esc(m.q)}" autocomplete="off" spellcheck="false"></div>
-      <div class="seg" id="m-view">${[["table", "Table"], ["strip", "Filmstrip"]].map(([v, l]) => `<button data-mview="${v}" class="${S.mediaView === v ? "on" : ""}">${l}</button>`).join("")}</div>
-      <span class="sortgrp"><label class="select" title="Sort"><select id="m-sort">${SORTS.map(([k, v]) => opt(k, "Sort: " + v, S.mediaSort)).join("")}</select></label>
-      <button class="icon-btn" id="m-dir" title="Reverse order">${S.mediaDesc ? ICON.down : ICON.up}</button></span>
-      <button class="btn" id="m-export" title="This list with every column, for post">${ICON.export}Export CSV…</button>
+      <span class="pills" id="m-pills"></span>
     </div>
     <div id="media-body"></div></div>`;
   const reload = () => { for (const k of ["project", "drive", "kind", "format", "codec", "rate", "qc"]) m[k] = $("#m-" + k).value; loadMedia(); };
@@ -1846,13 +1853,12 @@ function renderMediaTable() {
   const bytesTotal = files.reduce((a, f) => a + f.size, 0);
   const flagged = files.filter((f) => f.edits.qc === "flag").length, rejected = files.filter((f) => f.edits.qc === "reject").length;
   const byId = Object.fromEntries(S.state.drives.map((x) => [x.id, x]));
-  body.innerHTML = `<div class="pills media-sum">
-      <span class="pill">Clips:<b>${files.length.toLocaleString()}${files.length >= d.limit ? "+" : ""}</b></span>
+  const mp = $("#m-pills"); if (mp) mp.innerHTML = `<span class="pill">Clips:<b>${files.length.toLocaleString()}${files.length >= d.limit ? "+" : ""}</b></span>
       <span class="pill">Running time:<b>${dur(total) || "—"}</b></span>
       <span class="pill">Size:<b>${bytes(bytesTotal)}</b></span>
       ${flagged ? `<span class="pill">Flagged:<b style="color:var(--warn)">${flagged}</b></span>` : ""}
-      ${rejected ? `<span class="pill">Rejected:<b style="color:var(--bad)">${rejected}</b></span>` : ""}
-    </div>
+      ${rejected ? `<span class="pill">Rejected:<b style="color:var(--bad)">${rejected}</b></span>` : ""}`;
+  body.innerHTML = `
     ${S.mediaView === "strip" ? `<div class="strip">${files.map((f) => clipTile(f, byId[f.driveId])).join("")}</div>` : `<table class="list media-table"><thead><tr><th></th><th>Clip</th><th>Drive</th><th>Format</th><th class="num">fps</th><th class="num">Length</th><th>Start TC</th><th>Audio</th><th>Scene / take</th><th>QC</th><th>Camera</th></tr></thead><tbody>
     ${files.map((f) => {
       const dr = byId[f.driveId];
@@ -2051,17 +2057,6 @@ async function openSettings(focus) {
       <div class="actions"><button class="icon-btn" id="close" title="Close">${ICON.x}</button></div>
     </div>
     <div class="sheet-body">
-      <div class="sec" id="sec-updates"><div class="sec-title">${ICON.up}Updates
-          <div class="right">${u.installed && native ? `<button class="btn small primary" id="upd-relaunch">Relaunch Lumpy</button>` : u.available && !u.installing ? `<button class="btn small primary" id="upd-install">Install ${esc(u.latest.version)}</button>` : ""}<button class="btn small" id="upd-check" ${u.checking ? "disabled" : ""}>${u.checking ? "Checking…" : "Check now"}</button></div></div>
-        <div class="box">
-          <div class="pub-last" style="margin:0 0 10px">${updStatus}</div>
-          ${u.available && u.latest.notes ? `<details class="notes"><summary>What's new in ${esc(u.latest.version)}</summary><pre>${esc(u.latest.notes)}</pre></details>` : ""}
-          <p class="hint" style="margin:0 0 10px">Updates replace ${esc(u.target || "the app")} in place; the library is untouched. ${native ? "" : "From Terminal: <code>lumpy update</code>."}</p>
-          <div class="fields">
-            <div class="field"><label>Check for updates</label><label class="switch" style="margin-top:7px">Twice a day while Lumpy is open <input type="checkbox" id="upd-auto" ${u.auto ? "checked" : ""}></label></div>
-            <div class="field"><label>GitHub token <span class="hint">· optional; only needed if the Lumpy repository is made private</span></label><input id="upd-token" type="password" value="${u.hasToken ? "••••••••••••" : ""}" placeholder="github_pat_…" autocomplete="off"></div>
-          </div>
-        </div></div>
       <div class="sec"><div class="sec-title">${ICON.gear}General</div>
         <div class="box"><div class="fields"><div class="field"><label>Appearance</label>
           <div class="seg" id="appearance">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([v, l]) => `<button data-appearance="${v}" class="${localGet("appearance", "dark") === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
@@ -2072,12 +2067,13 @@ async function openSettings(focus) {
         <div class="box">
           <div class="fields">
             <div class="field"><label>Which volumes count as drives</label>
-              <label class="switch" style="margin-top:7px" title="One file at a time, reads held to about 150 MB/s: slower, but the Mac and the drive stay responsive for whoever is editing">Gentle mode <input type="checkbox" data-pref="gentle" ${pf.gentle ? "checked" : ""}></label>
-              <label class="switch" style="margin-top:8px">Hide the Mac's internal volumes <input type="checkbox" data-pref="hideInternal" ${pf.hideInternal ? "checked" : ""}></label>
+              <label class="switch" style="margin-top:7px">Hide the Mac's internal volumes <input type="checkbox" data-pref="hideInternal" ${pf.hideInternal ? "checked" : ""}></label>
               <label class="switch" style="margin-top:8px">Hide mounted disk images (.dmg, .iso) <input type="checkbox" data-pref="hideImages" ${pf.hideImages ? "checked" : ""}></label></div>
             <div class="field"><label>Logging</label>
               <label class="switch" style="margin-top:7px" title="Off: only drives already in the library are kept up to date when plugged in">Log new drives when plugged in <input type="checkbox" data-pref="autoLog" ${pf.autoLog ? "checked" : ""}></label>
               <label class="switch" style="margin-top:8px" title="Codec, frame rate, timecode and camera, read from clip headers during scans">Read clip metadata during scans <input type="checkbox" data-pref="autoMetadata" ${pf.autoMetadata ? "checked" : ""}></label></div>
+            <div class="field"><label>Copies and checks</label>
+              <label class="switch" style="margin-top:7px" title="One file at a time, reads held to about 150 MB/s: slower, but the Mac and the drive stay responsive for whoever is editing">Gentle mode <input type="checkbox" data-pref="gentle" ${pf.gentle ? "checked" : ""}></label></div>
             <div class="field"><label>Rescan plugged-in drives while Lumpy is open <span class="hint">· off is recommended: a rescan reads every folder, which can get in the way of editing</span></label>
               <select class="plain" data-pref="rescanMinutes">${[[0, "Only when plugged in, or by hand"], [15, "Every 15 minutes"], [60, "Every hour"], [240, "Every 4 hours"]].map(([v, l]) => `<option value="${v}" ${+pf.rescanMinutes === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
             <div class="field"><label>Folder exclusions <span class="hint">· names left out of library scans at any depth; a trailing * matches a prefix</span></label><input data-pref="exclude" value="${esc(pf.exclude)}" placeholder=".git, node_modules, Private, Render*" spellcheck="false"></div>
@@ -2097,6 +2093,17 @@ async function openSettings(focus) {
           </div>
         </div></div>
 
+      <div class="sec" id="sec-updates"><div class="sec-title">${ICON.up}Updates
+          <div class="right">${u.installed && native ? `<button class="btn small primary" id="upd-relaunch">Relaunch Lumpy</button>` : u.available && !u.installing ? `<button class="btn small primary" id="upd-install">Install ${esc(u.latest.version)}</button>` : ""}<button class="btn small" id="upd-check" ${u.checking ? "disabled" : ""}>${u.checking ? "Checking…" : "Check now"}</button></div></div>
+        <div class="box">
+          <div class="pub-last" style="margin:0 0 10px">${updStatus}</div>
+          ${u.available && u.latest.notes ? `<details class="notes"><summary>What's new in ${esc(u.latest.version)}</summary><pre>${esc(u.latest.notes)}</pre></details>` : ""}
+          <p class="hint" style="margin:0 0 10px">Updates replace ${esc(u.target || "the app")} in place; the library is untouched. ${native ? "" : "From Terminal: <code>lumpy update</code>."}</p>
+          <div class="fields">
+            <div class="field"><label>Check for updates</label><label class="switch" style="margin-top:7px">Twice a day while Lumpy is open <input type="checkbox" id="upd-auto" ${u.auto ? "checked" : ""}></label></div>
+            <div class="field"><label>GitHub token <span class="hint">· optional; only needed if the Lumpy repository is made private</span></label><input id="upd-token" type="password" value="${u.hasToken ? "••••••••••••" : ""}" placeholder="github_pat_…" autocomplete="off"></div>
+          </div>
+        </div></div>
       <div class="sec"><div class="sec-title">${ICON.history}Library
           <div class="right"><button class="btn small" id="lib-optimise" title="Compacts the database file">Optimise</button>${native ? `<button class="btn small" id="lib-reveal">${ICON.reveal}Show in Finder</button>` : ""}</div></div>
         <div class="box">

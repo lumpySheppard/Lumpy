@@ -153,24 +153,25 @@ both drives at once. No manifest is needed.
 
 ### Map
 
-The first tab is a map: this Mac on the left, every drive in the
-middle, and the projects on the right, with a line from each project to
-each drive that holds part of it. A project node shows how many copies
-it wants, its size, file and drive counts, its backup bar and what is
-still to copy. Every node has a connector on each
-side and a wire takes the facing ones, so wires never run under a node
-wherever you drag things. The line's label says how much of the
-project is on that drive and whether that part is backed up (green
-verified, yellow partly, red not at all, dotted unproven); dotted green
-lines from the Mac show what is plugged in, and the Mac's card says on
-which bus. Click a
-node and what it touches lights up, with a card that opens the project,
-the drive's details, or the Connected tab; double-click a drive for its
-details, a project for its page. Drag to pan, ⌘ + scroll to zoom, drag a node to move it
-(Lumpy remembers), **Fit** to see everything, **Arrange** to put the
-nodes back. Drag a wire from a drive's connector onto a project (or the
-other way) to add the drive to it, choosing the folder; drop it on a
-project that already holds the drive to take it out.
+The first tab is a map of islands, one per project: the project's
+header on top (how many copies it wants, its size, file and drive
+counts, its backup bar and what is still to copy) and its drives in a
+grid beneath, tinted in the project's colour. Being inside the island
+is what says a drive is in the project, so there is no wire per drive;
+each drive node carries its own line instead: how that part of the
+project is backed up (green verified, yellow partly, red not at all,
+grey unproven), a **backup** tag on the project's backup drives, and a
+green dot for plugged in. Drives in no project share a grey island at
+the end. A drive in a second project keeps a wire to that project's
+header, so membership across islands stays visible. Click a node and
+its island lights up, with a card that opens the project or the
+drive's details; double-click a drive for its details, a project for
+its page. Drag to pan, ⌘ + scroll to zoom, drag a drive to move it,
+drag a project header to move its whole island (Lumpy remembers),
+**Fit** to see everything, **Arrange** to put every island back. Drag
+a wire from a drive's edge onto a project header (or the other way) to
+add the drive to it, choosing the folder; drop it on the project that
+already holds the drive to take it out.
 
 ### Drive library
 

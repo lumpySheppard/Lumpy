@@ -41,6 +41,7 @@
 
   <section class="toolbar" id="toolbar">
     <div class="toolbar-title" id="toolbar-title"></div>
+    <button class="icon-btn" id="refresh" title="Refresh"></button>
     <div class="seg" id="view-seg">
       <button data-view="grid" class="on">Grid</button>
       <button data-view="list">List</button>
@@ -71,13 +72,13 @@
     </div>
     <button class="btn" id="select-mode">Select</button>
     <button class="btn" id="export"><span class="i-export"></span>Export CSV…</button>
-    <button class="icon-btn" id="refresh" title="Refresh"></button>
   </section>
 
   <main id="main"></main>
 </div>
 
 <div class="popover" id="activity-pop" hidden>
+  <div class="pop-head"><b>Activity</b><span class="hint">offloads, checks and scans</span></div>
   <div class="jobs" id="activity-jobs"></div>
 </div>
 <div class="scrim" id="scrim" hidden></div>
