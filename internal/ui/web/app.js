@@ -3494,7 +3494,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab ==
 // big things in the Trash. The measurement lives on the server; the
 // page asks for the rings around the folder in view.
 const VD_LABEL = { safe: "safe to clear", check: "look first", critical: "critical", ok: "nothing against it" };
-const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "" };
+const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "", thumbs: localGet("space.thumbs", "0") === "1" };
 async function renderSpace() {
   // A fault in this page must never take the tabs with it.
   try { await renderSpace1(); } catch (e) { console.error(e); $("#main").innerHTML = `<div class="empty"><h2>Space hit a snag</h2><p>${esc(e.message)}</p><p><button class="btn" onclick="SP.at='';SP.data=null;spaceLoad()">Start again</button></p></div>`; }
@@ -3521,7 +3521,8 @@ async function renderSpace1() {
           <div class="seg sp-views" id="sp-views">${[["folders", "Folders"], ["dupes", "Duplicates"], ["old", "Not touched in a year"]].map(([v, l]) => `<button data-spv="${v}" class="${SP.view === v ? "on" : ""}">${l}</button>`).join("")}</div>
           ${SP.view === "dupes" ? spaceDupesHTML() : SP.view === "old" ? spaceOldHTML() : `
           <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
-          <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span></div>
+          <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span>
+            ${(d.node.children || []).some((c) => !c.dir && !c.rest && spPreviewable(c.name)) ? `<div class="seg sp-mode" id="sp-mode" title="Show the pictures and clips here as thumbnails"><button data-spm="list" class="${SP.thumbs ? "" : "on"}">List</button><button data-spm="thumbs" class="${SP.thumbs ? "on" : ""}">Thumbnails</button></div>` : ""}</div>
           ${!SP.at && place.size ? spaceCoverage(d, place) : ""}
           ${(d.suspects || []).length ? `<details class="sp-sus" ${SP.susOpen ? "open" : ""}><summary><b>Usual suspects</b><span class="hint">· ${bytes(d.suspects.reduce((t, x) => t + (x.risk === "keep" ? 0 : x.bytes), 0))} in caches, renders and leftovers that can go</span></summary>
             <div class="sp-list" style="margin-top:6px">${d.suspects.map((x) => `<div class="sp-row sus ${x.risk}" data-sp-row="${esc(x.rel)}" title="${esc(x.note)}">
@@ -3531,12 +3532,12 @@ async function renderSpace1() {
               <span class="sp-size">${bytes(x.bytes)}</span>
               <span class="sp-acts"><button class="icon-btn" data-sp-open="${esc(x.rel)}" title="Look inside">${ICON.right}</button>${native ? `<button class="icon-btn" data-sp-reveal="${esc(x.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("")}</div>
             <p class="hint" style="margin:6px 0 2px">Safe to clear means the app makes it again. Quit the app first. The Trash itself can only be emptied from the Finder.</p></details>` : ""}
-          <div class="sp-list">${(d.node.children || []).map((c, i) => { const rel = SP.at ? SP.at + "/" + c.name : c.name; const pct = d.node.bytes ? (c.bytes / d.node.bytes) * 100 : 0; return `<div class="sp-row ${c.rest ? "rest" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" style="--sc:${c.rest ? "var(--muted)" : spColor(i, 0)}">
+          ${SP.thumbs ? spaceTilesHTML(d) : `<div class="sp-list">${(d.node.children || []).map((c, i) => { const rel = SP.at ? SP.at + "/" + c.name : c.name; const pct = d.node.bytes ? (c.bytes / d.node.bytes) * 100 : 0; return `<div class="sp-row ${c.rest ? "rest" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" style="--sc:${c.rest ? "var(--muted)" : spColor(i, 0)}">
               ${c.rest ? '<span class="pickcell"></span>' : `<input type="checkbox" class="pick" data-sp-pick="${esc(rel)}" ${SP.sel.has(rel) ? "checked" : ""}>`}
               <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : esc(c.name)}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}${d.copies && d.copies[c.name] ? ` <span class="badge ok" title="A file of this name and size is on ${d.copies[c.name]} logged drive${d.copies[c.name] === 1 ? "" : "s"}; check one before letting this go">${ICON.check}on ${d.copies[c.name]} drive${d.copies[c.name] === 1 ? "" : "s"}</span>` : ""}${d.verdicts && d.verdicts[c.name] ? ` <span class="vd ${d.verdicts[c.name].level}" title="${esc(d.verdicts[c.name].why)}">${VD_LABEL[d.verdicts[c.name].level]}</span>` : ""}</span>
               <span class="sp-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
               <span class="sp-size">${bytes(c.bytes)}</span>
-              <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${!c.dir && !c.rest && spPreviewable(c.name) ? `<button class="icon-btn" data-sp-peek="${esc(rel)}" title="Preview">${ICON.eye}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>
+              <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${!c.dir && !c.rest && spPreviewable(c.name) ? `<button class="icon-btn" data-sp-peek="${esc(rel)}" title="Preview">${ICON.eye}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>`}
           <p class="hint" style="margin-top:10px">Sizes are what files take on disk. Each folder keeps its ${60} biggest items apart and rolls the rest into "smaller items". The Mac's own disk also holds system files, snapshots and purgeable space that no app can measure; what Finder says is used can be more than this.</p>`}
         </div></div>`}
   </div>`;
@@ -3550,6 +3551,13 @@ async function renderSpace1() {
   for (const b of document.querySelectorAll("[data-sp-open]")) b.onclick = () => { SP.at = b.dataset.spOpen; spaceLoad(); };
   for (const b of document.querySelectorAll("[data-sp-reveal]")) b.onclick = () => nativeCall("reveal", { path: SP.root.replace(/\/$/, "") + "/" + b.dataset.spReveal });
   for (const b of document.querySelectorAll("[data-sp-peek]")) b.onclick = () => spacePeek(b.dataset.spPeek, d);
+  for (const b of document.querySelectorAll("[data-spm]")) b.onclick = () => { SP.thumbs = b.dataset.spm === "thumbs"; localSet("space.thumbs", SP.thumbs ? "1" : "0"); renderSpace(); };
+  // A tile's picture opens the preview; a folder tile opens the folder.
+  for (const t of document.querySelectorAll(".sp-tile")) {
+    const rel = t.dataset.spRow, c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === rel);
+    const pic = t.querySelector(".sp-pic");
+    if (pic) pic.onclick = () => { if (c && c.dir) { SP.at = rel; spaceLoad(); } else if (c && spPreviewable(c.name)) spacePeek(rel, d); };
+  }
   for (const el of document.querySelectorAll("[data-sp-pick]")) el.onchange = () => { if (el.checked) SP.sel.add(el.dataset.spPick); else SP.sel.delete(el.dataset.spPick); renderSpace(); };
   for (const row of document.querySelectorAll("[data-sp-row]")) { row.onmouseenter = () => spHover(row.dataset.spRow); row.onmouseleave = () => spHover(null); row.ondblclick = () => { const c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === row.dataset.spRow); if (c && c.dir) { SP.at = row.dataset.spRow; spaceLoad(); } }; }
   if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
@@ -3575,6 +3583,22 @@ async function renderSpace1() {
   wireSunburst(d);
   if (!d && !SP.busy && place.done) spaceLoad();
   if (place.busy && !SP.busy) { SP.busy = true; renderSpace(); }
+}
+// spaceTilesHTML is the folder as a grid of thumbnails: each picture or
+// clip shows itself, so the ones to go can be ticked at a glance.
+function spaceTilesHTML(d) {
+  const kids = (d.node.children || []).filter((c) => !c.rest);
+  const rest = (d.node.children || []).find((c) => c.rest);
+  return `<div class="sp-tiles">${kids.map((c) => {
+    const rel = SP.at ? SP.at + "/" + c.name : c.name;
+    const pic = !c.dir && spPreviewable(c.name) ? `<img loading="lazy" src="/api/space/thumb?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(rel)}&w=320&t=${encodeURIComponent(token)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'), { className: 'sp-nopic', textContent: 'no preview' }))">` : `<span class="sp-glyph">${c.dir ? ICON.folder : ICON.file}</span>`;
+    const vd = d.verdicts && d.verdicts[c.name];
+    return `<div class="sp-tile ${SP.sel.has(rel) ? "picked" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" title="${esc(c.name)}">
+      <div class="sp-pic">${pic}</div>
+      <label class="sp-tile-foot"><input type="checkbox" class="pick" data-sp-pick="${esc(rel)}" ${SP.sel.has(rel) ? "checked" : ""}><span class="sp-tile-name">${esc(c.name)}</span><span class="sp-size">${bytes(c.bytes)}</span></label>
+      ${vd && vd.level !== "check" ? `<span class="vd ${vd.level}" title="${esc(vd.why)}">${VD_LABEL[vd.level]}</span>` : ""}
+      <span class="sp-acts">${c.dir ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${native ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`;
+  }).join("")}</div>${rest ? `<div class="hint" style="margin-top:8px">${rest.rest.toLocaleString()} smaller items · ${bytes(rest.bytes)}</div>` : ""}`;
 }
 function spPreviewable(name) { const k = SP_KIND[(name.split(".").pop() || "").toLowerCase()]; return k === "image" || k === "video"; }
 // spacePeek shows one file large, with the others in the same folder a

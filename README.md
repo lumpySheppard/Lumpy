@@ -646,7 +646,13 @@ Trash**, and before anything goes Lumpy looks at each item properly:
 where it sits, when it last changed, whether a running app has it
 open, whether it is a folder of a Lumpy project, and whether the
 library holds a copy; critical items come unticked. Then it goes
-through the Finder, so it can be put back, and the rings update.
+through the Finder, so it can be put back, and the rings update. A
+folder of pictures or clips (a DPX sequence, a folder of JPEGs) gets
+a **List / Thumbnails** switch above its list: as thumbnails, every
+file shows itself (DPX, JPEG, PNG, TIFF, raws and a frame of each
+clip), with its tick box, name and size under it, so what to keep
+and what to clear is a glance rather than a name. Click a thumbnail
+for the full preview, with ← → through the folder.
 
 Beside **Folders**, two more views of the same measurement.
 **Duplicates** finds the same file twice: every file of 1 MB or more

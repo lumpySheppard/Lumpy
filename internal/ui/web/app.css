@@ -179,6 +179,25 @@ details.notes pre { white-space: pre-wrap; font: 12px/1.5 inherit; color: var(--
 :root[data-style="classic"] .sp-sus { border-radius: 0; border-color: var(--ink); }
 .sp-row:hover .sp-acts, .sp-row.hot .sp-acts { opacity: 1; }
 .sp-acts .icon-btn { width: 26px; height: 24px; }
+/* Space as thumbnails: a tile per item, the picture up top. */
+.sp-head .sp-mode { margin-left: auto; align-self: center; }
+.sp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.sp-tile { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+.sp-tile:hover, .sp-tile.hot { border-color: var(--line-2); background: var(--bg-2); }
+.sp-tile.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.sp-pic { aspect-ratio: 16 / 10; background: #000; display: grid; place-items: center; cursor: pointer; overflow: hidden; }
+.sp-pic img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.sp-pic .sp-glyph { width: 100%; height: 100%; display: grid; place-items: center; background: var(--bg-2); color: var(--muted); }
+.sp-pic .sp-glyph svg { width: 30px; height: 30px; }
+.sp-nopic { font-size: 11px; color: var(--muted); }
+.sp-tile-foot { display: grid; grid-template-columns: 18px 1fr auto; gap: 6px; align-items: center; padding: 6px 8px; font-size: 11.5px; cursor: pointer; }
+.sp-tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.sp-tile .vd { position: absolute; left: 6px; top: 6px; }
+.sp-tile .sp-acts { position: absolute; right: 4px; top: 4px; width: auto; background: rgba(0,0,0,.55); border-radius: 7px; padding: 1px; }
+.sp-tile .sp-acts .icon-btn { color: #fff; }
+.sp-tile:hover .sp-acts { opacity: 1; }
+:root[data-style="classic"] .sp-tile { border: 1px solid var(--ink); border-radius: 4px; background: var(--paper); box-shadow: 2px 2px 0 var(--ink); }
+:root[data-style="classic"] .sp-tile.picked { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sp-acts .icon-btn svg { width: 13px; height: 13px; }
 :root[data-style="classic"] .sp-seg { stroke: var(--ink); stroke-width: 1; }
 :root[data-style="classic"] .sp-seg.rest { fill: color-mix(in srgb, var(--ink) 22%, var(--paper)); }
