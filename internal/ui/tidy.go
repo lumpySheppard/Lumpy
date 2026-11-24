@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/lumpysheppard/lumpy/internal/catalog"
 	"github.com/lumpysheppard/lumpy/internal/job"
 	"github.com/lumpysheppard/lumpy/internal/media"
+	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
 // Tidy up: a project whose files are loose on a drive (a quick edit,
@@ -77,6 +79,35 @@ var catWords = map[tidyCategory][]string{
 	catDocs:      {"paperwork", "doc", "admin", "production", "notes", "release"},
 }
 
+// cameraNames are the ways cameras name their clips: reel and clip
+// (A001_C001, A001C001, Z002C056_26091608_CANON, BMD's
+// A001_08151230_C001), Sony's C0001, DJI_0001, GoPro's GH010001,
+// Panasonic's P1000123, and the stills cameras' and phones' MVI_, IMG_,
+// DSC_, PXL_, VID_. A video named like none of these was exported by
+// someone, and goes with the outputs.
+var cameraNames = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^[A-Z]\d{3}_?C\d{3}`),
+	regexp.MustCompile(`(?i)^[A-Z]\d{3}_\d{6,8}_C\d{3}`),
+	regexp.MustCompile(`(?i)^[A-Z]\d{3}[A-Z]\d{3}_\d{6,8}`),
+	regexp.MustCompile(`(?i)^C\d{4}(\b|_)`),
+	regexp.MustCompile(`(?i)^(DJI|MVI|IMG|DSC|DSCF|PXL|VID|GOPR|GP|GH|GX|GS)_?\d{4,}`),
+	regexp.MustCompile(`(?i)^P\d{7}\b`),
+	regexp.MustCompile(`(?i)_CANON\.[a-z0-9]+$`),
+}
+
+// tidyProxy is a proxy by its own name: _proxy, -PRX, _offline, _lores.
+var tidyProxy = regexp.MustCompile(`(?i)[\s_\-.]+(proxy|prx|offline|lo-?res)$`)
+
+// cameraName says whether a file is named the way a camera names clips.
+func cameraName(name string) bool {
+	for _, re := range cameraNames {
+		if re.MatchString(name) {
+			return true
+		}
+	}
+	return false
+}
+
 var rawVideo = map[string]bool{".braw": true, ".r3d": true, ".ari": true, ".arx": true, ".crm": true, ".mxf": true, ".cine": true, ".dng": true}
 var projectExt = map[string]bool{".fcpxml": true, ".fcpbundle": true, ".aep": true, ".xml": true, ".edl": true, ".ale": true, ".otio": true, ".motn": true, ".drb": true, ".drt": true, ".dra": true}
 var graphicExt = map[string]bool{".psd": true, ".psb": true, ".ai": true, ".afdesign": true, ".afphoto": true, ".sketch": true, ".fig": true, ".svg": true, ".mogrt": true, ".c4d": true, ".blend": true}
@@ -132,13 +163,23 @@ func classify(rel string) tidyCategory {
 			}
 			return catDraft
 		}
-		if rawVideo[ext] {
-			return catCamera
-		}
-		if catalog.Proxyish(rel) {
+		// A camera original is a RAW or MXF file, a file named the way a
+		// camera names clips, or anything inside a card's own folders.
+		// A video with none of those traits was exported, and goes with
+		// the drafts; one that is plainly a proxy goes offline.
+		stem := strings.TrimSuffix(name, ext)
+		if inDir("proxy", "proxies", "offline", "transcode") || tidyProxy.MatchString(stem) {
 			return catProxy
 		}
-		return catCamera
+		if rawVideo[ext] || cameraName(name) {
+			return catCamera
+		}
+		for _, d := range dirs {
+			if volume.IsCameraDir(d) {
+				return catCamera
+			}
+		}
+		return catDraft
 	case media.Audio:
 		if inDir("music", "score") || strings.Contains(lname, "music") {
 			return catMusic
@@ -276,7 +317,43 @@ func (s *Server) tidyFiles(src catalog.Source) ([]tidyFile, error) {
 		}
 		out = append(out, tidyFile{rel: rel, size: f.Size, top: top, cat: classify(rel)})
 	}
+	proxiesByStem(out)
 	return out, nil
+}
+
+// proxiesByStem finds the proxies that share an original's name in a
+// smaller codec: among camera originals with the same stem the RAW or
+// MXF one is the original and the rest are proxies, and a draft whose
+// stem matches an original is a proxy of it.
+func proxiesByStem(files []tidyFile) {
+	stem := func(rel string) string {
+		return catalog.StripProxy(catalog.ClipStem(path.Base(rel)))
+	}
+	raw := map[string]bool{}    // stems with a RAW/MXF original
+	camera := map[string]bool{} // stems of every camera original
+	for _, f := range files {
+		if f.cat != catCamera {
+			continue
+		}
+		s := stem(f.rel)
+		camera[s] = true
+		if rawVideo[strings.ToLower(path.Ext(f.rel))] {
+			raw[s] = true
+		}
+	}
+	for i := range files {
+		f := &files[i]
+		switch f.cat {
+		case catCamera:
+			if raw[stem(f.rel)] && !rawVideo[strings.ToLower(path.Ext(f.rel))] {
+				f.cat = catProxy
+			}
+		case catDraft:
+			if camera[stem(f.rel)] {
+				f.cat = catProxy
+			}
+		}
+	}
 }
 
 func (s *Server) tidyPlanFor(p *catalog.Project, template string) (*tidyPlan, error) {

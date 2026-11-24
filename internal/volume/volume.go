@@ -41,6 +41,16 @@ type Volume struct {
 // cameraDirs are the folders a camera puts at the root of a card.
 var cameraDirs = []string{"DCIM", "PRIVATE", "CLIPS", "XDROOT", "BPAV", "M4ROOT", "AVCHD", "CONTENTS"}
 
+// IsCameraDir says whether a folder name is one a camera writes.
+func IsCameraDir(name string) bool {
+	for _, d := range cameraDirs {
+		if strings.EqualFold(name, d) {
+			return true
+		}
+	}
+	return false
+}
+
 // LooksLikeCard says whether a mounted volume has a camera's layout.
 func LooksLikeCard(mount string) bool {
 	for _, d := range cameraDirs {

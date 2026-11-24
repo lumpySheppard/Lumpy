@@ -513,9 +513,17 @@ A project that didn't follow the house structure (a quick edit, a
 drive someone else laid out, a short from before the template) gets
 sorted into it from the project page: **Tidy up…**, choose the
 template, **Look**. Lumpy classifies every file under the project's
-folders on the plugged-in drives (camera originals, proxies, audio,
-music, outputs and masters, graphics, stills, edit project files,
-documents) and shows the plan as groups: each top-level folder's files
+folders on the plugged-in drives and shows the plan as groups. A
+video is a **camera original** (Online) when it is RAW or MXF, named
+the way a camera names clips (A001_C001, Z002C056_26091608_CANON,
+C0012, DJI_0042, IMG_4821…) or inside a card's own folders; a video
+with none of those traits was exported by someone and goes to
+**Drafts**, or to **Final** with `master` in its name. A video with an
+original's name in a smaller codec (the same stem, with or without a
+`_proxy` tag, or anything in a Proxies or Offline folder) is a proxy
+and goes **Offline**. Audio, music, graphics sources and exports,
+stills, Resolve and Premiere projects, scripts and paperwork each have
+their folder. The groups are each top-level folder's files
 of each kind, with the template folder they would go to, which you can
 change or set to leave alone; files already under the right folder are
 counted and left. **Move** renames every file on its own drive (so it

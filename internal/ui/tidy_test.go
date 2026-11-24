@@ -20,6 +20,16 @@ func TestClassify(t *testing.T) {
 	}{
 		{"Day1/A001/CLIPS/A001_C001.braw", catCamera},
 		{"loose/B002_C004.mov", catCamera},
+		{"CRM/Z002C056_26091608_CANON.CRM", catCamera},
+		{"CONTENTS/Z002C077_2609168Q_CANON.MXF", catCamera},
+		{"cards/C0012.MP4", catCamera},
+		{"phone/IMG_4821.MOV", catCamera},
+		{"DJI_0042.MP4", catCamera},
+		{"PRIVATE/M4ROOT/CLIP/anything.MP4", catCamera},
+		{"ARI_FINAL_OCT20.mp4", catDraft},
+		{"DDD_2_CLEAN.mov", catDraft},
+		{"reels/dive_reel_1.mp4", catDraft},
+		{"Col_Pass_1_proxy.mp4", catProxy},
 		{"Proxies/A001_C001_proxy.mp4", catProxy},
 		{"Offline/A001_C001.mp4", catProxy},
 		{"Exports/final/Film_master_16x9.mov", catMaster},
@@ -43,6 +53,27 @@ func TestClassify(t *testing.T) {
 	} {
 		if got := classify(c.rel); got != c.want {
 			t.Errorf("classify(%q) = %s, want %s", c.rel, got, c.want)
+		}
+	}
+}
+
+// A proxy is known by its original's name: the same stem in a smaller
+// codec, whether the stem reads like a camera's or not.
+func TestProxiesByStem(t *testing.T) {
+	files := []tidyFile{
+		{rel: "CRM/Z002C056_26091608_CANON.CRM", cat: catCamera},
+		{rel: "offl/Z002C056_26091608_CANON.mp4", cat: catCamera},
+		{rel: "cards/C0012.MP4", cat: catCamera},
+		{rel: "ARI_FINAL_OCT20.mp4", cat: catDraft},
+		{rel: "Day1/A001_C001.braw", cat: catCamera},
+		{rel: "A001_C001.mov", cat: catCamera},
+		{rel: "cut_v2.mov", cat: catDraft},
+	}
+	proxiesByStem(files)
+	want := []tidyCategory{catCamera, catProxy, catCamera, catDraft, catCamera, catProxy, catDraft}
+	for i, f := range files {
+		if f.cat != want[i] {
+			t.Errorf("%s: %s, want %s", f.rel, f.cat, want[i])
 		}
 	}
 }
