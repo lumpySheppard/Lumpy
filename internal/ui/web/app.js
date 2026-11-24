@@ -91,6 +91,7 @@ const ICON = {
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   dash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="8" stroke-dasharray="3 3"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>',
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
@@ -166,9 +167,11 @@ async function loadState() {
     if (!first && (S.tab === "offload" || S.tab === "media" || S.tab === "space")) { renderCounts(); if (S.tab === "space") spaceTick(); }
     else if (!first && S.tab === "projects") {
       renderCounts();
-      // The page is left alone while its master print plays.
+      // The page is left alone while its master print is in use:
+      // playing, parked on a frame, or with its stills open.
       const v = document.querySelector("#main #player video");
-      if (S.project) { if (!v || v.paused) loadProject(S.project, true); } else loadProjects();
+      const inUse = v && (!v.paused || v.currentTime > 0 || !document.querySelector("#main #pl-stills").hidden);
+      if (S.project) { if (!inUse) loadProject(S.project, true); } else loadProjects();
     }
     else if (!first && S.tab === "map") { renderCounts(); loadProjects(); }
     else render();
@@ -1311,7 +1314,7 @@ function masterSection(data) {
       ${m.matte ? `<div class="seg" id="master-seg"><button data-matte="0" class="${matte ? "" : "on"}">Master</button><button data-matte="1" class="${matte ? "on" : ""}">Open matte</button></div>` : ""}
       <span class="hint">${esc(cur.name)} · ${esc(m.drive)}${md.width ? ` · ${md.width}×${md.height}` : ""}${md.durationMs ? ` · ${esc(dur(md.durationMs))}` : ""}${m.final ? "" : ' · <span class="warn">not in OUTPUT</span>'}</span>
       <div class="right">${native && m.connected ? `<button class="btn small" id="master-reveal">${ICON.reveal}Show in Finder</button>` : ""}<button class="btn small" id="master-open">${ICON.film}Details</button></div></div>
-    ${m.connected ? `<div class="preview">${playerHTML(stream, md, m.connected && driveOf(cur.driveId) ? driveOf(cur.driveId).mount + "/" + cur.path : "")}</div>` : `<div class="preview"><div class="no-preview">${ICON.film}<span>Plug in ${esc(m.drive)} to play it</span></div></div>`}</section>`;
+    ${m.connected ? `<div class="preview">${playerHTML(stream, md, m.connected && driveOf(cur.driveId) ? driveOf(cur.driveId).mount + "/" + cur.path : "", { driveId: cur.driveId, path: cur.path })}</div>` : `<div class="preview"><div class="no-preview">${ICON.film}<span>Plug in ${esc(m.drive)} to play it</span></div></div>`}</section>`;
 }
 function wireMaster(data) {
   const ms = data.masters || [];
@@ -2370,8 +2373,8 @@ async function openFile(driveId, path, back) {
   const px = data.proxy, pxStream = px ? `/api/drives/${encodeURIComponent(px.driveId)}/stream?path=${encodeURIComponent(px.path)}&t=${encodeURIComponent(token)}` : "";
   const rawNote = /\.(crm|braw|r3d|ari|arx|cine)$/i.test(name) ? `${name.split(".").pop().toUpperCase()} has no player without the camera maker's SDK` : "No preview for this file type";
   const preview = data.playable
-    ? (kind === "video" ? playerHTML(stream, m, dr.connected && driveOf(driveId) ? driveOf(driveId).mount + "/" + path : "") : kind === "audio" ? `<div class="audio-box">${ICON.clapper}<audio controls preload="metadata" src="${stream}"></audio></div>` : `<img src="${stream}" alt="">`)
-    : px ? playerHTML(pxStream, m, driveOf(px.driveId) ? driveOf(px.driveId).mount + "/" + px.path : "") + `<div class="proxy-note">${ICON.info}Playing the proxy <b>${esc(px.path.split("/").pop())}</b> on ${esc(px.drive)} · ${esc(rawNote)}</div>`
+    ? (kind === "video" ? playerHTML(stream, m, dr.connected && driveOf(driveId) ? driveOf(driveId).mount + "/" + path : "", { driveId, path }) : kind === "audio" ? `<div class="audio-box">${ICON.clapper}<audio controls preload="metadata" src="${stream}"></audio></div>` : `<img src="${stream}" alt="">`)
+    : px ? playerHTML(pxStream, m, driveOf(px.driveId) ? driveOf(px.driveId).mount + "/" + px.path : "", { driveId, path }) + `<div class="proxy-note">${ICON.info}Playing the proxy <b>${esc(px.path.split("/").pop())}</b> on ${esc(px.drive)} · ${esc(rawNote)}</div>`
     : `<div class="no-preview">${ICON.film}<span>${dr.connected ? rawNote : `Plug in ${esc(dr.title)} to preview`}</span></div>`;
   const kv = [];
   if (m) {
@@ -2428,9 +2431,9 @@ async function openFile(driveId, path, back) {
 // under it, the way an edit suite's viewer works. J K L shuttle, space
 // plays, , and . step a frame (⇧ ten), ← → go to the previous and
 // next clip in the list, - and = change speed, F fills the screen.
-function playerHTML(stream, m, file) {
+function playerHTML(stream, m, file, clip) {
   const rate = (m && m.frameRate) || 0;
-  return `<div class="player" id="player" tabindex="0" data-file="${esc(file || "")}">
+  return `<div class="player" id="player" tabindex="0" data-local="${esc(file || "")}" data-clip-drive="${esc(clip ? clip.driveId : "")}" data-clip-path="${esc(clip ? clip.path : "")}">
     <video preload="auto" playsinline src="${stream}"></video>
     <div class="transport">
       <button class="icon-btn" data-pl="prev" title="Previous clip (←)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
@@ -2443,9 +2446,10 @@ function playerHTML(stream, m, file) {
       <span class="tc dur" id="pl-dur">${m && m.durationMs ? esc(dur(m.durationMs)) : "—"}</span>
       <span class="speed" id="pl-speed" title="Speed (- and =)">1×</span>
       <button class="icon-btn" data-pl="mute" title="Mute (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6"/></svg></button>
+      ${clip ? `<button class="icon-btn" data-pl="grab" title="Grab a still of this frame, full size">${ICON.camera}</button><button class="btn small stills-btn" data-pl="stills" title="Stills grabbed from this clip" hidden>Stills <b>0</b></button>` : ""}
       ${native && file ? `<button class="icon-btn" data-pl="qt" title="Open in QuickTime Player">${ICON.clapper}</button>` : ""}
       <button class="icon-btn" data-pl="full" title="Fill the screen (F)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-    </div></div>`;
+    </div><div class="stills" id="pl-stills" hidden></div></div>`;
 }
 function wirePlayer(m) {
   const box = $("#player"), v = box && box.querySelector("video");
@@ -2489,7 +2493,8 @@ function wirePlayer(m) {
   box.querySelector("[data-pl=prev]").onclick = () => nav(-1);
   box.querySelector("[data-pl=next]").onclick = () => nav(1);
   box.querySelector("[data-pl=mute]").onclick = () => { v.muted = !v.muted; };
-  const qt = box.querySelector("[data-pl=qt]"); if (qt) qt.onclick = () => { pause(); nativeCall("quicktime", { path: box.dataset.file }); };
+  const qt = box.querySelector("[data-pl=qt]"); if (qt) qt.onclick = () => { pause(); nativeCall("quicktime", { path: box.dataset.local }); };
+  wireStills(box, v, () => { pause(); return { tc: tcString(startFrames + Math.round(v.currentTime * rate), rate), frame: Math.round(v.currentTime * rate) }; });
   box.querySelector("[data-pl=full]").onclick = () => { if (v.requestFullscreen) v.requestFullscreen(); else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen(); };
   v.onclick = () => (v.paused && !rev ? play() : pause());
   v.ondblclick = () => box.querySelector("[data-pl=full]").click();
@@ -2514,6 +2519,56 @@ function wirePlayer(m) {
   };
   document.addEventListener("keydown", keys);
   show();
+}
+
+// wireStills is the camera in the transport: grab the frame on screen
+// at the clip's own size as a PNG, send it to Lumpy to file, and keep
+// the clip's grabs in a drop-down with Show in Finder on each.
+function wireStills(box, v, atFrame) {
+  const grab = box.querySelector("[data-pl=grab]"), btn = box.querySelector("[data-pl=stills]"), list = box.querySelector("#pl-stills");
+  if (!grab || !btn) return;
+  const driveId = box.dataset.clipDrive, path = box.dataset.clipPath;
+  const q = `path=${encodeURIComponent(path)}`;
+  let stills = [];
+  const draw = () => {
+    btn.hidden = !stills.length;
+    btn.querySelector("b").textContent = stills.length;
+    if (!stills.length) { list.hidden = true; list.innerHTML = ""; return; }
+    list.innerHTML = `<div class="stills-head"><b>Stills from this clip</b><span class="hint">${esc(stills[0].file.split("/").slice(0, -1).join("/"))}</span>${native ? `<button class="btn small" data-still-dir="${esc(stills[0].file)}">${ICON.reveal}Show folder</button>` : ""}</div>` +
+      stills.map((st) => `<div class="still-row" data-still="${st.id}"><img src="/api/stills/${st.id}/file?t=${encodeURIComponent(token)}" alt="" loading="lazy"><div class="still-meta"><b>${esc(st.file.split("/").pop())}</b><small>${esc(st.tc || "frame " + st.frame)} · ${st.width}×${st.height}</small></div>${native ? `<button class="icon-btn" data-still-reveal="${esc(st.file)}" title="Show in Finder">${ICON.reveal}</button>` : ""}<button class="icon-btn" data-still-drop="${st.id}" title="Delete this still">${ICON.trash}</button></div>`).join("");
+    for (const b of list.querySelectorAll("[data-still-reveal]")) b.onclick = (e) => { e.stopPropagation(); nativeCall("reveal", { path: b.dataset.stillReveal }); };
+    for (const b of list.querySelectorAll("[data-still-dir]")) b.onclick = (e) => { e.stopPropagation(); nativeCall("reveal", { path: b.dataset.stillDir }); };
+    for (const b of list.querySelectorAll("[data-still-drop]")) b.onclick = async (e) => {
+      e.stopPropagation();
+      try { await api(`/api/stills/${b.dataset.stillDrop}`, { method: "DELETE" }); stills = stills.filter((x) => String(x.id) !== b.dataset.stillDrop); draw(); }
+      catch (err) { toast(err.message, true); }
+    };
+    for (const row of list.querySelectorAll(".still-row")) row.ondblclick = () => { const b = row.querySelector("[data-still-reveal]"); if (b) b.click(); };
+  };
+  const load = async () => { try { stills = await api(`/api/drives/${encodeURIComponent(driveId)}/stills?${q}`); } catch { stills = []; } draw(); };
+  btn.onclick = () => { list.hidden = !list.hidden; };
+  grab.onclick = async () => {
+    // A clip that has only just opened may not have decoded a frame yet.
+    if (!v.videoWidth) await new Promise((ok) => { const t = setTimeout(ok, 3000); v.addEventListener("loadeddata", () => { clearTimeout(t); ok(); }, { once: true }); });
+    if (!v.videoWidth) { toast("No frame to grab yet", true); return; }
+    const at = atFrame();
+    grab.disabled = true;
+    try {
+      const c = document.createElement("canvas");
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+      const blob = await new Promise((ok, no) => c.toBlob((b) => (b ? ok(b) : no(new Error("could not read the frame"))), "image/png"));
+      const res = await fetch(`/api/drives/${encodeURIComponent(driveId)}/still?${q}&tc=${encodeURIComponent(at.tc)}&frame=${at.frame}`, { method: "POST", headers: { "X-Lumpy-Token": token, "Content-Type": "image/png" }, body: blob });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((data && data.error) || res.statusText);
+      stills.unshift(data);
+      draw();
+      list.hidden = false;
+      toast(`Still saved: ${data.file.split("/").pop()} (${data.width}×${data.height})`);
+    } catch (e) { toast("Still not saved: " + e.message, true); }
+    grab.disabled = false;
+  };
+  load();
 }
 // fileNav opens the previous or next clip in the order the Clips list shows.
 function fileNav(dir) {

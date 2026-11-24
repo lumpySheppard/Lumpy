@@ -124,6 +124,18 @@ CREATE TABLE IF NOT EXISTS project_sources (
 	folder     TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (project_id, drive_id, folder)
 );
+CREATE TABLE IF NOT EXISTS stills (
+	id       INTEGER PRIMARY KEY,
+	drive_id TEXT NOT NULL,
+	path     TEXT NOT NULL,
+	file     TEXT NOT NULL,
+	tc       TEXT NOT NULL DEFAULT '',
+	frame    INTEGER NOT NULL DEFAULT 0,
+	width    INTEGER NOT NULL DEFAULT 0,
+	height   INTEGER NOT NULL DEFAULT 0,
+	at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS stills_by_clip ON stills (drive_id, path);
 CREATE TABLE IF NOT EXISTS project_dests (
 	project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 	drive_id   TEXT NOT NULL REFERENCES drives(id) ON DELETE CASCADE,

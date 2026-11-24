@@ -458,7 +458,16 @@ whether or not the current one plays. While a clip plays, the window
 draws nothing blurred behind it, so every frame goes to the screen
 (a frozen picture under a running timecode was the window's blur
 being redrawn for every frame). The clapper button in the transport
-opens the same file in QuickTime Player. Playback itself is macOS's
+opens the same file in QuickTime Player. The camera button pauses and
+grabs the frame on screen at the clip's own size as a PNG, named after
+the clip and the timecode (`A001_C002_01.00.01.23.png`), into the
+project's `09_OUTPUT/Stills` when it has one on a plugged-in drive,
+otherwise into `~/Pictures/Lumpy Stills/<project or drive>`; it never
+overwrites an earlier grab. **Stills** in the transport drops down the
+grabs from that clip, each with Show in Finder and a bin, and a button
+for the folder. A grab from a RAW clip's proxy is the proxy's size; a
+10-bit or HDR clip is grabbed as the 8-bit picture on screen.
+Playback itself is macOS's
 (whatever QuickTime Player plays, Lumpy plays); RED, BRAW, ARRIRAW and
 Canon RAW have no player or frame, because decoding them needs each
 maker's own SDK, which is not something Lumpy can ship.
