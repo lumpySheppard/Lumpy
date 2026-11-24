@@ -1031,23 +1031,26 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .section-head { padding: 5px 10px; margin: 0 0 14px; }
 :root[data-style="classic"] .media-bar { padding: 8px 10px; margin-bottom: 12px; }
 :root[data-style="classic"] .empty { padding: 20px 24px 24px; color: var(--text); }
-:root[data-style="classic"] .sheet { padding-top: 13px; overflow: visible; }
+:root[data-style="classic"] .sheet { padding-top: 0; overflow: visible; }
+/* The title bar: a 20px band of six lines, a rule beneath it, the close
+   box at the left and the window's name on a paper tab in the middle,
+   as System 7 drew them. */
+:root[data-style="classic"] .sheet, :root[data-style="classic"] .popover { border-top: 20px solid var(--paper); }
 :root[data-style="classic"] .sheet::before, :root[data-style="classic"] .popover::before {
-  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 13px; background: var(--stripes); border-bottom: 1px solid var(--ink); pointer-events: none;
+  content: ""; position: absolute; left: 1px; right: 1px; top: -17px; height: 11px; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, var(--ink) 0 1px, transparent 1px 2px);
 }
-:root[data-style="classic"] .sheet::before, :root[data-style="classic"] .popover::before { left: 24px; right: 6px; top: 2px; height: 9px; border-bottom: 0; }
-:root[data-style="classic"] .sheet, :root[data-style="classic"] .popover { border-top: 13px solid var(--paper); }
-:root[data-style="classic"] .sheet { padding-top: 0; }
-:root[data-style="classic"] .sheet-head, :root[data-style="classic"] .pop-head { border-top: 1px solid var(--ink); }
-/* The close box: a real button at the left of the title bar. */
-.win-close { display: none; }
-:root[data-style="classic"] .win-close { display: block; position: absolute; left: 7px; top: -12px; width: 11px; height: 11px; padding: 0; background: var(--paper); border: 1px solid var(--ink); border-radius: 0; box-shadow: 0 0 0 1px var(--paper); cursor: pointer; z-index: 2; }
+:root[data-style="classic"] .sheet::after, :root[data-style="classic"] .popover::after { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 1px; background: var(--ink); pointer-events: none; }
+.win-close, .win-title { display: none; }
+:root[data-style="classic"] .win-close { display: block; position: absolute; left: 8px; top: -18px; width: 11px; height: 11px; padding: 0; background: var(--paper); border: 1px solid var(--ink); border-radius: 0; box-shadow: 0 0 0 2px var(--paper); cursor: pointer; z-index: 2; }
 :root[data-style="classic"] .win-close:hover { background: var(--ink); }
 :root[data-style="classic"] .win-close:active { background: var(--ink); }
+:root[data-style="classic"] .win-title { display: block; position: absolute; left: 50%; top: -19px; transform: translateX(-50%); height: 17px; line-height: 17px; padding: 0 8px; max-width: 60%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--paper); color: var(--ink); font: 12px/17px var(--chicago); z-index: 1; pointer-events: none; }
 :root[data-style="classic"] .sheet-head { background: transparent; border-bottom: 1px solid var(--ink); padding: 12px 16px 10px; }
 :root[data-style="classic"] .sheet-body { background: transparent; }
 :root[data-style="classic"] .sheet-foot { border-top: 1px solid var(--ink); }
-:root[data-style="classic"] .popover { position: fixed; top: 40px; padding-top: 6px; }
+:root[data-style="classic"] .popover { position: fixed; top: 40px; padding-top: 6px; overflow: visible; max-height: none; }
+:root[data-style="classic"] .popover .jobs { max-height: 62vh; overflow: auto; }
 :root[data-style="classic"] .popover .job { border: 0; box-shadow: none; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 :root[data-style="classic"] .popover .job + .job { border-top: 1px solid var(--ink); }
 :root[data-style="classic"] .box { background: var(--paper-t3); border: 1px solid var(--ink); border-radius: 4px; }

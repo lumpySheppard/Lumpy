@@ -739,6 +739,8 @@ function openSheet(html, small) {
   sh.className = "sheet" + (small ? " small" : "");
   // Classic windows carry a close box at the left of the title bar.
   sh.innerHTML = `<button class="win-close" title="Close" aria-label="Close"></button>` + html;
+  const h = sh.querySelector("h2, .sheet-head b");
+  if (h) sh.insertAdjacentHTML("afterbegin", `<span class="win-title">${esc(h.textContent.trim())}</span>`);
   sh.querySelector(".win-close").onclick = () => { if (S.file) closeFile(); else { sh.hidden = true; $("#scrim").hidden = true; } };
   sh.hidden = false;
   $("#scrim").hidden = false;
