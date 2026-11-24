@@ -957,7 +957,7 @@ async function loadTree(id, dir, container, depth, filter) {
   try { entries = await api(`/api/drives/${encodeURIComponent(id)}/list?dir=${encodeURIComponent(dir)}&filter=${encodeURIComponent(filter || "")}`); }
   catch (e) { container.innerHTML = `<div class="tree-note">${esc(e.message)}</div>`; return; }
   if (!entries.length) { container.innerHTML = `<div class="tree-note">${filter ? "No files match." : "Empty."}</div>`; return; }
-  container.innerHTML = entries.map((e) => { const [dot, bk] = entryDot(e); return `<div class="tree-row ${e.folder ? "folder" : ""}" data-path="${esc(e.path)}" style="padding-left:${10 + depth * 18}px">
+  container.innerHTML = entries.map((e) => { const [dot, bk] = entryDot(e); return `<div class="tree-row ${e.folder ? "folder" : ""}" data-path="${esc(e.path)}" tabindex="0" style="padding-left:${10 + depth * 18}px">
       <div class="nm">${e.folder ? ICON.chev : '<span style="width:12px"></span>'}${dot}${e.folder ? ICON.folder : ICON.file}<span title="${esc(e.path)}">${esc(e.name)}</span></div>
       ${bk}<span class="sz">${bytes(e.bytes)}${e.folder ? ` · ${e.files.toLocaleString()}` : ""}</span><span class="st">${e.folder ? `<button class="icon-btn mini" data-addsrc="${esc(e.path)}" title="Add this folder to a project">${ICON.plus}</button>` : statusIcon(e)}</span></div>
       ${e.folder ? `<div class="kids" hidden></div>` : ""}`; }).join("") + (entries.length >= 2000 ? `<div class="tree-note">Showing the first 2,000.</div>` : "");
@@ -966,6 +966,15 @@ async function loadTree(id, dir, container, depth, filter) {
     addToProjectDialog([{ driveId: id, folder: b.dataset.addsrc }], () => openDetail(id, false));
   };
   for (const row of container.querySelectorAll(":scope > .tree-row:not(.folder)")) row.onclick = () => openFile(id, row.dataset.path, id);
+  // Space on a file is quick look, as in the Finder; ↑ ↓ walk the rows.
+  for (const row of container.querySelectorAll(":scope > .tree-row")) row.onkeydown = (e) => {
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (row.classList.contains("folder")) row.click(); else openFile(id, row.dataset.path, id); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const rows = [...document.querySelectorAll("#sheet .tree-row")].filter((r) => r.offsetParent !== null), i = rows.indexOf(row), next = rows[i + (e.key === "ArrowDown" ? 1 : -1)];
+      if (next) next.focus();
+    }
+  };
   for (const row of container.querySelectorAll(":scope > .tree-row.folder")) {
     row.onclick = () => {
       const kids = row.nextElementSibling;
@@ -1074,6 +1083,7 @@ function renderProjectPage() {
       <div class="right"><button class="btn" id="proj-media" title="Every clip in this project with its codec, frame rate, timecode and log notes">${ICON.clapper}Clips</button><button class="btn" id="proj-media-csv" title="Clip list with metadata, for post">${ICON.export}Clips CSV…</button><button class="btn danger" id="proj-delete">Delete project</button></div>
     </div>
 
+    ${masterSection(data)}
     <div class="pgrid">
     <div>
       <section class="panel">
@@ -1167,7 +1177,35 @@ function renderProjectPage() {
   wireProjectPage(p);
 }
 
+// masterSection is the project's master print: the player, Show in
+// Finder, and a switch to the open-matte version when there is one.
+function masterSection(data) {
+  const ms = data.masters || [];
+  if (!ms.length) return `<section class="panel master"><h2>Master print</h2><p class="hint">None yet. A video with <b>master</b> in its name anywhere in the project (OUTPUT › final is where Lumpy looks first), or a clip tagged <b>master</b>, shows up here with a player.</p></section>`;
+  const i = Math.min(S.masterIdx || 0, ms.length - 1), m = ms[i], matte = !!(m.matte && S.masterMatte);
+  const cur = matte ? { driveId: m.matte.driveId, path: m.matte.path, name: m.matte.name } : { driveId: m.driveId, path: m.path, name: m.name };
+  const stream = `/api/drives/${encodeURIComponent(cur.driveId)}/stream?path=${encodeURIComponent(cur.path)}&t=${encodeURIComponent(token)}`;
+  const md = m.media || {};
+  return `<section class="panel master"><div class="master-head"><h2>Master print${ms.length > 1 ? ` <span class="hint">· ${ms.length}</span>` : ""}</h2>
+      ${ms.length > 1 ? `<label class="select"><select class="plain" id="master-pick">${ms.map((x, j) => `<option value="${j}" ${j === i ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>` : ""}
+      ${m.matte ? `<div class="seg" id="master-seg"><button data-matte="0" class="${matte ? "" : "on"}">Master</button><button data-matte="1" class="${matte ? "on" : ""}">Open matte</button></div>` : ""}
+      <span class="hint">${esc(cur.name)} · ${esc(m.drive)}${md.width ? ` · ${md.width}×${md.height}` : ""}${md.durationMs ? ` · ${esc(dur(md.durationMs))}` : ""}${m.final ? "" : ' · <span class="warn">not in OUTPUT</span>'}</span>
+      <div class="right">${native && m.connected ? `<button class="btn small" id="master-reveal">${ICON.reveal}Show in Finder</button>` : ""}<button class="btn small" id="master-open">${ICON.film}Details</button></div></div>
+    ${m.connected ? `<div class="preview">${playerHTML(stream, md)}</div>` : `<div class="preview"><div class="no-preview">${ICON.film}<span>Plug in ${esc(m.drive)} to play it</span></div></div>`}</section>`;
+}
+function wireMaster(data) {
+  const ms = data.masters || [];
+  if (!ms.length) return;
+  const i = Math.min(S.masterIdx || 0, ms.length - 1), m = ms[i], matte = !!(m.matte && S.masterMatte);
+  const cur = matte ? m.matte : m;
+  if ($("#player")) wirePlayer(m.media);
+  const pick = $("#master-pick"); if (pick) pick.onchange = () => { S.masterIdx = +pick.value; S.masterMatte = false; render(); };
+  for (const b of document.querySelectorAll("#master-seg button")) b.onclick = () => { S.masterMatte = b.dataset.matte === "1"; render(); };
+  const rv = $("#master-reveal"); if (rv) rv.onclick = () => { const d = driveOf(cur.driveId); if (d) nativeCall("reveal", { path: d.mount + "/" + cur.path }); };
+  $("#master-open").onclick = () => openFile(cur.driveId, cur.path, "project");
+}
 function wireProjectPage(p) {
+  wireMaster(S.projectData);
   $("#proj-media").onclick = () => { S.media = { project: String(p.id), drive: "", kind: "", format: "", codec: "", rate: "", qc: "", q: "" }; S.tab = "media"; S.project = null; localSet("tab", S.tab); render(); };
   $("#proj-media-csv").onclick = () => downloadCSV(`/api/media.csv?project=${p.id}`, `${p.name.replace(/[^\w.-]+/g, "_")}-clips-${new Date().toISOString().slice(0, 10)}.csv`);
   const patch = async (body, then) => {
@@ -2152,9 +2190,12 @@ async function openFile(driveId, path, back) {
   const bst = st.Damaged ? "damaged" : st.Copies > 0 ? "full" : st.Unknown ? "unknown" : "none";
   const stream = `/api/drives/${encodeURIComponent(driveId)}/stream?path=${encodeURIComponent(path)}&t=${encodeURIComponent(token)}`;
   const kind = (m && m.kind) || (/\.(mov|mp4|m4v|mxf|r3d|braw|avi)$/i.test(name) ? "video" : /\.(wav|aif|aiff|mp3|m4a|flac)$/i.test(name) ? "audio" : /\.(jpe?g|png|gif|heic|webp|tiff?)$/i.test(name) ? "image" : "other");
+  const px = data.proxy, pxStream = px ? `/api/drives/${encodeURIComponent(px.driveId)}/stream?path=${encodeURIComponent(px.path)}&t=${encodeURIComponent(token)}` : "";
+  const rawNote = /\.(crm|braw|r3d|ari|arx|cine)$/i.test(name) ? `${name.split(".").pop().toUpperCase()} has no player without the camera maker's SDK` : "No preview for this file type";
   const preview = data.playable
     ? (kind === "video" ? playerHTML(stream, m) : kind === "audio" ? `<div class="audio-box">${ICON.clapper}<audio controls preload="metadata" src="${stream}"></audio></div>` : `<img src="${stream}" alt="">`)
-    : `<div class="no-preview">${ICON.film}<span>${dr.connected ? "No preview for this file type" : `Plug in ${esc(dr.title)} to preview`}</span></div>`;
+    : px ? playerHTML(pxStream, m) + `<div class="proxy-note">${ICON.info}Playing the proxy <b>${esc(px.path.split("/").pop())}</b> on ${esc(px.drive)} · ${esc(rawNote)}</div>`
+    : `<div class="no-preview">${ICON.film}<span>${dr.connected ? rawNote : `Plug in ${esc(dr.title)} to preview`}</span></div>`;
   const kv = [];
   if (m) {
     if (m.container) kv.push(["Container", m.container + (m.source && m.source !== "extension" ? ` <span class="hint">read by ${esc(m.source)}</span>` : "")]);
@@ -2204,7 +2245,7 @@ async function openFile(driveId, path, back) {
     </div>`);
   if (kind === "video" || kind === "image") $("#sheet").classList.add("wide");
   wireFile(driveId, path, m);
-  if (kind === "video") wirePlayer(m);
+  if (kind === "video" && (data.playable || data.proxy)) wirePlayer(m);
 }
 // playerHTML is the clip player: the video with Lumpy's own transport
 // under it, the way an edit suite's viewer works. J K L shuttle, space
@@ -2861,7 +2902,7 @@ function mapCard(m, id) {
   }
   const d = n.d;
   const ins = [...(n.island.p ? [{ from: n.island.id, cls: n.st, label: n.label }] : []), ...(n.headOf ? n.island.drives.map((x) => ({ from: "p" + x.p.id, go: x.id, cls: x.st, label: x.label })) : []), ...m.edges.filter((e) => e.to === id)];
-  return `<div class="map-card" style="--pc:${cardColor(d) || "var(--accent)"}"><div class="mc-head"><b>${esc(d.title)}</b>${d.connected ? `<button class="btn small" data-eject="${esc(d.id)}" title="Unmount it so it can be unplugged">${ICON.eject}Eject</button>` : ""}<button class="btn small primary" data-open="drive" data-id="${esc(d.id)}">Details</button></div>
+  return `<div class="map-card" style="--pc:${cardColor(d) || "var(--accent)"}"><div class="mc-head"><b>${esc(d.title)}</b>${d.connected && native ? `<button class="btn small" data-finder="${esc(d.id)}" title="Open the drive in the Finder">${ICON.reveal}Finder</button>` : ""}${d.connected ? `<button class="btn small" data-eject="${esc(d.id)}" title="Unmount it so it can be unplugged">${ICON.eject}Eject</button>` : ""}<button class="btn small primary" data-open="drive" data-id="${esc(d.id)}">Details</button></div>
     <div class="cap"><b>${bytes(d.size)}</b><span class="sep">•</span><span class="${lowSpace(d) ? "low" : ""}">${bytes(d.free)} free</span><span class="sep">•</span>${d.files.toLocaleString()} files</div>
     <div class="badges" style="margin-top:6px">${backupBadge(d)}${checkBadge(d)}</div>
     <div class="mc-list">${ins.map((e) => { const p = (S.projects || []).find((x) => "p" + x.id === e.from); return p ? `<div data-node-go="${e.go || e.from}"><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span>${esc(p.name)}<small class="${e.cls}">${esc(e.label)}</small></div>` : ""; }).join("") || '<span class="hint">In no project. Drag its edge onto a project to add it.</span>'}</div></div>`;
@@ -3026,6 +3067,7 @@ function wireMap(m) {
   };
   for (const el of box.querySelectorAll("[data-node-go]")) el.onclick = () => { MAP.sel = el.dataset.nodeGo; renderMap(); };
   for (const b of box.querySelectorAll("[data-eject]")) b.onclick = () => { b.disabled = true; ejectDrive(b.dataset.eject); };
+  for (const b of box.querySelectorAll("[data-finder]")) b.onclick = (e) => { e.stopPropagation(); const d = driveOf(b.dataset.finder); if (d && d.mount) nativeCall("reveal", { path: d.mount }); };
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab === "map" && MAP.sel) { MAP.sel = null; renderMap(); } });
 

@@ -50,6 +50,12 @@ type PullReport struct {
 // rawExt ranks camera formats above everything else.
 var rawExt = map[string]int{".braw": 30, ".r3d": 30, ".ari": 30, ".arx": 30, ".mxf": 25, ".crm": 25, ".dng": 25, ".mov": 15, ".mp4": 5, ".avi": 5, ".wav": 10}
 
+// ClipStem is a file name without its extension; StripProxy takes a
+// proxy suffix off a stem; Proxyish says whether a path is a proxy.
+func ClipStem(name string) string   { return clipStem(name) }
+func StripProxy(stem string) string { return proxySuffix.ReplaceAllString(stem, "") }
+func Proxyish(p string) bool        { return proxyish(p) }
+
 // proxyish says whether a path is a proxy by its name or any folder it
 // sits in.
 func proxyish(p string) bool {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -362,6 +363,7 @@ func (s *Server) projectDetail(w http.ResponseWriter, r *http.Request) (any, err
 	return map[string]any{
 		"project":       p,
 		"health":        h,
+		"masters":       s.masters(p),
 		"routes":        s.routes(p, spaces),
 		"backupDrives":  p.BackupDrives(),
 		"transfers":     transfers,
@@ -470,4 +472,134 @@ func (s *Server) discover(w http.ResponseWriter, r *http.Request) (any, error) {
 		groups = []catalog.Group{}
 	}
 	return groups, nil
+}
+
+// MasterView is a project's master print: a video whose name carries
+// "master" (or is tagged master), with its open-matte sibling when one
+// sits beside it.
+type MasterView struct {
+	DriveID   string `json:"driveId"`
+	Drive     string `json:"drive"`
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+	Connected bool   `json:"connected"`
+	Final     bool   `json:"final"` // under an OUTPUT or final folder
+	Matte     *struct {
+		DriveID string `json:"driveId"`
+		Path    string `json:"path"`
+		Name    string `json:"name"`
+	} `json:"matte,omitempty"`
+	Media *catalog.Media `json:"media,omitempty"`
+}
+
+// masters finds the project's master prints and their open-matte
+// versions: every video under the project's folders with master in the
+// name or tags, finals first, newest copy of each name once.
+func (s *Server) masters(p *catalog.Project) []MasterView {
+	out := []MasterView{}
+	rows, err := s.db.ListMedia(catalog.MediaFilter{Project: p, Kind: "video", Limit: 5000})
+	if err != nil {
+		return out
+	}
+	isMaster := func(m *catalog.Media) bool {
+		n := strings.ToLower(path.Base(m.Path))
+		return strings.Contains(n, "master") || hasTag(m.Edits.Tags, "master")
+	}
+	isMatte := func(name string) bool {
+		n := strings.ToLower(name)
+		return strings.Contains(n, "open-matte") || strings.Contains(n, "openmatte") || strings.Contains(n, "open_matte") || strings.Contains(n, "open matte")
+	}
+	type key struct{ name string }
+	seen := map[string]int{}
+	var mattes []catalog.MediaRow
+	for i := range rows {
+		m := &rows[i]
+		if isMatte(path.Base(m.Path)) {
+			mattes = append(mattes, *m)
+			continue
+		}
+		if !isMaster(&m.Media) {
+			continue
+		}
+		name := path.Base(m.Path)
+		connected := s.mountOf(m.DriveID) != nil
+		// One row per name; a plugged-in copy beats one that isn't.
+		if j, ok := seen[name]; ok {
+			if connected && !out[j].Connected {
+				out[j].DriveID, out[j].Path, out[j].Connected = m.DriveID, m.Path, true
+				if d, err := s.db.Drive(m.DriveID); err == nil {
+					out[j].Drive = d.Title()
+				}
+			}
+			continue
+		}
+		mv := MasterView{DriveID: m.DriveID, Path: m.Path, Name: name, Size: m.Size, Connected: connected, Final: finalish(m.Path)}
+		if d, err := s.db.Drive(m.DriveID); err == nil {
+			mv.Drive = d.Title()
+		}
+		mm := m.Media
+		mv.Media = &mm
+		seen[name] = len(out)
+		out = append(out, mv)
+	}
+	// An open-matte beside a master (same folder, or the same name with
+	// the matte words added) belongs to it.
+	for i := range out {
+		dir := path.Dir(out[i].Path)
+		stem := strings.ToLower(strings.TrimSuffix(out[i].Name, path.Ext(out[i].Name)))
+		stem = strings.ReplaceAll(stem, "master", "")
+		best := -1
+		for j := range mattes {
+			mt := &mattes[j]
+			if path.Dir(mt.Path) != dir && mt.DriveID != out[i].DriveID {
+				continue
+			}
+			ms := strings.ToLower(strings.TrimSuffix(path.Base(mt.Path), path.Ext(mt.Path)))
+			for _, w := range []string{"open-matte", "openmatte", "open_matte", "open matte", "master"} {
+				ms = strings.ReplaceAll(ms, w, "")
+			}
+			if path.Dir(mt.Path) == dir || strings.Trim(ms, "_- .") == strings.Trim(stem, "_- .") {
+				best = j
+				if path.Dir(mt.Path) == dir {
+					break
+				}
+			}
+		}
+		if best >= 0 {
+			mt := mattes[best]
+			out[i].Matte = &struct {
+				DriveID string `json:"driveId"`
+				Path    string `json:"path"`
+				Name    string `json:"name"`
+			}{mt.DriveID, mt.Path, path.Base(mt.Path)}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Final != out[j].Final {
+			return out[i].Final
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// finalish says whether a path sits under an output or final folder.
+func finalish(p string) bool {
+	for _, d := range strings.Split(strings.ToLower(path.Dir(p)), "/") {
+		if strings.Contains(d, "output") || strings.Contains(d, "final") || strings.Contains(d, "deliver") || strings.Contains(d, "export") {
+			return true
+		}
+	}
+	return false
+}
+
+// hasTag says whether a comma-separated tag list carries tag.
+func hasTag(tags, tag string) bool {
+	for _, t := range strings.Split(tags, ",") {
+		if strings.EqualFold(strings.TrimSpace(t), tag) {
+			return true
+		}
+	}
+	return false
 }

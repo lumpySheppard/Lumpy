@@ -60,8 +60,11 @@ function render() {
   const vols = state.drives.filter((d) => d.connected);
   const low = (d) => d.size > 0 && d.free < d.size * 0.1;
   const aw = state.awake || {}, pf = (settings && settings.prefs) || {}, n = (aw.drives || []).length;
+  const typing = document.activeElement && document.activeElement.id === "mb-q";
+  if (typing) findQ = document.activeElement.value;
   el.innerHTML = `
     <div class="mb-head">${GLYPH}<b>Lumpy</b><span class="hint">${esc(state.version || "")}</span></div>
+    <div class="mb-sec mb-find"><input type="search" id="mb-q" placeholder="Where is a clip? Type part of its name" value="${esc(findQ)}" autocomplete="off"><div class="mb-hits" id="mb-hits">${findHTML()}</div></div>
     <div class="mb-sec mb-jobs">
       ${running.length ? running.map((j) => { const p = j.progress || {}; const pct = p.total ? Math.min(100, (p.done / p.total) * 100) : 0; const eta = p.rate > 0 && p.total > p.done ? duration((p.total - p.done) / p.rate) + " left" : "";
         return `<div class="mb-job"><div class="t"><span>${esc(j.title)}</span><span class="badge">${p.label ? esc(p.label) : "Running"}</span></div>
@@ -85,6 +88,11 @@ function render() {
       <button class="btn small primary" id="open">Open Lumpy</button>
     </div>`;
   $("#open").onclick = () => nativeCall("openApp");
+  const q = $("#mb-q");
+  q.oninput = () => { findQ = q.value; clearTimeout(findT); findT = setTimeout(findClips, 250); };
+  q.onkeydown = (e) => { if (e.key === "Escape") { q.value = ""; findQ = ""; findHits = []; render(); } };
+  for (const b of el.querySelectorAll("[data-reveal]")) b.onclick = () => nativeCall("reveal", { path: b.dataset.reveal });
+  if (document.activeElement !== q && findFocus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
   const pref = async (body) => { try { const p = await api("/api/prefs", { method: "PUT", body }); if (settings) settings.prefs = p; refresh(); } catch {} };
   $("#mb-awake").onchange = (e) => pref({ keepAwake: e.target.checked });
   $("#mb-mac").onchange = (e) => pref({ keepMacAwake: e.target.checked });
@@ -94,6 +102,22 @@ function render() {
   nativeCall("resize", { height: Math.ceil(el.getBoundingClientRect().height) });
 }
 
+// The clip search: a few hits by name, each with the drive it is on
+// and, when that drive is plugged in, a way into the Finder.
+let findQ = "", findHits = [], findT = null, findFocus = false;
+async function findClips() {
+  findFocus = true;
+  const t = findQ.trim();
+  if (t.length < 2) { findHits = []; render(); return; }
+  try { const r = await api(`/api/search?q=${encodeURIComponent(t)}`); if (findQ.trim() === t) { findHits = (r.files || []).slice(0, 6); render(); } } catch {}
+}
+function findHTML() {
+  if (findQ.trim().length < 2) return "";
+  if (!findHits.length) return `<div class="mb-empty">Nothing by that name in the library.</div>`;
+  return findHits.map((h) => { const d = (state.drives || []).find((x) => x.id === h.DriveID); const live = d && d.connected;
+    const dir = h.Path.includes("/") ? h.Path.slice(0, h.Path.lastIndexOf("/")) : "";
+    return `<div class="mb-hit"><span class="sdot ${live ? "full" : "none"}"></span><span class="n">${esc(h.Path.split("/").pop())}<small>${esc(h.DriveName)}${dir ? " › " + esc(dir) : ""}</small></span>${live && d.mount ? `<button class="btn small" data-reveal="${esc(d.mount + "/" + h.Path)}">Finder</button>` : `<span class="f">${live ? "" : "unplugged"}</span>`}</div>`; }).join("");
+}
 async function refresh() {
   try {
     [state, jobs] = await Promise.all([api("/api/state"), api("/api/jobs")]);

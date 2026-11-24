@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -75,7 +76,7 @@ func (s *Server) fileDetail(w http.ResponseWriter, r *http.Request) (any, error)
 		copies = []map[string]any{}
 	}
 	v := s.mountOf(d.ID)
-	return map[string]any{
+	out := map[string]any{
 		"drive":     map[string]any{"id": d.ID, "title": d.Title(), "connected": v != nil},
 		"file":      f,
 		"state":     st,
@@ -83,7 +84,51 @@ func (s *Server) fileDetail(w http.ResponseWriter, r *http.Request) (any, error)
 		"copies":    copies,
 		"playable":  v != nil && playable(p),
 		"probeable": v != nil && m == nil,
-	}, nil
+	}
+	if !playable(p) {
+		if px := s.proxyFor(p); px != nil {
+			out["proxy"] = px
+		}
+	}
+	return out, nil
+}
+
+// proxyFor finds a playable clip with the same clip name as a camera
+// raw file on a plugged-in drive: the proxy a camera writes beside its
+// CRM, BRAW or R3D, or one made in post. Nothing decodes those raws
+// without the maker's SDK, so the proxy is what plays.
+func (s *Server) proxyFor(p string) map[string]any {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".crm", ".braw", ".r3d", ".ari", ".arx", ".mxf", ".dng", ".cine":
+	default:
+		return nil
+	}
+	stem := catalog.ClipStem(path.Base(p))
+	if len(stem) < 4 {
+		return nil
+	}
+	hits, err := s.db.Search(stem, 200)
+	if err != nil {
+		return nil
+	}
+	var best *catalog.Match
+	for i := range hits {
+		h := &hits[i]
+		if !playable(h.Path) || s.mountOf(h.DriveID) == nil {
+			continue
+		}
+		hs := catalog.ClipStem(path.Base(h.Path))
+		if !strings.EqualFold(hs, stem) && !strings.EqualFold(catalog.StripProxy(hs), stem) {
+			continue
+		}
+		if best == nil || (catalog.Proxyish(h.Path) && !catalog.Proxyish(best.Path)) {
+			best = h
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return map[string]any{"driveId": best.DriveID, "drive": best.DriveName, "path": best.Path}
 }
 
 func playable(p string) bool {

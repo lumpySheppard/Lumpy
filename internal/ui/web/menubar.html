@@ -55,6 +55,15 @@
   .btn:hover { background: rgba(255,255,255,.18); }
   .btn.primary { background: var(--accent); }
   .mb-empty { color: rgba(255,255,255,.45); }
+  .mb-find { padding: 6px 0 8px; }
+  .mb-find input { width: 100%; box-sizing: border-box; height: 26px; padding: 0 9px; border-radius: 7px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.08); color: #fff; font: inherit; font-size: 12px; outline: 0; }
+  .mb-find input:focus { border-color: var(--accent); }
+  .mb-find input::placeholder { color: rgba(255,255,255,.4); }
+  .mb-hits { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+  .mb-hit { display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; }
+  .mb-hit .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+  .mb-hit .n small { display: block; color: rgba(255,255,255,.45); font-weight: 400; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
+  .mb-hit .f { color: rgba(255,255,255,.45); font-size: 11px; }
   .sdot { width: 8px; height: 8px; }
   .sdot.none { background: rgba(255,255,255,.25); }
 </style>
