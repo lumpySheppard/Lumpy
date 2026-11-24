@@ -382,7 +382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "saveFile":
             let panel = NSSavePanel()
             panel.nameFieldStringValue = body["name"] as? String ?? "lumpy.csv"
-            panel.allowedContentTypes = [.commaSeparatedText]
+            panel.allowedContentTypes = (body["type"] as? String) == "text/html" ? [.html] : [.commaSeparatedText]
             panel.canCreateDirectories = true
             panel.beginSheetModal(for: window) { response in
                 guard response == .OK, let url = panel.url else { return self.resolve(id, nil, in: from) }

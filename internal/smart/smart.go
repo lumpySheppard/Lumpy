@@ -203,3 +203,40 @@ func plural(n int64) string {
 	}
 	return "s"
 }
+
+// Reading is one kept SMART reading, for trends over time.
+type Reading struct {
+	At          int64 `json:"at"`
+	Temp        int   `json:"temp"`
+	Hours       int64 `json:"hours"`
+	Reallocated int64 `json:"reallocated"`
+	Pending     int64 `json:"pending"`
+	Uncorrect   int64 `json:"uncorrect"`
+	CRC         int64 `json:"crc"`
+	PercentUsed int   `json:"percentUsed"`
+	Passed      bool  `json:"passed"`
+}
+
+// Trend says what got worse between the last reading and this one:
+// sectors going bad are the signal that matters most, well before the
+// counts are large, and a drive that runs hotter than it did is worth
+// a look at its enclosure.
+func Trend(prev Reading, h *Health) []string {
+	var out []string
+	if h.Reallocated > prev.Reallocated {
+		out = append(out, fmt.Sprintf("%d more reallocated sector%s since the last reading", h.Reallocated-prev.Reallocated, plural(h.Reallocated-prev.Reallocated)))
+	}
+	if h.Pending > prev.Pending {
+		out = append(out, fmt.Sprintf("%d more sector%s pending since the last reading", h.Pending-prev.Pending, plural(h.Pending-prev.Pending)))
+	}
+	if h.Uncorrect > prev.Uncorrect {
+		out = append(out, fmt.Sprintf("%d new uncorrectable error%s", h.Uncorrect-prev.Uncorrect, plural(h.Uncorrect-prev.Uncorrect)))
+	}
+	if h.CRC > prev.CRC {
+		out = append(out, fmt.Sprintf("%d new interface error%s: check the cable", h.CRC-prev.CRC, plural(h.CRC-prev.CRC)))
+	}
+	if prev.Temp > 0 && h.Temp >= prev.Temp+10 && h.Temp >= 45 {
+		out = append(out, fmt.Sprintf("Running %d °C hotter than last time (%d °C)", h.Temp-prev.Temp, h.Temp))
+	}
+	return out
+}

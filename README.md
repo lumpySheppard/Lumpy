@@ -289,6 +289,23 @@ checksummed and has at least two verified copies on other drives. With
 exactly one copy everywhere it says **Backed up once · keep the card**,
 because the card is still the second copy.
 
+**Safe to format?** on a card's sheet opens the one screen for that
+question: every drive holding copies with how many were read back and
+matched, every file that still lacks two verified copies and why, and
+one verdict. When the verdict is safe, **Erase** formats the card in
+place (same name, same filesystem, as the camera would), and only after
+the card's name is typed; the erase runs as a job in Activity and the
+library is brought up to date afterwards.
+
+### Shoot-day report
+
+On the Offload tab, pick a day and **Open** or **Save…** its report:
+one page listing every card offloaded that day with its files, clips
+and running time, where each copy went and how many were verified,
+which cards are safe to format, the files still without two verified
+copies, every file's xxh64 checksum, and the day's checks and scans.
+It prints cleanly and is what a producer or an insurer asks for.
+
 ### Stills and raws without Resolve
 
 Previews (the Filmstrip, a clip's details, duplicates in Space) are
@@ -319,7 +336,12 @@ verdict, hours powered on, temperature, reallocated and pending
 sectors, write life used on SSDs. A drive that reports it is failing,
 or has sectors going bad, gets a red or amber badge on its card.
 **Read now** asks again. Thunderbolt, SATA and internal drives answer;
-most USB enclosures don't on macOS, and the sheet says so.
+most USB enclosures don't on macOS, and the sheet says so. Every
+reading is kept: the sheet draws the temperature and bad-sector counts
+over time, and a reading that is worse than the one before (more
+reallocated or pending sectors, new uncorrectable or interface errors,
+a jump in temperature) is called out as a trend, before the counts
+alone would look bad.
 
 ### Notifications
 

@@ -239,6 +239,9 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/drives/{id}/proxies", s.driveProxies)
 	api("POST /api/drives/{id}/health", s.health)
 	api("POST /api/drives/{id}/eject", s.eject)
+	api("GET /api/drives/{id}/card", s.cardStatus)
+	api("POST /api/drives/{id}/erase", s.eraseCard)
+	api("GET /api/report/day", s.dayReport)
 	api("GET /api/media", s.listMedia)
 	api("GET /api/media.csv", s.exportMedia)
 	api("GET /api/settings", s.getSettings)
@@ -586,12 +589,17 @@ func (s *Server) driveDetail(w http.ResponseWriter, r *http.Request) (any, error
 		evs = append(evs, ev{e.At.Unix(), e.Kind, e.Summary, e.Failures})
 	}
 	ds, _ := s.db.Drives()
+	hist, _ := s.db.HealthHistory(d.ID, 60)
+	if hist == nil {
+		hist = []smart.Reading{}
+	}
 	return map[string]any{
 		"drive":    s.view(d, s.extras(ds)[d.ID]),
 		"folders":  folders,
 		"events":   evs,
 		"backups":  backups,
 		"projects": memberships[d.ID],
+		"health":   hist,
 	}, nil
 }
 

@@ -75,3 +75,21 @@ func TestReadWithoutSmartctl(t *testing.T) {
 		t.Fatalf("read: %+v", h)
 	}
 }
+
+func TestTrend(t *testing.T) {
+	prev := Reading{Temp: 38, Reallocated: 2, Pending: 0, CRC: 1}
+	h := &Health{Temp: 52, Reallocated: 5, Pending: 1, CRC: 1}
+	got := Trend(prev, h)
+	want := []string{"3 more reallocated sectors since the last reading", "1 more sector pending since the last reading", "Running 14 °C hotter than last time (52 °C)"}
+	if len(got) != len(want) {
+		t.Fatalf("trend: %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("trend[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if n := len(Trend(Reading{Temp: 40, Reallocated: 5}, &Health{Temp: 41, Reallocated: 5})); n != 0 {
+		t.Errorf("steady drive: %d warnings", n)
+	}
+}

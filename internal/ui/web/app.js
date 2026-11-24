@@ -286,7 +286,22 @@ function hoursText(h) {
   return `${(days / 365.25).toFixed(1)} years`;
 }
 const SMART_HINT = `Lumpy reads the drive's own health report (SMART) through smartmontools: in Terminal, <code>brew install smartmontools</code>. Thunderbolt, SATA and internal drives answer; most USB enclosures don't on macOS.`;
-function healthBox(d) {
+// healthChart draws the kept readings: temperature as a line, bad
+// sectors as bars beneath, oldest to newest.
+function healthChart(hist) {
+  const rs = [...hist].reverse();
+  if (rs.length < 2) return "";
+  const W = 420, H = 64, n = rs.length, x = (i) => 8 + (i * (W - 16)) / (n - 1);
+  const temps = rs.map((r) => r.temp).filter(Boolean), tmin = Math.min(...temps, 20), tmax = Math.max(...temps, 50);
+  const ty = (t) => H - 14 - ((t - tmin) / (tmax - tmin || 1)) * (H - 28);
+  const bad = rs.map((r) => r.reallocated + r.pending + r.uncorrect), bmax = Math.max(...bad, 1);
+  const line = rs.map((r, i) => r.temp ? `${i ? "L" : "M"}${x(i).toFixed(1)} ${ty(r.temp).toFixed(1)}` : "").filter(Boolean).join(" ");
+  const bars = rs.map((r, i) => bad[i] ? `<rect x="${(x(i) - 2).toFixed(1)}" y="${(H - 6 - (bad[i] / bmax) * 22).toFixed(1)}" width="4" height="${((bad[i] / bmax) * 22).toFixed(1)}" fill="var(--bad)"/>` : "").join("");
+  const first = rs[0], last = rs[n - 1];
+  return `<div class="hchart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${bars}${line ? `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>` : ""}</svg>
+    <div class="hchart-foot"><span>${when(first.at)}</span><span>${n} readings${temps.length ? ` · ${tmin}–${tmax} °C` : ""}${Math.max(...bad) ? ` · <span class="bad">bad sectors in red</span>` : " · no bad sectors"}</span><span>${when(last.at)}</span></div></div>`;
+}
+function healthBox(d, hist) {
   const h = d.health;
   if (!h) return `<p class="hint" style="margin:0">Not read yet. ${SMART_HINT}</p>`;
   if (h.error) return `<p class="hint" style="margin:0"><b>${esc(h.error)}.</b> ${h.error.includes("not installed") ? SMART_HINT : "Read " + when(h.readAt) + "."}</p>`;
@@ -305,7 +320,7 @@ function healthBox(d) {
     ${row("Interface errors", h.crc ? String(h.crc) : "")}
     ${row("Write life used", h.percentUsed != null && h.percentUsed > 0 ? `${h.percentUsed}%` : "")}
     ${row("Last read", when(h.readAt))}
-  </dl>`;
+  </dl>${healthChart(hist || [])}`;
 }
 
 function backupBadge(d) {
@@ -825,7 +840,7 @@ async function openDetail(id, refresh, focusLabels) {
 
       <div class="sec"><div class="sec-title">${ICON.activity}Drive health
           <div class="right">${d.connected ? `<button class="btn small" id="health-read" title="Ask the drive for its SMART report now">${ICON.refresh}Read now</button>` : ""}</div></div>
-        <div class="box">${healthBox(d)}</div></div>
+        <div class="box">${healthBox(d, data.health || [])}</div></div>
 
       <div class="sec"><div class="sec-title">${ICON.shield}Backups &amp; checks
           <div class="right">
@@ -833,6 +848,7 @@ async function openDetail(id, refresh, focusLabels) {
             ${d.connected ? `<button class="btn small" id="hash" ${d.busy ? "disabled" : ""}>Checksum new files</button>` : ""}
             <button class="btn small primary" id="verify" ${d.busy || (d.verifyRequested && !d.connected) ? "disabled" : ""}>${d.connected ? "Check drive now" : d.verifyRequested ? "Check queued" : "Queue check"}</button>
           </div></div>
+        ${isCard(d) ? `<div class="go-row" style="margin-bottom:12px"><button class="btn ${safeToFormat(d) === "safe" ? "primary" : ""}" id="card-check">${ICON.shield}Safe to format?</button><span class="note">Every file, every copy, one answer; and the erase button when it is.</span></div>` : ""}
         ${safeToFormat(d) === "safe" ? `<div class="alert ok" style="margin-bottom:12px"><b>Safe to format.</b> Every file on this card has at least ${b.minCopies} verified copies on other drives${holders.length ? ": " + holders.map(([t]) => esc(t)).join(", ") : ""}.</div>`
           : safeToFormat(d) === "once" ? `<div class="alert warn" style="margin-bottom:12px"><b>Backed up once.</b> Every file has one verified copy elsewhere, so this card is still the second copy. Make another before formatting it.</div>` : ""}
         ${backupBar(b.enoughBytes + b.shortBytes, b.bytes, b.unknownBytes, b.likelyBytes, { size: "big" })}
@@ -923,6 +939,7 @@ function wireDetail(d) {
   if (rv) rv.onclick = () => nativeCall("reveal", { path: d.mount });
   const ej = $("#eject");
   if (ej) ej.onclick = () => { ej.disabled = true; ejectDrive(d.id); };
+  const cc = $("#card-check"); if (cc) cc.onclick = () => openCard(d.id);
   const hr = $("#health-read");
   if (hr) hr.onclick = async () => {
     hr.disabled = true; hr.textContent = "Reading…";
@@ -1760,7 +1777,9 @@ function renderOffload() {
         <div class="go-row"><button class="btn primary" id="start-offload">${ICON.copy}Start offload</button>
           <span class="note" id="offload-note">${o.source && o.dests.some(Boolean) ? `Copies to ${o.dests.filter(Boolean).map((d) => esc(d.replace(/\/+$/, "") + "/" + (name || ""))).join(", ")}` : ""}</span></div></div></div>
     </section>
-    <div class="jobs-col"><h2 class="col-title">${ICON.activity}Offloads</h2><div class="jobs" id="offload-jobs"></div></div>
+    <div class="jobs-col"><h2 class="col-title">${ICON.activity}Offloads</h2>
+      <div class="day-report"><span>${ICON.export}Shoot-day report</span><input type="date" id="rep-date" value="${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}"><button class="btn small" id="rep-open">Open</button><button class="btn small" id="rep-save">Save…</button></div>
+      <div class="jobs" id="offload-jobs"></div></div>
   </div>`;
   wireOffload();
   renderJobsInto($("#offload-jobs"), S.jobs.filter((j) => j.kind === "offload"), "No offloads yet.");
@@ -1768,6 +1787,9 @@ function renderOffload() {
 
 function wireOffload() {
   const o = S.offload;
+  const repURL = () => `/api/report/day?date=${encodeURIComponent($("#rep-date").value)}`;
+  $("#rep-open").onclick = () => window.open(repURL() + `&t=${encodeURIComponent(token)}`, "_blank");
+  $("#rep-save").onclick = () => downloadCSV(repURL(), `Shoot day ${$("#rep-date").value}.html`, null, "text/html");
   const rerender = () => renderOffload();
   $("#src").onchange = (e) => { o.source = e.target.value.trim(); rerender(); };
   $("#oname").onchange = (e) => { o.name = e.target.value.trim(); rerender(); };
@@ -2177,6 +2199,37 @@ document.addEventListener("error", (e) => {
   if (!img || img.tagName !== "IMG" || !img.closest(".clip-tile")) return;
   img.replaceWith(Object.assign(document.createElement("div"), { className: "noimg", innerHTML: `${ICON.film}<span>No preview</span>` }));
 }, true);
+
+// ---------- the card sheet: can I format this? ----------
+async function openCard(id) {
+  let c;
+  try { c = await api(`/api/drives/${encodeURIComponent(id)}/card`); } catch (e) { toast(e.message, true); return; }
+  const v = c.verdict;
+  const big = v === "safe" ? `<div class="card-verdict ok">${ICON.check}<b>Safe to format</b><span>Every one of ${c.files.toLocaleString()} files has at least ${c.minVerified} verified copies on other drives.</span></div>`
+    : v === "once" ? `<div class="card-verdict warn">${ICON.warn}<b>Backed up once</b><span>${esc(c.why.join(". "))}. Make another copy before formatting.</span></div>`
+    : `<div class="card-verdict bad">${ICON.warn}<b>Keep this card</b><span>${esc(c.why.join(". "))}.</span></div>`;
+  openSheet(`<div class="sheet-head"><div><h2>${esc(c.drive)}</h2><div class="sub">${c.files.toLocaleString()} files · ${bytes(c.bytes)}${c.clips ? ` · ${c.clips.toLocaleString()} clips` : ""} · ${c.hashed.toLocaleString()} checksummed</div></div><div class="actions"><button class="icon-btn" id="cd-close" title="Close">${ICON.x}</button></div></div>
+    <div class="sheet-body">
+      ${big}
+      <div class="sec"><div class="sec-title">${ICON.copy}Copies</div><div class="box">
+        ${c.holders.length ? `<table class="list compact"><thead><tr><th>On</th><th class="num">Files</th><th class="num">Verified</th><th></th></tr></thead><tbody>${c.holders.map((h) => `<tr><td><div class="name"><span class="dot" style="background:${h.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(h.drive)}</div></td><td class="num">${h.files.toLocaleString()}</td><td class="num ${h.verified === h.files ? "ok" : "warn"}">${h.verified.toLocaleString()}</td><td class="hint">${h.verified === h.files ? "all read back and matched" : h.verified ? `${(h.files - h.verified).toLocaleString()} not read back yet` : "copied, not checked"}</td></tr>`).join("")}</tbody></table>` : `<p class="hint" style="margin:0">No copies of this card's files anywhere else in the library.</p>`}
+      </div></div>
+      ${c.short.length ? `<div class="sec"><div class="sec-title">${ICON.warn}Files without two verified copies<span class="count">${c.short.length}</span></div><div class="box"><table class="list compact"><tbody>${c.short.slice(0, 200).map((f) => `<tr><td class="mono" style="word-break:break-all">${esc(f.path)}</td><td class="num">${f.damaged ? '<span class="bad">damaged here</span>' : f.unhashed ? '<span class="warn">no checksum</span>' : f.verified ? `${f.verified} verified${f.copies > f.verified ? ` · ${f.copies - f.verified} unchecked` : ""}` : f.copies ? `${f.copies} unchecked` : f.likely ? `${f.likely} likely` : '<span class="bad">none</span>'}</td></tr>`).join("")}</tbody></table>${c.short.length > 200 ? `<p class="hint">and ${c.short.length - 200} more</p>` : ""}</div></div>` : ""}
+      <div class="sec"><div class="sec-title">${ICON.trash}Erase the card</div><div class="box">
+        <p class="hint" style="margin:0 0 10px">${v === "safe" ? "Formats the card in place, keeping its name and filesystem, the way the camera would. Type the card's name to confirm." : "Unlocks once every file has two verified copies on two other drives."}</p>
+        <div class="path-row"><input class="path-input" id="cd-name" placeholder="${esc(c.drive)}" ${v === "safe" && c.connected && !c.busy ? "" : "disabled"}><button class="btn danger" id="cd-erase" disabled>${ICON.trash}Erase ${esc(c.drive)}</button></div>
+        ${!c.connected ? '<p class="hint" style="margin:8px 0 0">Plug the card in to erase it.</p>' : c.busy ? '<p class="hint" style="margin:8px 0 0">A job is running on it; wait for it.</p>' : ""}
+      </div></div>
+    </div>`);
+  $("#cd-close").onclick = closeSheet;
+  const nm = $("#cd-name"), er = $("#cd-erase");
+  nm.oninput = () => { er.disabled = nm.value.trim() !== c.drive; };
+  er.onclick = async () => {
+    er.disabled = true; er.textContent = "Erasing…";
+    try { await api(`/api/drives/${encodeURIComponent(id)}/erase`, { method: "POST", body: { name: nm.value.trim() } }); toast(`Erasing ${c.drive}; watch Activity`); closeSheet(); loadJobs(); }
+    catch (e) { toast(e.message, true); er.disabled = false; er.innerHTML = `${ICON.trash}Erase ${esc(c.drive)}`; }
+  };
+}
 
 // ---------- file sheet ----------
 async function openFile(driveId, path, back) {
@@ -3400,14 +3453,14 @@ $("#refresh").onclick = async () => {
 };
 $(".search-icon").innerHTML = ICON.search;
 $("#export").innerHTML = ICON.export + "Export CSV…";
-async function downloadCSV(url, name, body) {
+async function downloadCSV(url, name, body, type) {
   try {
     const res = await fetch(url, { method: body ? "POST" : "GET", headers: { "X-Lumpy-Token": token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
     if (!res.ok) throw new Error(res.statusText);
     const text = await res.text();
-    if (native) { const saved = await nativeCall("saveFile", { name, content: text }); if (saved) toast("Saved " + saved); return; }
+    if (native) { const saved = await nativeCall("saveFile", { name, content: text, type: type || "text/csv" }); if (saved) toast("Saved " + saved); return; }
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+    a.href = URL.createObjectURL(new Blob([text], { type: type || "text/csv" }));
     a.download = name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);

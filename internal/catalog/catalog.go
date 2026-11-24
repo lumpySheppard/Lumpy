@@ -57,6 +57,19 @@ CREATE TABLE IF NOT EXISTS events (
 	summary  TEXT NOT NULL,
 	failures INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS health (
+	drive_id    TEXT NOT NULL REFERENCES drives(id) ON DELETE CASCADE,
+	at          INTEGER NOT NULL,
+	temp        INTEGER NOT NULL DEFAULT 0,
+	hours       INTEGER NOT NULL DEFAULT 0,
+	reallocated INTEGER NOT NULL DEFAULT 0,
+	pending     INTEGER NOT NULL DEFAULT 0,
+	uncorrect   INTEGER NOT NULL DEFAULT 0,
+	crc         INTEGER NOT NULL DEFAULT 0,
+	used        INTEGER NOT NULL DEFAULT 0,
+	passed      INTEGER NOT NULL DEFAULT 1,
+	PRIMARY KEY (drive_id, at)
+);
 CREATE TABLE IF NOT EXISTS mounted (
 	drive_id TEXT PRIMARY KEY,
 	mount    TEXT NOT NULL
@@ -362,12 +375,45 @@ func (db *DB) SaveDrive(v *volume.Volume) error {
 
 // SetHealth records a drive's SMART reading.
 func (db *DB) SetHealth(id string, h *smart.Health) error {
+	if h != nil && h.Error == "" {
+		// Trends: what moved since the last reading is worth a word
+		// before the counts themselves look bad.
+		if prev, err := db.HealthHistory(id, 1); err == nil && len(prev) == 1 {
+			h.Warnings = append(h.Warnings, smart.Trend(prev[0], h)...)
+		}
+		passed := 1
+		if h.Passed != nil && !*h.Passed {
+			passed = 0
+		}
+		db.sql.Exec(`INSERT OR REPLACE INTO health (drive_id, at, temp, hours, reallocated, pending, uncorrect, crc, used, passed) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			id, h.ReadAt, h.Temp, h.Hours, h.Reallocated, h.Pending, h.Uncorrect, h.CRC, h.PercentUsed, passed)
+	}
 	b, err := json.Marshal(h)
 	if err != nil {
 		return err
 	}
 	_, err = db.sql.Exec(`UPDATE drives SET health = ? WHERE id = ?`, string(b), id)
 	return err
+}
+
+// HealthHistory returns a drive's SMART readings, newest first.
+func (db *DB) HealthHistory(id string, limit int) ([]smart.Reading, error) {
+	rows, err := db.sql.Query(`SELECT at, temp, hours, reallocated, pending, uncorrect, crc, used, passed FROM health WHERE drive_id = ? ORDER BY at DESC LIMIT ?`, id, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []smart.Reading
+	for rows.Next() {
+		var r smart.Reading
+		var passed int
+		if err := rows.Scan(&r.At, &r.Temp, &r.Hours, &r.Reallocated, &r.Pending, &r.Uncorrect, &r.CRC, &r.PercentUsed, &passed); err != nil {
+			return nil, err
+		}
+		r.Passed = passed == 1
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // Drive returns the drive with this exact id.
@@ -634,6 +680,34 @@ type Event struct {
 	Kind     string // mounted, scanned, hashed, verified, offload, queued
 	Summary  string
 	Failures int
+}
+
+// DayEvent is an event with the drive it happened on.
+type DayEvent struct {
+	Event
+	DriveID   string
+	DriveName string
+}
+
+// EventsBetween lists every drive's events in [from, to), oldest first.
+func (db *DB) EventsBetween(from, to time.Time) ([]DayEvent, error) {
+	rows, err := db.sql.Query(`SELECT e.drive_id, COALESCE(NULLIF(d.nickname, ''), d.name), e.at, e.kind, e.summary, e.failures
+		FROM events e JOIN drives d ON d.id = e.drive_id WHERE e.at >= ? AND e.at < ? ORDER BY e.at, e.id`, from.Unix(), to.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DayEvent
+	for rows.Next() {
+		var e DayEvent
+		var at int64
+		if err := rows.Scan(&e.DriveID, &e.DriveName, &at, &e.Kind, &e.Summary, &e.Failures); err != nil {
+			return nil, err
+		}
+		e.At = time.Unix(at, 0)
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // Log adds an event to a drive's history.

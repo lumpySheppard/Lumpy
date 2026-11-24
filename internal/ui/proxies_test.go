@@ -3,9 +3,11 @@ package ui
 import (
 	"context"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
@@ -116,5 +118,68 @@ func TestEjectThroughAPI(t *testing.T) {
 	call(t, s, ts, "GET", "/api/drives/"+id, "", &detail)
 	if len(detail.Events) == 0 || detail.Events[0].Kind != "eject" {
 		t.Errorf("events: %+v", detail.Events)
+	}
+}
+
+// A card erases only with two verified copies on two other drives, and
+// only when its name is typed; the day's report then lists it.
+func TestEraseCardThroughAPI(t *testing.T) {
+	s, ts, vols := setup(t)
+	os.MkdirAll(filepath.Join(vols, "CARD", "CLIPS"), 0o755)
+	os.WriteFile(filepath.Join(vols, "CARD", "CLIPS", "C001.mov"), []byte("footage"), 0o644)
+	os.Mkdir(filepath.Join(vols, "RAID"), 0o755)
+	os.Mkdir(filepath.Join(vols, "SHUTTLE"), 0o755)
+	var st struct {
+		Drives  []DriveView
+		Volumes []VolumeView
+	}
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	var cardID string
+	for _, v := range st.Volumes {
+		if v.Name == "CARD" {
+			cardID = v.ID
+		}
+	}
+	call(t, s, ts, "POST", "/api/catalog", `{"id":"`+cardID+`"}`, nil)
+	waitIdle(t, s)
+	var cv CardView
+	call(t, s, ts, "GET", "/api/drives/"+cardID+"/card", "", &cv)
+	if cv.Verdict != "no" || cv.Files != 1 {
+		t.Fatalf("before any copy: %+v", cv)
+	}
+	var started struct{ Job int }
+	call(t, s, ts, "POST", "/api/offload", `{"source":"`+filepath.Join(vols, "CARD")+`","dests":["`+filepath.Join(vols, "RAID", "Day01")+`","`+filepath.Join(vols, "SHUTTLE", "Day01")+`"]}`, &started)
+	waitJobs(t, s, ts)
+	call(t, s, ts, "GET", "/api/drives/"+cardID+"/card", "", &cv)
+	if cv.Verdict != "safe" || cv.MinVerified != 2 || len(cv.Holders) != 2 {
+		t.Fatalf("after the offload: %+v", cv)
+	}
+	old := volume.Erase
+	defer func() { volume.Erase = old }()
+	var erased string
+	volume.Erase = func(mount, name, fstype string) error {
+		erased = name
+		os.RemoveAll(filepath.Join(mount, "CLIPS"))
+		return nil
+	}
+	if code := call(t, s, ts, "POST", "/api/drives/"+cardID+"/erase", `{"name":"WRONG"}`, nil); code != 400 {
+		t.Fatalf("erase with the wrong name: %d", code)
+	}
+	if code := call(t, s, ts, "POST", "/api/drives/"+cardID+"/erase", `{"name":"CARD"}`, nil); code != 200 {
+		t.Fatalf("erase: %d", code)
+	}
+	waitIdle(t, s)
+	if erased != "CARD" {
+		t.Fatalf("erased %q", erased)
+	}
+	req, _ := http.NewRequest("GET", ts.URL+"/api/report/day?t="+s.token, nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if !strings.Contains(string(page), "CARD") || !strings.Contains(string(page), "cards offloaded") || !strings.Contains(string(page), "RAID") {
+		t.Fatalf("report:\n%s", page)
 	}
 }
