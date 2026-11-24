@@ -64,6 +64,25 @@ type Project struct {
 	Created time.Time `json:"-"`
 	Sources []Source  `json:"sources"`
 	DestIDs []string  `json:"destIds"`
+	// Cards says what to do when a camera card is plugged in.
+	Cards *CardRules `json:"cards,omitempty"`
+}
+
+// CardRules are a project's standing orders for cards: watch for them,
+// which cards (a name pattern like A* or every card), where each goes,
+// and whether to ask first.
+type CardRules struct {
+	Watch bool       `json:"watch"`
+	Auto  bool       `json:"auto"`  // offload without asking
+	Match string     `json:"match"` // card name pattern; "" is every card
+	Dests []CardDest `json:"dests"`
+}
+
+// CardDest is one place a card is offloaded to: a drive and a folder
+// pattern on it, with {card} and {date} filled in.
+type CardDest struct {
+	DriveID string `json:"driveId"`
+	Folder  string `json:"folder"`
 }
 
 // BackupDrives lists the drives of the project's backup folders.
@@ -139,7 +158,7 @@ func cleanFolder(folder string) (string, error) {
 
 // Projects lists every project with its sources and destinations, by name.
 func (db *DB) Projects() ([]*Project, error) {
-	rows, err := db.sql.Query(`SELECT id, name, color, notes, target, created FROM projects ORDER BY name COLLATE NOCASE`)
+	rows, err := db.sql.Query(`SELECT id, name, color, notes, target, created, cards FROM projects ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +168,15 @@ func (db *DB) Projects() ([]*Project, error) {
 	for rows.Next() {
 		p := &Project{Sources: []Source{}, DestIDs: []string{}}
 		var created int64
-		if err := rows.Scan(&p.ID, &p.Name, &p.Color, &p.Notes, &p.Target, &created); err != nil {
+		var cards string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Color, &p.Notes, &p.Target, &created, &cards); err != nil {
 			return nil, err
+		}
+		if cards != "" {
+			var cr CardRules
+			if json.Unmarshal([]byte(cards), &cr) == nil {
+				p.Cards = &cr
+			}
 		}
 		p.Created = time.Unix(created, 0)
 		out = append(out, p)
@@ -246,8 +272,16 @@ func (db *DB) UpdateProject(p *Project) error {
 	if p.Target < 1 {
 		p.Target = 1
 	}
-	_, err := db.sql.Exec(`UPDATE projects SET name = ?, color = ?, notes = ?, target = ? WHERE id = ?`,
-		strings.TrimSpace(p.Name), p.Color, strings.TrimSpace(p.Notes), p.Target, p.ID)
+	cards := ""
+	if p.Cards != nil {
+		if p.Cards.Dests == nil {
+			p.Cards.Dests = []CardDest{}
+		}
+		b, _ := json.Marshal(p.Cards)
+		cards = string(b)
+	}
+	_, err := db.sql.Exec(`UPDATE projects SET name = ?, color = ?, notes = ?, target = ?, cards = ? WHERE id = ?`,
+		strings.TrimSpace(p.Name), p.Color, strings.TrimSpace(p.Notes), p.Target, cards, p.ID)
 	return err
 }
 

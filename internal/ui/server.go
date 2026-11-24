@@ -60,6 +60,10 @@ type Server struct {
 	states     map[string]map[string]catalog.FileState // backup state per drive, until the library changes
 	healths    map[int64]*healthEntry                  // project health, until the library changes
 
+	cardMu   sync.Mutex
+	cardSeen map[string]string // capture volume id -> mount it was last offered at
+	offers   map[string]*cardOffer
+
 	archMu   sync.Mutex
 	archives map[string]*archiveRun // archive analyses waiting to be applied
 	pulls    map[string]*pullRun    // pull analyses waiting to be copied
@@ -124,6 +128,7 @@ func (s *Server) Watch(ctx context.Context) {
 			job.AgentRunWith(ctx, s.db, r, agent.Notify, s.startQueuedCheck)
 			unlock()
 			s.refreshHealth(ctx)
+			s.watchCards()
 		}
 		select {
 		case <-ctx.Done():
@@ -242,6 +247,8 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/drives/{id}/card", s.cardStatus)
 	api("POST /api/drives/{id}/erase", s.eraseCard)
 	api("GET /api/report/day", s.dayReport)
+	api("POST /api/offers/{id}/go", s.offerGo)
+	api("DELETE /api/offers/{id}", s.offerDrop)
 	api("GET /api/media", s.listMedia)
 	api("GET /api/media.csv", s.exportMedia)
 	api("GET /api/settings", s.getSettings)
@@ -548,7 +555,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	return map[string]any{
 		"drives": drives, "volumes": vols, "runningJobs": running, "projects": projects, "ffmpeg": media.FFmpeg() != "",
 		"agent": agent.Status(), "version": s.meta.Version, "home": filepath.Dir(s.lockPath),
-		"update": s.updateSummary(), "recent": s.db.RecentOffloads(), "awake": s.awakeStatus(), "summarising": s.summarising(),
+		"update": s.updateSummary(), "recent": s.db.RecentOffloads(), "awake": s.awakeStatus(), "summarising": s.summarising(), "offers": s.offerList(),
 	}, nil
 }
 
@@ -889,41 +896,45 @@ func (s *Server) offload(w http.ResponseWriter, r *http.Request) (any, error) {
 	if body.Source == "" || len(body.Dests) == 0 {
 		return nil, badRequest("choose a source and at least one destination")
 	}
-	name := body.Name
-	if name == "" {
-		name = filepath.Base(filepath.Clean(body.Source))
-	}
 	skip := body.SourceCheck != nil && !*body.SourceCheck
+	j := s.startOffload(body.Source, body.Dests, body.Name, skip)
+	return map[string]any{"job": j.ID}, nil
+}
+
+// startOffload queues an offload as a job: the card and every
+// destination drive are held, so it waits for any job already on one.
+func (s *Server) startOffload(source string, dests []string, name string, skip bool) *Job {
+	title := name
+	if title == "" {
+		title = filepath.Base(filepath.Clean(source))
+	}
 	cmd := []string{"lumpy", "offload"}
-	if body.Name != "" {
-		cmd = append(cmd, "--name", shellQuote(body.Name))
+	if name != "" {
+		cmd = append(cmd, "--name", shellQuote(name))
 	}
 	if skip {
 		cmd = append(cmd, "--no-source-check")
 	}
-	cmd = append(cmd, "--verbose", shellQuote(body.Source))
-	for _, d := range body.Dests {
+	cmd = append(cmd, "--verbose", shellQuote(source))
+	for _, d := range dests {
 		cmd = append(cmd, shellQuote(d))
 	}
-	s.db.RememberOffload(body.Source, body.Dests)
-	title := fmt.Sprintf("Offload %s to %d drive(s)", name, len(body.Dests))
-	params := map[string]any{"source": body.Source, "dests": body.Dests, "name": body.Name, "sourceCheck": !skip}
-	// The card and every destination drive: the offload waits for any
-	// job already on one of them.
+	s.db.RememberOffload(source, dests)
+	params := map[string]any{"source": source, "dests": dests, "name": name, "sourceCheck": !skip}
 	var drives []string
-	for _, p := range append([]string{body.Source}, body.Dests...) {
+	for _, p := range append([]string{source}, dests...) {
 		if v, err := volume.Of(p); err == nil {
 			drives = append(drives, v.ID)
 		}
 	}
-	j := s.jobs.StartWhenFree("offload", title, strings.Join(cmd, " "), drives, func(ctx context.Context, rep *job.Report) error {
-		return job.Offload(ctx, job.OffloadOptions{Source: body.Source, Dests: body.Dests, Name: body.Name,
+	j := s.jobs.StartWhenFree("offload", fmt.Sprintf("Offload %s to %d drive(s)", title, len(dests)), strings.Join(cmd, " "), drives, func(ctx context.Context, rep *job.Report) error {
+		return job.Offload(ctx, job.OffloadOptions{Source: source, Dests: dests, Name: name,
 			Meta: s.meta, Library: s.db, SkipSourceVerify: skip}, rep)
 	})
 	j.mu.Lock()
 	j.Params = params
 	j.mu.Unlock()
-	return map[string]any{"job": j.ID}, nil
+	return j
 }
 
 func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) (any, error) {

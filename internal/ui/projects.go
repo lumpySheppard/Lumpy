@@ -118,14 +118,15 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) (any, err
 		return nil, err
 	}
 	var body struct {
-		Name    *string          `json:"name"`
-		Color   *string          `json:"color"`
-		Notes   *string          `json:"notes"`
-		Target  *int             `json:"target"`
-		Add     []catalog.Source `json:"add"`
-		Remove  []catalog.Source `json:"remove"`
-		Set     *catalog.Source  `json:"set"` // a folder's role, exclusions and routing
-		DestIDs *[]string        `json:"destIds"`
+		Name    *string            `json:"name"`
+		Color   *string            `json:"color"`
+		Notes   *string            `json:"notes"`
+		Target  *int               `json:"target"`
+		Add     []catalog.Source   `json:"add"`
+		Remove  []catalog.Source   `json:"remove"`
+		Set     *catalog.Source    `json:"set"` // a folder's role, exclusions and routing
+		DestIDs *[]string          `json:"destIds"`
+		Cards   *catalog.CardRules `json:"cards"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, badRequest("bad request: %v", err)
@@ -141,6 +142,14 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) (any, err
 	}
 	if body.Target != nil {
 		p.Target = *body.Target
+	}
+	if body.Cards != nil {
+		p.Cards = body.Cards
+		// New orders: cards already plugged in get looked at again.
+		s.cardMu.Lock()
+		s.cardSeen = nil
+		s.cardMu.Unlock()
+		defer s.watchCards()
 	}
 	if err := s.db.UpdateProject(p); err != nil {
 		return nil, badRequest("%v", err)

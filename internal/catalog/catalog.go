@@ -207,6 +207,7 @@ func Open(path string) (*DB, error) {
 		`project_sources ADD COLUMN role TEXT NOT NULL DEFAULT ''`,
 		`project_sources ADD COLUMN exclude TEXT NOT NULL DEFAULT ''`,
 		`project_sources ADD COLUMN route TEXT NOT NULL DEFAULT ''`,
+		`projects ADD COLUMN cards TEXT NOT NULL DEFAULT ''`,
 		`drives ADD COLUMN let_sleep INTEGER NOT NULL DEFAULT 0`,
 	} {
 		s.Exec(`ALTER TABLE ` + col)

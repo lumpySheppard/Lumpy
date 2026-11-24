@@ -158,6 +158,7 @@ async function loadState() {
     if (first || !S.settings) S.settings = await api("/api/settings").catch(() => null);
     const after = S.state.drives.map((d) => d.id + (d.connected ? "+" : "-")).join();
     if (before !== after && S.onDrives) S.onDrives();
+    showOffers();
     // The cards draw at once; their backup badges arrive when the
     // summaries are done, a moment later.
     if (S.state.summarising) { clearTimeout(S.sumTimer); S.sumTimer = setTimeout(loadState, 1500); }
@@ -1187,6 +1188,7 @@ function renderProjectPage() {
         <div class="checks" id="dest-list" style="margin-top:8px;${anyDest ? "opacity:.55" : ""}">${(S.state.drives || []).map((d) => `<label><input type="checkbox" data-dest="${esc(d.id)}" ${dest.has(d.id) ? "checked" : ""} ${anyDest ? "disabled" : ""}><span class="dot" style="background:${d.connected ? "var(--ok)" : COLORS[d.labels.color] || "var(--muted)"}"></span>${esc(d.title)}<span class="hint">${bytes(d.free)} free${d.connected ? " · plugged in" : ""}${d.labels.noBackups ? " · marked “no backups here”" : ""}</span></label>`).join("")}</div>
         <p class="hint" style="margin:8px 0 0">Drives marked “no backups here” in their details (camera cards, loaners) are skipped unless ticked above.</p>
       </section>
+      ${cardsSection(p)}
       <section class="panel"><h2>Notes</h2><textarea class="path-input" id="proj-notes" rows="4" placeholder="Where the drives live, who has what, what's still to come…">${esc(p.notes)}</textarea></section>
     </div>
     </div>`;
@@ -1194,6 +1196,37 @@ function renderProjectPage() {
   wireProjectPage(p);
 }
 
+// cardsSection is a project's standing orders for cards: watch for
+// them, which ones, where each goes, and whether to ask first.
+function cardsSection(p) {
+  const c = p.cards || { watch: false, auto: false, match: "", dests: [] };
+  const drives = (S.state.drives || []).filter((d) => !isCard(d));
+  const row = (d, i) => `<div class="path-row card-dest" data-i="${i}"><label class="select"><select class="plain" data-cd-drive="${i}">${drives.map((x) => `<option value="${esc(x.id)}" ${x.id === d.driveId ? "selected" : ""}>${esc(x.title)}${x.connected ? "" : " (unplugged)"}</option>`).join("")}</select></label><input class="path-input" data-cd-folder="${i}" value="${esc(d.folder)}" placeholder="01_RAW/{date}"><button class="icon-btn" data-cd-rm="${i}" title="Remove">${ICON.x}</button></div>`;
+  return `<section class="panel cards"><h2>Cards</h2>
+    <p class="hint">When a camera card is plugged in, Lumpy can offer to offload it for this project, or just do it. The card's own folder is made inside each destination. <b>{date}</b> is today's date, <b>{day}</b> Day_MMDD, <b>{year}</b> the year.</p>
+    <label class="switch row"><span>Watch for cards</span><input type="checkbox" id="cd-watch" ${c.watch ? "checked" : ""}></label>
+    <div class="field" style="margin-top:8px"><label>Which cards <span class="hint">· a name pattern, comma-separated, or blank for every card</span></label><input class="path-input" id="cd-match" value="${esc(c.match || "")}" placeholder="A*, B*"></div>
+    <div class="field" style="margin-top:8px"><label>Offload to</label>${(c.dests || []).map(row).join("")}<button class="btn small" id="cd-add" style="margin-top:4px">${ICON.plus}Another destination</button></div>
+    <label class="switch row" style="margin-top:8px"><span>Offload without asking<small>When every destination drive is plugged in; otherwise Lumpy asks.</small></span><input type="checkbox" id="cd-auto" ${c.auto ? "checked" : ""}></label>
+    <div class="go-row" style="margin-top:10px"><button class="btn primary" id="cd-save">Save card rules</button><span class="note">${c.watch && (c.dests || []).length ? `Watching for ${c.match ? esc(c.match) : "any card"} → ${(c.dests || []).map((d) => driveTitle(d.driveId) + "/" + d.folder).join(", ")}` : "Not watching"}</span></div>
+  </section>`;
+}
+function wireCards(p) {
+  const c = p.cards ? JSON.parse(JSON.stringify(p.cards)) : { watch: false, auto: false, match: "", dests: [] };
+  if (!c.dests) c.dests = [];
+  const read = () => {
+    c.watch = $("#cd-watch").checked; c.auto = $("#cd-auto").checked; c.match = $("#cd-match").value.trim();
+    c.dests = [...document.querySelectorAll(".card-dest")].map((r) => ({ driveId: r.querySelector("[data-cd-drive]").value, folder: r.querySelector("[data-cd-folder]").value.trim() }));
+  };
+  const redraw = () => { p.cards = c; const sec = document.querySelector(".panel.cards"); sec.outerHTML = cardsSection(p); wireCards(p); };
+  $("#cd-add").onclick = () => { read(); c.dests.push({ driveId: (S.state.drives.find((d) => d.connected && !isCard(d)) || S.state.drives[0] || {}).id || "", folder: "01_RAW/{date}" }); redraw(); };
+  for (const b of document.querySelectorAll("[data-cd-rm]")) b.onclick = () => { read(); c.dests.splice(+b.dataset.cdRm, 1); redraw(); };
+  $("#cd-save").onclick = async () => {
+    read();
+    try { await api(`/api/projects/${p.id}`, { method: "PATCH", body: { cards: c } }); toast(c.watch ? "Card rules saved; Lumpy is watching" : "Card rules saved"); await loadProject(p.id); }
+    catch (e) { toast(e.message, true); }
+  };
+}
 // masterSection is the project's master print: the player, Show in
 // Finder, and a switch to the open-matte version when there is one.
 function masterSection(data) {
@@ -1223,6 +1256,7 @@ function wireMaster(data) {
 }
 function wireProjectPage(p) {
   wireMaster(S.projectData);
+  wireCards(p);
   $("#proj-media").onclick = () => { S.media = { project: String(p.id), drive: "", kind: "", format: "", codec: "", rate: "", qc: "", q: "" }; S.tab = "media"; S.project = null; localSet("tab", S.tab); render(); };
   $("#proj-media-csv").onclick = () => downloadCSV(`/api/media.csv?project=${p.id}`, `${p.name.replace(/[^\w.-]+/g, "_")}-clips-${new Date().toISOString().slice(0, 10)}.csv`);
   const patch = async (body, then) => {
@@ -2199,6 +2233,25 @@ document.addEventListener("error", (e) => {
   if (!img || img.tagName !== "IMG" || !img.closest(".clip-tile")) return;
   img.replaceWith(Object.assign(document.createElement("div"), { className: "noimg", innerHTML: `${ICON.film}<span>No preview</span>` }));
 }, true);
+
+// ---------- card offers: a card is in, and a project wants it ----------
+S.offered = new Set();
+function showOffers() {
+  const offers = S.state.offers || [];
+  const o = offers.find((x) => !S.offered.has(x.id));
+  if (!o || !$("#sheet").hidden) return;
+  S.offered.add(o.id);
+  const names = o.dests.map((d) => { const v = (S.state.volumes || []).find((x) => d.startsWith(x.mount + "/") || d === x.mount); return v ? v.name + d.slice(v.mount.length) : d; });
+  openSheet(`<div class="sheet-head"><span class="n-tag" style="--pc:${COLORS[o.color] || "var(--accent)"}">${ICON.plug}</span><div><h2>${esc(o.card)} is in</h2><div class="sub">${bytes(o.bytes)} on it · ${esc(o.project)} watches for cards</div></div><div class="actions"><button class="icon-btn" id="of-close" title="Not now">${ICON.x}</button></div></div>
+    <div class="sheet-body">
+      ${o.missing.length ? `<div class="alert warn"><b>${esc(o.missing.join(" and "))} ${o.missing.length === 1 ? "is" : "are"} not plugged in.</b> ${o.dests.length ? "Lumpy can copy to the rest now, or wait." : "Plug it in and the offer comes back."}</div>` : ""}
+      ${o.dests.length ? `<p>Copy everything on <b>${esc(o.card)}</b> to:</p><ul class="plain-list">${names.map((n) => `<li class="mono">${esc(n)}</li>`).join("")}</ul><p class="hint">Each copy is read back and checksummed; the card is never written to.</p>` : ""}
+    </div>
+    <div class="sheet-foot"><button class="btn" id="of-no">Not now</button>${o.dests.length ? `<button class="btn primary" id="of-go">${ICON.copy}Offload now</button>` : ""}</div>`, true);
+  const drop = async () => { closeSheet(); try { await api(`/api/offers/${encodeURIComponent(o.id)}`, { method: "DELETE" }); } catch {} };
+  $("#of-close").onclick = $("#of-no").onclick = drop;
+  const go = $("#of-go"); if (go) go.onclick = async () => { go.disabled = true; try { await api(`/api/offers/${encodeURIComponent(o.id)}/go`, { method: "POST" }); closeSheet(); toast(`Offloading ${o.card}; watch Activity`); loadJobs(); } catch (e) { toast(e.message, true); go.disabled = false; } };
+}
 
 // ---------- the card sheet: can I format this? ----------
 async function openCard(id) {

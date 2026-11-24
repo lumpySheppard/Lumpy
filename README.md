@@ -503,6 +503,21 @@ project per ticked group, two copies wanted, every folder a source.
 Folders already in a project are shown greyed with the project's name.
 Nothing on any drive is touched.
 
+### Cards that offload themselves
+
+A project page has **Cards**: tick **Watch for cards**, say which
+cards (a name pattern such as `A*, B*`, or every card), and where each
+goes: a drive and a folder on it, with `{date}` for today, `{day}` for
+`Day_MMDD` and `{year}` filled in; the card's own folder is made inside
+each, as an offload always does. From then on,
+when a card is plugged in, Lumpy posts a notification and the app
+shows an offer: what is on the card and the folders it would go to,
+with **Offload now** and **Not now**. With **Offload without asking**
+on, and every destination drive plugged in, the offload simply starts,
+and the notification says so. A destination drive that is not plugged
+in is named in the offer; plug it in and the offer comes back. Cards
+are still never logged by themselves; the offload records them.
+
 ### New project folder
 
 **Projects → New project folder…** makes a job's folders from a
