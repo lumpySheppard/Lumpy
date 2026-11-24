@@ -994,7 +994,7 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .pop-head { border-bottom-color: var(--ink); }
 :root[data-style="classic"] .btn, :root[data-style="classic"] .pill, :root[data-style="classic"] .seg, :root[data-style="classic"] .select select, :root[data-style="classic"] select.plain,
 :root[data-style="classic"] .search input, :root[data-style="classic"] .icon-btn, :root[data-style="classic"] .field input:not([type="checkbox"]), :root[data-style="classic"] .path-input, :root[data-style="classic"] .inline-input {
-  height: 26px; min-height: 26px; box-sizing: border-box; border-radius: 5px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); box-shadow: none;
+  height: 26px; min-height: 26px; box-sizing: border-box; border-radius: 4px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); box-shadow: none;
 }
 :root[data-style="classic"] .btn { display: inline-flex; align-items: center; padding: 0 12px; }
 :root[data-style="classic"] .btn.small { height: 22px; min-height: 22px; padding: 0 9px; }
@@ -1013,7 +1013,7 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .seg button { height: 24px; padding: 0 11px; border-radius: 0; color: var(--ink); border-right: 1px solid var(--ink); background: none; }
 :root[data-style="classic"] .seg button:last-child { border-right: 0; }
 :root[data-style="classic"] .seg button.on { background: var(--ink); color: var(--paper); }
-:root[data-style="classic"] .select select, :root[data-style="classic"] select.plain { padding: 0 26px 0 10px; box-shadow: 1px 1px 0 var(--ink); background-repeat: no-repeat; background-position: right 9px center; }
+:root[data-style="classic"] .select select, :root[data-style="classic"] select.plain { padding: 0 26px 0 10px; background-repeat: no-repeat; background-position: right 9px center; }
 :root[data-style="classic"][data-theme="dark"] .select select, :root[data-style="classic"][data-theme="dark"] select.plain { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 3h8L5 8z' fill='%23fff'/%3E%3C/svg%3E"); }
 :root[data-style="classic"][data-theme="light"] .select select, :root[data-style="classic"][data-theme="light"] select.plain { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 3h8L5 8z' fill='%23000'/%3E%3C/svg%3E"); }
 :root[data-style="classic"] .icon-btn { width: 28px; border-color: transparent; background: none; }
@@ -1110,7 +1110,7 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] #main:has(.strip) .clip-tile { background: #fff; border-color: #000; color: #000; box-shadow: 2px 2px 0 #000; backdrop-filter: none; -webkit-backdrop-filter: none; }
 :root[data-style="classic"] #main:has(.strip) .pill, :root[data-style="classic"] #main:has(.strip) .btn, :root[data-style="classic"] #main:has(.strip) .seg,
 :root[data-style="classic"] #main:has(.strip) .select select, :root[data-style="classic"] #main:has(.strip) .search input { box-shadow: none; }
-:root[data-style="classic"] #main:has(.strip) .select select { box-shadow: 1px 1px 0 #000; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 3h8L5 8z' fill='%23000'/%3E%3C/svg%3E") no-repeat right 9px center; }
+:root[data-style="classic"] #main:has(.strip) .select select { background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 3h8L5 8z' fill='%23000'/%3E%3C/svg%3E") no-repeat right 9px center; }
 :root[data-style="classic"] #main:has(.strip) .seg button { color: #000; border-color: #000; }
 :root[data-style="classic"] #main:has(.strip) .seg button.on { background: #000; color: #fff; }
 :root[data-style="classic"] #main:has(.strip) .btn:hover { background: #000; color: #fff; }
