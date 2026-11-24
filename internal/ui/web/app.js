@@ -518,7 +518,7 @@ function capRing(used, size, cls = "") {
   const pct = size ? Math.max(0, Math.min(100, (used / size) * 100)) : 0;
   const r = 24, c = 2 * Math.PI * r;
   const col = pct >= 90 ? "var(--bad)" : pct >= 85 ? "var(--orange)" : pct >= 70 ? "var(--warn)" : "var(--ring)";
-  return `<div class="ring ${cls}" title="${pct.toFixed(0)}% full"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="${r}" class="track"/><circle cx="30" cy="30" r="${r}" class="fill" style="stroke:${col};stroke-dasharray:${c.toFixed(2)};stroke-dashoffset:${(c * (1 - pct / 100)).toFixed(2)}"/></svg><span class="pct" style="color:${pct >= 70 ? col : "var(--text)"}">${Math.round(pct)}<small>%</small></span></div>`;
+  return `<div class="ring ${cls}" title="${pct.toFixed(0)}% full"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="${r}" class="track"/><circle cx="30" cy="30" r="${r}" class="fill" style="stroke:${col};stroke-dasharray:${c.toFixed(2)};stroke-dashoffset:${(c * (1 - pct / 100)).toFixed(2)}"/></svg><span class="pct" style="color:${pct >= 70 ? col : "var(--text)"}">${Math.round(pct)}</span></div>`;
 }
 // loadingGlyph is a hard drive being read, for every "loading" state.
 function loadingGlyph(text, small) {
