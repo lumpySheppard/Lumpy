@@ -2335,11 +2335,23 @@ function applyAppearance() {
   const light = pref === "light" || (pref === "system" && window.matchMedia("(prefers-color-scheme: light)").matches);
   document.documentElement.dataset.theme = light ? "light" : "dark";
   if (style === "classic") document.documentElement.dataset.style = "classic"; else delete document.documentElement.dataset.style;
+  applyDesk(style === "classic" && light);
   if (native) nativeCall("appearance", { theme: light ? "light" : "dark" });
   const classic = style === "classic";
   const swapped = classic !== S.classicIcons;
   if (swapped) { S.classicIcons = classic; useClassicIcons(classic); }
   return swapped;
+}
+// applyDesk sets the shade of the grey desktop behind Classic's windows
+// on Light, from the Desktop shade slider in Settings: 0 is pale, 100
+// is charcoal.
+function applyDesk(on) {
+  const st = document.documentElement.style;
+  if (!on) { st.removeProperty("--desk"); st.removeProperty("--bg"); return; }
+  const dark = Math.max(0, Math.min(100, +localGet("desk", 15) || 0)), l = 88 - dark * 0.6;
+  const g = (x) => `hsl(240 4% ${x.toFixed(0)}%)`;
+  st.setProperty("--desk", `repeating-conic-gradient(${g(l - 8)} 0 25%, ${g(l)} 0 50%) 0 0 / 2px 2px`);
+  st.setProperty("--bg", g(l - 4));
 }
 window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", applyAppearance);
 applyAppearance();
@@ -2369,7 +2381,9 @@ async function openSettings(focus) {
         <div class="box"><div class="fields"><div class="field"><label>Appearance</label>
           <div class="seg" id="appearance">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([v, l]) => `<button data-appearance="${v}" class="${localGet("appearance", "dark") === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
           <div class="field"><label>Style <span class="hint">· Classic is System 7 chrome: square windows, pixel glyphs, Chicago, on Light or Dark</span></label>
-          <div class="seg" id="style-seg">${[["modern", "Modern"], ["classic", "Classic"]].map(([v, l]) => `<button data-style="${v}" class="${localGet("style", "modern") === v ? "on" : ""}">${l}</button>`).join("")}</div></div></div></div></div>
+          <div class="seg" id="style-seg">${[["modern", "Modern"], ["classic", "Classic"]].map(([v, l]) => `<button data-style="${v}" class="${localGet("style", "modern") === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
+          <div class="field"><label>Desktop shade <span class="hint">· the grey behind the windows in Classic on Light, pale to charcoal</span></label>
+          <input type="range" id="desk-shade" min="0" max="100" step="1" value="${localGet("desk", 15)}"></div></div></div></div>
 
       <div class="sec"><div class="sec-title">${ICON.drive}Drives</div>
         <div class="box">
@@ -2471,6 +2485,7 @@ async function openSettings(focus) {
     document.querySelectorAll("[data-appearance]").forEach((x) => x.classList.toggle("on", x === b));
     if (applyAppearance() && S.state) { render(); openSettings(); }
   };
+  $("#desk-shade").oninput = () => { localSet("desk", $("#desk-shade").value); applyAppearance(); };
   for (const b of document.querySelectorAll("[data-style]")) b.onclick = () => {
     localSet("style", b.dataset.style);
     document.querySelectorAll("[data-style]").forEach((x) => x.classList.toggle("on", x === b));
