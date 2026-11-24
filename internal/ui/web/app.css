@@ -440,7 +440,7 @@ table.grouped tr.sub td:first-child { width: 22px; padding-right: 0; }
 
 .empty { max-width: 460px; margin: 70px auto; text-align: center; color: var(--muted); }
 .empty h2 { color: var(--text); font-size: 17px; margin: 14px 0 6px; }
-.empty svg { width: 46px; height: 46px; color: var(--muted); }
+.empty > svg { width: 46px; height: 46px; color: var(--muted); }
 .empty code { font-family: var(--mono); font-size: 12px; background: var(--bg-2); padding: 2px 6px; border-radius: 5px; color: var(--text-2); }
 
 /* Sheet (details, dialogs) */
@@ -956,9 +956,9 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .section-head svg, :root[data-style="classic"] .mc-head svg, :root[data-style="classic"] .n-tag svg, :root[data-style="classic"] .card-meta svg,
 :root[data-style="classic"] .job-head svg, :root[data-style="classic"] .map-legend svg { width: 16px; height: 16px; }
 :root[data-style="classic"] .badge svg, :root[data-style="classic"] .pill svg, :root[data-style="classic"] .card-foot svg, :root[data-style="classic"] .tree svg, :root[data-style="classic"] .list svg { width: 12px; height: 12px; }
-:root[data-style="classic"] .empty svg { width: 48px; height: 48px; }
+:root[data-style="classic"] .empty > svg { width: 48px; height: 48px; }
 :root[data-style="classic"] svg.px12 { width: 12px; height: 12px; }
-:root[data-style="classic"] .empty svg.px12 { width: 36px; height: 36px; }
+:root[data-style="classic"] .empty > svg.px12 { width: 36px; height: 36px; }
 :root[data-style="classic"] .sheet-head .drive-ico { width: 32px; height: 32px; }
 :root[data-style="classic"] .card-pic { width: 96px; height: 72px; margin: 0 0 0 -4px; filter: none; }
 :root[data-style="classic"] .node .n-pic { width: 64px; height: 48px; margin-left: -2px; filter: none; }
