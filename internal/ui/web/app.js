@@ -464,7 +464,7 @@ const PXI = {
   back: ["................", "................", "................", "......#.........", ".....##.........", "....###.........", "...############.", "..#############.", "...############.", "....###.........", ".....##.........", "......#.........", "................", "................", "................", "................"],
   arrow: ["................", "................", "................", ".........#......", ".........##.....", ".........###....", ".############...", ".#############..", ".############...", ".........###....", ".........##.....", ".........#......", "................", "................", "................", "................"],
   play: ["............", "...#........", "...##.......", "...###......", "...####.....", "...#####....", "...#####....", "...####.....", "...###......", "...##.......", "...#........", "............"],
-  gear: ["......###.......", "......###.......", "..#..#####..#...", "..##########....", "..####...####...", ".#####...#####..", "####.......####.", "####.......####.", "####.......####.", ".#####...#####..", "..####...####...", "..##########....", "..#..#####..#...", "......###.......", "......###.......", "................"],
+  gear: ["................", "....###..###....", "....###..###....", ".....######.....", ".##.########.##.", ".#####....#####.", ".####......####.", "...##......##...", "...##......##...", ".####......####.", ".#####....#####.", ".##.########.##.", ".....######.....", "....###..###....", "....###..###....", "................"],
   globe: ["................", ".....######.....", "....#..#...#....", "...#...#....#...", "..#....#.....#..", "..############..", "..#....#.....#..", "..#....#.....#..", "..############..", "..#....#.....#..", "...#...#....#...", "....#..#...#....", ".....######.....", "................", "................", "................"],
   clapper: ["................", ".#############..", ".#.#.#.#.#.#.#..", ".##.#.#.#.#.##..", ".#############..", ".#...........#..", ".#...........#..", ".#...........#..", ".#...........#..", ".#...........#..", ".#...........#..", ".#############..", "................", "................", "................", "................"],
   reveal: ["................", ".###########....", ".#.........#....", ".#..##..##.#....", ".#.........#....", ".#.#.....#.#....", ".#..#####..#....", ".#.........#....", ".###########....", ".#.........#....", ".#.........#....", ".###########....", "...#.....#......", "..###...###.....", "................", "................"],
@@ -659,7 +659,7 @@ function drivesHTML(ds) {
 }
 function drivesHTML1(ds) {
   if (S.view === "list") {
-    return `<table class="list"><thead><tr><th>Name</th><th>Client · Project</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th class="num">Files</th><th>Backups</th><th>Last check</th><th>Last seen</th></tr></thead><tbody>
+    return `<table class="list drives"><colgroup><col style="width:20%"><col style="width:14%"><col style="width:8%"><col style="width:11%"><col style="width:8%"><col style="width:6%"><col style="width:14%"><col style="width:8%"><col style="width:11%"></colgroup><thead><tr><th>Name</th><th>Client · Project</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th class="num">Files</th><th>Backups</th><th>Last check</th><th>Last seen</th></tr></thead><tbody>
       ${ds.map((d) => {
         const used = Math.max(0, d.size - d.free);
         return `<tr class="row" data-drive="${esc(d.id)}"><td><div class="name"><span class="dot" style="background:${d.connected ? "var(--ok)" : cardColor(d) || "var(--muted)"}"></span>${hl(d.title)}${d.labels.nickname ? ` <small>${esc(d.name)}</small>` : ""}</div></td>
@@ -741,6 +741,7 @@ function openSheet(html, small) {
   sh.innerHTML = `<button class="win-close" title="Close" aria-label="Close"></button>` + html;
   const h = sh.querySelector("h2, .sheet-head b");
   if (h) sh.insertAdjacentHTML("afterbegin", `<span class="win-title">${esc(h.textContent.trim())}</span>`);
+  for (const b of sh.querySelectorAll(".sheet-head .icon-btn")) if ((b.id.endsWith("close") || b.title === "Close") && b.title !== "Back") b.classList.add("x-close");
   sh.querySelector(".win-close").onclick = () => { if (S.file) closeFile(); else { sh.hidden = true; $("#scrim").hidden = true; } };
   sh.hidden = false;
   $("#scrim").hidden = false;
@@ -1131,7 +1132,7 @@ function renderProjectPage() {
             <div class="cap">${bytes(sh.bytes)} · ${sh.files.toLocaleString()} files${sh.soleBytes + sh.shortBytes ? `<span class="sep">•</span><span style="color:var(--warn)">${bytes(sh.soleBytes + sh.shortBytes)} still to copy</span>` : ""}${sh.extraBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.extraBytes)} on more drives than needed</span>` : ""}${sh.orphanBytes ? `<span class="sep">•</span><span class="hint" title="Files only in this backup folder: nothing in the project's own folders matches them, so they are left alone">${bytes(sh.orphanBytes)} only here</span>` : ""}${sh.excludedBytes ? `<span class="sep">•</span><span class="hint">${bytes(sh.excludedBytes)} excluded</span>` : ""}${d && !d.connected ? `<span class="sep">•</span><span class="hint">last seen ${new Date(d.lastSeen * 1000).toLocaleDateString()}</span>` : ""}</div>
             <div class="src-ctl">
               <label class="switch" title="A folder that exists to hold copies: the plan copies only onto backup drives, and files found only here are left alone">Backup drive <input type="checkbox" data-role="${i}" ${backup ? "checked" : ""}></label>
-              ${!backup && others.length ? `<label class="select"><span class="hint">Copies go into</span><select class="plain" data-into="${i}">
+              ${!backup && others.length ? `<label class="select"><span class="hint" style="white-space:nowrap">Copies go into</span><select class="plain" data-into="${i}">
                 <option value="" ${intoKey ? "" : "selected"}>${inferred.length ? "Worked out: " + esc(inferred.join(", ")) : "A folder named after the project"}</option>
                 ${others.map((o) => `<option value="${esc(o.driveId)}|${esc(o.folder || "")}" ${intoKey === `${o.driveId}|${o.folder || ""}` ? "selected" : ""}>${esc(srcName(o))} · same paths</option>`).join("")}
                 </select></label>` : ""}
