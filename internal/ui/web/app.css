@@ -1043,7 +1043,7 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .sheet, :root[data-style="classic"] .popover { padding-top: 22px; }
 :root[data-style="classic"] .sheet::before, :root[data-style="classic"] .popover::before {
   content: ""; position: absolute; left: 0; right: 0; top: 0; height: 22px; box-sizing: border-box; pointer-events: none;
-  background: color-mix(in srgb, var(--ink) 14%, var(--paper)); border-bottom: 1px solid var(--ink);
+  background: color-mix(in srgb, var(--ink) 14%, var(--paper)); border-bottom: 1px solid var(--ink); border-radius: 3px 3px 0 0;
 }
 .win-close, .win-title { display: none; }
 :root[data-style="classic"] .win-title { display: block; position: absolute; left: 24px; right: 24px; top: 0; height: 21px; line-height: 21px; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); font: 12px/21px var(--chicago); pointer-events: none; }
