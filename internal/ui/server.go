@@ -67,6 +67,7 @@ type Server struct {
 	archMu   sync.Mutex
 	archives map[string]*archiveRun // archive analyses waiting to be applied
 	pulls    map[string]*pullRun    // pull analyses waiting to be copied
+	tidies   map[int64][]pullPath   // where the last tidy-up put each project's files
 	spc      spaceStore             // measured disks, for the Space tab
 }
 
@@ -247,6 +248,9 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/drives/{id}/card", s.cardStatus)
 	api("POST /api/drives/{id}/erase", s.eraseCard)
 	api("GET /api/report/day", s.dayReport)
+	api("POST /api/projects/{id}/tidy/plan", s.tidyPlanHandler)
+	api("POST /api/projects/{id}/tidy/run", s.tidyRunHandler)
+	api("POST /api/projects/{id}/tidy/relink", s.tidyRelinkHandler)
 	api("POST /api/offers/{id}/go", s.offerGo)
 	api("DELETE /api/offers/{id}", s.offerDrop)
 	api("GET /api/media", s.listMedia)
@@ -331,6 +335,17 @@ func (s *Server) mounted() []*volume.Volume {
 		s.volsAt = time.Now()
 	}
 	return s.vols
+}
+
+// invalidate forgets every cached summary, so the next request reads
+// the library afresh.
+func (s *Server) invalidate() {
+	s.mu.Lock()
+	s.cacheKey = ""
+	s.summaryAt = time.Time{}
+	s.states = map[string]map[string]catalog.FileState{}
+	s.healths = nil
+	s.mu.Unlock()
 }
 
 func (s *Server) mountOf(id string) *volume.Volume {

@@ -161,6 +161,11 @@ func (p *Progress) Current() string {
 	return s
 }
 
+// StartProgress begins a counted phase for callers outside this package.
+func (r *Report) StartProgress(label string, total int64) *Progress {
+	return r.startProgress(label, total)
+}
+
 func (r *Report) startProgress(label string, total int64) *Progress {
 	p := &Progress{label: label, total: total, start: time.Now(), stop: make(chan struct{}), mu: &r.mu, owner: r}
 	r.prog.Store(p)

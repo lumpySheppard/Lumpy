@@ -485,6 +485,27 @@ at the raws without a copy. It needs `python3` on the Mac (Xcode's
 command line tools provide one). Activity shows each clip relinked, and
 which were skipped because their drive isn't plugged in.
 
+### Tidy up
+
+A project that didn't follow the house structure (a quick edit, a
+drive someone else laid out, a short from before the template) gets
+sorted into it from the project page: **Tidy up…**, choose the
+template, **Look**. Lumpy classifies every file under the project's
+folders on the plugged-in drives (camera originals, proxies, audio,
+music, outputs and masters, graphics, stills, edit project files,
+documents) and shows the plan as groups: each top-level folder's files
+of each kind, with the template folder they would go to, which you can
+change or set to leave alone; files already under the right folder are
+counted and left. **Move** renames every file on its own drive (so it
+is instant and nothing is copied), keeping each file's folders beneath
+the new top folder and dropping a top folder that only meant the
+category (`Exports/final/x.mov` becomes `09_OUTPUT/final/x.mov`),
+creates the template's folders, removes the empty folders left behind,
+writes `_Lumpy tidy <date>.json` in the project root with every old
+and new path, and brings the library up to date. Then **Relink in
+DaVinci Resolve** points every clip in the open Resolve project at its
+new place, the same way Pull does.
+
 ### Find projects
 
 **Projects → Find projects…** looks through every logged drive's

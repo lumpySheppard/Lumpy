@@ -1098,7 +1098,7 @@ function renderProjectPage() {
       <input class="inline-input" id="proj-name" value="${esc(p.name)}" title="Rename">
       <label class="hint">Copies wanted <select class="plain" id="proj-target">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${p.target === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <div class="swatches">${Object.entries(COLORS).map(([k, c]) => `<button class="swatch ${p.color === k ? "on" : ""}" data-pcolor="${k}" style="background:${c}" title="${k}"></button>`).join("")}</div>
-      <div class="right"><button class="btn" id="proj-media" title="Every clip in this project with its codec, frame rate, timecode and log notes">${ICON.clapper}Clips</button><button class="btn" id="proj-media-csv" title="Clip list with metadata, for post">${ICON.export}Clips CSV…</button><button class="btn danger" id="proj-delete">Delete project</button></div>
+      <div class="right"><button class="btn" id="proj-tidy" title="Sort this project's loose files into the standard folders, then relink in Resolve">${ICON.folder}Tidy up…</button><button class="btn" id="proj-media" title="Every clip in this project with its codec, frame rate, timecode and log notes">${ICON.clapper}Clips</button><button class="btn" id="proj-media-csv" title="Clip list with metadata, for post">${ICON.export}Clips CSV…</button><button class="btn danger" id="proj-delete">Delete project</button></div>
     </div>
 
     ${masterSection(data)}
@@ -1196,6 +1196,70 @@ function renderProjectPage() {
   wireProjectPage(p);
 }
 
+// tidyDialog sorts a project's loose files into a template's folders:
+// pick the template, look at the plan as groups, adjust where each
+// goes, move, then relink in Resolve.
+async function tidyDialog(p) {
+  let data;
+  try { data = await api("/api/templates"); } catch (e) { return toast(e.message, true); }
+  const t = { template: data.settings.template || (data.templates[0] || {}).path || "", plan: null, busy: false, job: null, done: false };
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  const draw = () => {
+    const tpl = data.templates.find((x) => x.path === t.template);
+    const plan = t.plan;
+    const moving = plan ? plan.groups.filter((g) => !g.inPlace && g.dest).reduce((a, g) => a + g.files, 0) : 0;
+    openSheet(`<div class="sheet-head"><div><h2>Tidy up ${esc(p.name)}</h2><div class="sub">Loose files into the standard folders</div></div><div class="actions"><button class="icon-btn" id="td-close">${ICON.x}</button></div></div>
+      <div class="sheet-body">
+        <p class="hint" style="margin:10px 0 4px">Files move on their own drive, so it is instant and nothing is copied. A log of every old and new path is written beside them, and the library follows.</p>
+        ${t.done ? `<div class="alert ok"><b>Done.</b> ${esc(t.done)} Resolve can now be told where everything went.</div>` : ""}
+        <div class="sec"><div class="sec-title">${ICON.folder}Template</div><div class="box"><div class="path-row">
+          <label class="select" style="flex:1"><select class="plain" id="td-template">${data.templates.map((x) => `<option value="${esc(x.path)}" ${x.path === t.template ? "selected" : ""}>${esc(x.name)}</option>`).join("")}${t.template && !tpl ? `<option value="${esc(t.template)}" selected>${esc(t.template.split("/").pop())}</option>` : ""}</select></label>
+          <button class="btn" id="td-pick">Choose…</button><button class="btn primary" id="td-look" ${t.template && !t.busy ? "" : "disabled"}>${t.busy ? "Looking…" : "Look"}</button></div>
+          ${tpl ? `<p class="hint" style="margin:8px 0 0">${tpl.folders.map((f) => `<span class="chip">${esc(f)}</span>`).join(" ")}</p>` : ""}</div></div>
+        ${plan ? `<div class="sec"><div class="sec-title">${ICON.copy}The plan<span class="count">${plan.files.toLocaleString()} files</span></div><div class="box">
+          ${plan.offline.length ? `<div class="alert warn" style="margin-bottom:10px">Not plugged in, so left out: ${esc(plan.offline.join(", "))}</div>` : ""}
+          <p class="hint" style="margin:0 0 10px"><b>${moving.toLocaleString()}</b> to move · <b>${plan.inPlace.toLocaleString()}</b> already where they belong · <b>${plan.groups.filter((g) => !g.inPlace && !g.dest).reduce((a, g) => a + g.files, 0).toLocaleString()}</b> left alone. Change where any group goes.</p>
+          <table class="list compact tidy"><thead><tr><th>From</th><th>What</th><th class="num">Files</th><th class="num">Size</th><th>To</th></tr></thead><tbody>
+          ${plan.groups.map((g, i) => `<tr class="${g.inPlace ? "dim" : ""}"><td><div class="name"><span class="dot" style="background:var(--ok)"></span><span>${esc(g.drive)}${g.source ? "/" + esc(g.source) : ""}<small>${g.top ? esc(g.top) + "/" : "(top level)"}</small></span></div></td>
+            <td>${esc(g.label)}<small class="hint" style="display:block">${g.samples.map(esc).join(", ")}${g.files > 3 ? "…" : ""}</small></td><td class="num">${g.files.toLocaleString()}</td><td class="num">${bytes(g.bytes)}</td>
+            <td>${g.inPlace ? '<span class="ok">already there</span>' : `<label class="select"><select class="plain" data-td-dest="${i}"><option value="">Leave as is</option>${plan.folders.map((f) => `<option value="${esc(f)}" ${f === g.dest ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></label>`}</td></tr>`).join("")}
+          </tbody></table></div></div>` : ""}
+      </div>
+      <div class="sheet-foot">${t.done ? `${native ? `<button class="btn" id="td-finder">${ICON.reveal}Show in Finder</button>` : ""}<button class="btn primary" id="td-relink">${ICON.film}Relink in DaVinci Resolve</button><button class="btn" id="td-cancel">Close</button>` : `<button class="btn" id="td-cancel">Cancel</button>${plan ? `<button class="btn primary" id="td-go" ${moving && !t.busy ? "" : "disabled"}>${ICON.copy}Move ${moving.toLocaleString()} file${moving === 1 ? "" : "s"}</button>` : ""}`}</div>`);
+    $("#td-close").onclick = $("#td-cancel").onclick = close;
+    $("#td-template").onchange = (e) => { t.template = e.target.value; t.plan = null; draw(); };
+    $("#td-pick").onclick = async () => { const f = await pickFolder(t.template); if (f) { t.template = f; t.plan = null; draw(); } };
+    $("#td-look").onclick = async () => {
+      t.busy = true; draw();
+      try { t.plan = await api(`/api/projects/${p.id}/tidy/plan`, { method: "POST", body: { template: t.template } }); } catch (e) { toast(e.message, true); }
+      t.busy = false; draw();
+    };
+    for (const sel of document.querySelectorAll("[data-td-dest]")) sel.onchange = () => { t.plan.groups[+sel.dataset.tdDest].dest = sel.value; draw(); };
+    const go = $("#td-go"); if (go) go.onclick = async () => {
+      const moves = t.plan.groups.filter((g) => !g.inPlace && g.dest).map((g) => ({ driveId: g.driveId, source: g.source, top: g.top, category: g.category, dest: g.dest }));
+      t.busy = true; draw();
+      try {
+        const r = await api(`/api/projects/${p.id}/tidy/run`, { method: "POST", body: { template: t.template, moves } });
+        toast(`Moving ${r.files} files; watch Activity`);
+        const j = await waitForJob(r.job);
+        t.done = j.state === "ok" ? `${r.files} files moved.` : `The move ended ${j.state}: ${esc(j.error || "see Activity")}.`;
+        t.plan = null; t.busy = false; await loadProject(p.id); draw();
+      } catch (e) { toast(e.message, true); t.busy = false; draw(); }
+    };
+    const rl = $("#td-relink"); if (rl) rl.onclick = async () => { rl.disabled = true; try { await api(`/api/projects/${p.id}/tidy/relink`, { method: "POST" }); toast("Asking Resolve to relink; watch Activity"); loadJobs(); } catch (e) { toast(e.message, true); rl.disabled = false; } };
+    const fd = $("#td-finder"); if (fd) fd.onclick = () => { const src = p.sources.find((x) => x.role !== "backup" && driveOf(x.driveId) && driveOf(x.driveId).connected); if (src) nativeCall("reveal", { path: driveOf(src.driveId).mount + (src.folder ? "/" + src.folder : "") }); };
+  };
+  draw();
+}
+// waitForJob polls a job until it ends.
+async function waitForJob(id) {
+  for (let i = 0; i < 6000; i++) {
+    const j = (await api("/api/jobs").catch(() => [])).find((x) => x.id === id);
+    if (j && j.state !== "running" && j.state !== "queued") return j;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return { state: "running" };
+}
 // cardsSection is a project's standing orders for cards: watch for
 // them, which ones, where each goes, and whether to ask first.
 function cardsSection(p) {
@@ -1257,6 +1321,7 @@ function wireMaster(data) {
 function wireProjectPage(p) {
   wireMaster(S.projectData);
   wireCards(p);
+  $("#proj-tidy").onclick = () => tidyDialog(p);
   $("#proj-media").onclick = () => { S.media = { project: String(p.id), drive: "", kind: "", format: "", codec: "", rate: "", qc: "", q: "" }; S.tab = "media"; S.project = null; localSet("tab", S.tab); render(); };
   $("#proj-media-csv").onclick = () => downloadCSV(`/api/media.csv?project=${p.id}`, `${p.name.replace(/[^\w.-]+/g, "_")}-clips-${new Date().toISOString().slice(0, 10)}.csv`);
   const patch = async (body, then) => {

@@ -230,13 +230,23 @@ func (s *Server) relinkResolve(w http.ResponseWriter, r *http.Request) (any, err
 	if err != nil {
 		return nil, err
 	}
+	n := len(paths)
+	j, err := s.runRelink(paths, fmt.Sprintf("Relink %d clip%s in DaVinci Resolve", n, plural(n)))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"job": j.ID}, nil
+}
+
+// runRelink asks Resolve, through its scripting API, to point every
+// clip in the open project's media pool at the path given for its name.
+func (s *Server) runRelink(paths []pullPath, title string) (*Job, error) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		return nil, badRequest("python3 is needed to talk to Resolve: install Xcode's command line tools (xcode-select --install) or python.org's Python 3")
 	}
 	sort.SliceStable(paths, func(i, j int) bool { return paths[i].Name < paths[j].Name })
 	n := len(paths)
-	title := fmt.Sprintf("Relink %d clip%s in DaVinci Resolve", n, plural(n))
 	j := s.jobs.Start("relink", title, "lumpy pull --relink resolve", "", func(ctx context.Context, rep *job.Report) error {
 		dir, err := os.MkdirTemp("", "lumpy-resolve")
 		if err != nil {
@@ -285,7 +295,7 @@ func (s *Server) relinkResolve(w http.ResponseWriter, r *http.Request) (any, err
 		}
 		return nil
 	})
-	return map[string]any{"job": j.ID}, nil
+	return j, nil
 }
 
 // resolveEnv points Python at Resolve's scripting module and library
