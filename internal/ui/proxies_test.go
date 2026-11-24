@@ -68,9 +68,23 @@ func TestEjectThroughAPI(t *testing.T) {
 	s, ts, vols := setup(t)
 	os.MkdirAll(filepath.Join(vols, "CARD", "CLIPS"), 0o755)
 	os.WriteFile(filepath.Join(vols, "CARD", "CLIPS", "C001.mov"), []byte("footage"), 0o644)
+	// A card is never logged by itself: the agent leaves it, and it is
+	// logged by hand from Connected.
 	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
-	var st struct{ Drives []DriveView }
+	var st struct {
+		Drives  []DriveView
+		Volumes []VolumeView
+	}
 	call(t, s, ts, "GET", "/api/state", "", &st)
+	if len(st.Drives) != 0 || len(st.Volumes) != 1 || !st.Volumes[0].Capture {
+		t.Fatalf("card logged by itself: %d drives, %+v", len(st.Drives), st.Volumes)
+	}
+	call(t, s, ts, "POST", "/api/catalog", `{"id":"`+st.Volumes[0].ID+`"}`, nil)
+	waitIdle(t, s)
+	call(t, s, ts, "GET", "/api/state", "", &st)
+	if len(st.Drives) != 1 {
+		t.Fatalf("logged by hand: %d drives", len(st.Drives))
+	}
 	id := st.Drives[0].ID
 	if !st.Drives[0].Connected {
 		t.Fatal("not connected")

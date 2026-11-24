@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lumpysheppard/lumpy/internal/catalog"
+	"github.com/lumpysheppard/lumpy/internal/volume"
 )
 
 // Keep-awake, after Amphetamine's Drive Alive: a spinning drive that
@@ -105,12 +106,7 @@ func isCard(mount, bus string) bool {
 	if strings.Contains(b, "secure digital") || strings.Contains(b, "sd card") || strings.Contains(b, "cfexpress") || strings.Contains(b, "cfast") {
 		return true
 	}
-	for _, top := range []string{"DCIM", "PRIVATE", "CLIPS", "XDROOT", "BPAV", "M4ROOT", "AVCHD", "CONTENTS"} {
-		if st, err := os.Stat(filepath.Join(mount, top)); err == nil && st.IsDir() {
-			return true
-		}
-	}
-	return false
+	return volume.LooksLikeCard(mount)
 }
 
 // touch writes a few bytes to a file at the drive's root, forces them

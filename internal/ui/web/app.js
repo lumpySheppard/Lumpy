@@ -651,14 +651,24 @@ function driveFamilies(ds) {
   }
   return [...groups.entries()].sort(([a, x], [b, y]) => (a === "") - (b === "") || x.name.localeCompare(y.name)).map(([, g]) => g);
 }
+// Groups fold: click a header to collapse it, and it stays collapsed.
+S.folded = new Set(JSON.parse(localGet("folded", "[]")));
 function drivesHTML(ds) {
   const fams = driveFamilies(ds);
-  if (fams.length > 1) return fams.map((g) => `<div class="section-head"><h2>${esc(g.name)}</h2><span>${g.ds.length}</span></div>${drivesHTML1(g.ds)}`).join("");
-  return drivesHTML1(ds);
+  if (fams.length <= 1) return drivesHTML1(ds);
+  const list = S.view === "list";
+  return (list ? listHead() : "") + fams.map((g) => {
+    const off = S.folded.has(g.name);
+    return `<div class="section-head fold ${off ? "off" : ""}" data-fold="${esc(g.name)}"><span class="chev">${ICON.chev}</span><h2>${esc(g.name)}</h2><span>${g.ds.length}</span></div>${off ? "" : drivesHTML1(g.ds, list)}`;
+  }).join("");
 }
-function drivesHTML1(ds) {
+const DRIVE_COLS = `<colgroup><col style="width:20%"><col style="width:14%"><col style="width:8%"><col style="width:11%"><col style="width:8%"><col style="width:6%"><col style="width:14%"><col style="width:8%"><col style="width:11%"></colgroup>`;
+function listHead() {
+  return `<table class="list drives head">${DRIVE_COLS}<thead><tr><th>Name</th><th>Client · Project</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th class="num">Files</th><th>Backups</th><th>Last check</th><th>Last seen</th></tr></thead></table>`;
+}
+function drivesHTML1(ds, headless) {
   if (S.view === "list") {
-    return `<table class="list drives"><colgroup><col style="width:20%"><col style="width:14%"><col style="width:8%"><col style="width:11%"><col style="width:8%"><col style="width:6%"><col style="width:14%"><col style="width:8%"><col style="width:11%"></colgroup><thead><tr><th>Name</th><th>Client · Project</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th class="num">Files</th><th>Backups</th><th>Last check</th><th>Last seen</th></tr></thead><tbody>
+    return `<table class="list drives">${DRIVE_COLS}${headless ? "" : `<thead><tr><th>Name</th><th>Client · Project</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th class="num">Files</th><th>Backups</th><th>Last check</th><th>Last seen</th></tr></thead>`}<tbody>
       ${ds.map((d) => {
         const used = Math.max(0, d.size - d.free);
         return `<tr class="row" data-drive="${esc(d.id)}"><td><div class="name"><span class="dot" style="background:${d.connected ? "var(--ok)" : cardColor(d) || "var(--muted)"}"></span>${hl(d.title)}${d.labels.nickname ? ` <small>${esc(d.name)}</small>` : ""}</div></td>
@@ -725,7 +735,7 @@ function renderConnected() {
     html += extra.map(({ v, never }) => `<article class="card live"><div class="card-head"><div class="card-pic">${drivePic(driveKind({ name: v.name, title: v.name, size: v.size, solidState: v.solidState, bus: v.bus }), "", true)}</div>
       <div class="card-main"><div class="card-title"><h3>${esc(v.name)}</h3></div><div class="path">${esc(v.mount)}</div></div>${capRing(v.size - v.free, v.size)}</div>
       <div class="cap"><b>${bytes(v.size)}</b><span class="sep">•</span>${bytes(v.free)} free</div>
-      <div class="card-foot"><span><i class="dot live" style="background:var(--ok);color:var(--ok)"></i>${never ? "Set to never log" : "Being logged…"}</span>
+      <div class="card-foot"><span><i class="dot live" style="background:var(--ok);color:var(--ok)"></i>${never ? "Set to never log" : v.capture ? "Card or stick · logged only by hand" : S.settings && S.settings.prefs && !S.settings.prefs.autoLog ? "New · logging by hand" : "Being logged…"}</span>
       <button class="btn small primary" data-log="${esc(v.id)}">Log now</button></div></article>`).join("");
     html += "</div>";
   }
@@ -2380,10 +2390,12 @@ async function openSettings(focus) {
       <div class="sec"><div class="sec-title">${ICON.gear}General</div>
         <div class="box"><div class="fields"><div class="field"><label>Appearance</label>
           <div class="seg" id="appearance">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([v, l]) => `<button data-appearance="${v}" class="${localGet("appearance", "dark") === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
-          <div class="field"><label>Style <span class="hint">· Classic is System 7 chrome: square windows, pixel glyphs, Chicago, on Light or Dark</span></label>
-          <div class="seg" id="style-seg">${[["modern", "Modern"], ["classic", "Classic"]].map(([v, l]) => `<button data-style="${v}" class="${localGet("style", "modern") === v ? "on" : ""}">${l}</button>`).join("")}</div></div>
-          <div class="field"><label>Desktop shade <span class="hint">· the grey behind the windows in Classic on Light, pale to charcoal</span></label>
-          <input type="range" id="desk-shade" min="0" max="100" step="1" value="${localGet("desk", 15)}"></div></div></div></div>
+          <div class="field"><label>Style</label>
+          <div class="seg" id="style-seg">${[["modern", "Modern"], ["classic", "Classic"]].map(([v, l]) => `<button data-style="${v}" class="${localGet("style", "modern") === v ? "on" : ""}">${l}</button>`).join("")}</div>
+          <span class="hint">Classic is System 7 chrome: square windows, pixel glyphs, Chicago, on Light or Dark.</span></div>
+          <div class="field"><label>Desktop shade</label>
+          <input type="range" id="desk-shade" min="0" max="100" step="1" value="${localGet("desk", 15)}">
+          <span class="hint">The grey behind the windows in Classic on Light, pale to charcoal.</span></div></div></div></div>
 
       <div class="sec"><div class="sec-title">${ICON.drive}Drives</div>
         <div class="box">
@@ -2392,7 +2404,7 @@ async function openSettings(focus) {
               <label class="switch" style="margin-top:7px">Hide the Mac's internal volumes <input type="checkbox" data-pref="hideInternal" ${pf.hideInternal ? "checked" : ""}></label>
               <label class="switch" style="margin-top:8px">Hide mounted disk images (.dmg, .iso) <input type="checkbox" data-pref="hideImages" ${pf.hideImages ? "checked" : ""}></label></div>
             <div class="field"><label>Logging</label>
-              <label class="switch" style="margin-top:7px" title="Off: only drives already in the library are kept up to date when plugged in">Log new drives when plugged in <input type="checkbox" data-pref="autoLog" ${pf.autoLog ? "checked" : ""}></label>
+              <label class="switch" style="margin-top:7px" title="Off: only drives already in the library are kept up to date when plugged in. Cards, sticks and card readers are never logged by themselves either way: Connected → Log now">Log new drives when plugged in <input type="checkbox" data-pref="autoLog" ${pf.autoLog ? "checked" : ""}></label>
               <label class="switch" style="margin-top:8px" title="Codec, frame rate, timecode and camera, read from clip headers during scans">Read clip metadata during scans <input type="checkbox" data-pref="autoMetadata" ${pf.autoMetadata ? "checked" : ""}></label></div>
             <div class="field"><label>Copies and checks</label>
               <label class="switch" style="margin-top:7px" title="One file at a time, reads held to about 150 MB/s: slower, but the Mac and the drive stay responsive for whoever is editing">Gentle mode <input type="checkbox" data-pref="gentle" ${pf.gentle ? "checked" : ""}></label></div>
@@ -2552,7 +2564,19 @@ async function openSettings(focus) {
 // it touches lights up; open it from the card, or double-click.
 const MAP = { k: 1, x: 0, y: 0, pos: {}, sel: null, drag: null, fitted: false, dirty: false };
 try { MAP.pos = JSON.parse(localGet("map.pos", "{}")) || {}; } catch { MAP.pos = {}; }
-const NODE = { project: [300, 96], drive: [296, 72], slice: [296, 60], mac: [176, 62] };
+const NODE = { project: [300, 96], drive: [296, 72], slice: [296, 60], mac: [224, 92] };
+// busName is how a drive's bus reads on the Mac's node.
+function busName(bus) {
+  const b = (bus || "").toLowerCase();
+  if (!b) return "other";
+  if (b.includes("thunderbolt")) return "Thunderbolt";
+  if (b.includes("usb")) return "USB";
+  if (b.includes("secure digital") || b.includes("sd")) return "SD";
+  if (b.includes("pci")) return "PCIe";
+  if (b.includes("sata")) return "SATA";
+  if (b.includes("network") || b.includes("smb") || b.includes("afp") || b.includes("nfs")) return "network";
+  return bus;
+}
 const ICON_TXT = { coffee: "☕ " };
 const EDGE_LABEL = { full: "verified", none: "no backup", unknown: "unproven", likely: "probably backed up", empty: "empty" };
 
@@ -2650,7 +2674,7 @@ function mapLayout(m) {
   const rightStart = leftEnd + ISL.aisle + NODE.mac[0] + ISL.aisle;
   for (const isl of m.islands) {
     const n = isl.drives.length;
-    let cols = Math.min(n <= 2 ? Math.max(1, n) : n <= 4 ? 2 : 3, Math.max(...sides.map((sd) => sd.lanes)));
+    let cols = isl.head ? Math.min(n <= 2 ? Math.max(1, n) : n <= 4 ? 2 : 3, Math.max(...sides.map((sd) => sd.lanes))) : 1;
     const rows = Math.ceil(n / cols);
     const gw = cols * NODE.drive[0] + (cols - 1) * ISL.gap;
     const w = ISL.pad * 2 + Math.max(isl.head ? NODE.project[0] : 0, gw);
@@ -2677,10 +2701,10 @@ function mapLayout(m) {
   for (const isl of m.islands) islandFrame(isl);
   m.buses = busPaths(m);
 }
-// busPaths wires the Mac to every drive that is plugged in the way a
-// hub diagram does: one lead from the Mac's side to each island, then a
-// rail down the island's margin with a run along each row to the drives
-// in it, so no wire crosses another or passes over a node.
+// busPaths runs a lead from the Mac to every island that has a drive
+// plugged in, ending at the island's near side, and to each plugged-in
+// drive that is in no project. Power shows on the drives themselves,
+// as a lit ring, so nothing is drawn inside an island.
 function busPaths(m) {
   const mac = m.nodes.find((n) => n.type === "mac");
   if (!mac) return [];
@@ -2691,22 +2715,14 @@ function busPaths(m) {
     const live = members.filter((n) => n.type === "drive" && n.d.connected);
     if (!live.length) continue;
     const left = isl.x + isl.w / 2 < mcx;
-    const railX = left ? isl.x + isl.w - ISL.pad / 2 : isl.x + ISL.pad / 2;
-    const rows = new Map();
-    for (const n of live) { const k = Math.round(n.y); if (!rows.has(k)) rows.set(k, []); rows.get(k).push(n); }
-    const ys = [...rows.keys()].sort((a, b) => a - b);
-    const y0 = ys[0] - ISL.gap / 2, port = [left ? isl.x + isl.w : isl.x, y0];
-    // One branch per drive: in from the port, down the rail to its row,
-    // along the row to its column, into its top. Shared stretches overlap.
-    const branches = [];
-    for (const y of ys) for (const n of rows.get(y)) {
-      const runY = y - ISL.gap / 2, cx = n.x + n.w / 2;
-      branches.push({ id: n.id, d: `M${r(port[0])} ${r(y0)}H${r(railX)}V${r(runY)}H${r(cx)}V${r(n.y)}`, socket: [r(cx), r(n.y)] });
+    if (isl.head) {
+      out.push({ left, port: [left ? isl.x + isl.w : isl.x, isl.y + isl.h / 2], ids: new Set(members.map((n) => n.id)), island: isl.id });
+    } else {
+      for (const n of live) out.push({ left, port: [left ? n.x + n.w : n.x, n.y + n.h / 2], ids: new Set([n.id]), island: isl.id });
     }
-    out.push({ isl, left, port, branches, ids: new Set(members.map((n) => n.id)) });
   }
-  // Leads leave each side of the Mac in the order their islands sit, top
-  // to bottom, so they fan out without crossing.
+  // Leads leave each side of the Mac in the order their ends sit, top to
+  // bottom, so they fan out without crossing.
   for (const left of [true, false]) {
     const side = out.filter((b) => b.left === left).sort((a, b) => a.port[1] - b.port[1] || a.port[0] - b.port[0]);
     side.forEach((b, i) => {
@@ -2781,8 +2797,12 @@ function renderMap() {
   };
   const live = S.state.drives.filter((d) => d.connected);
   const busHot = (b) => sel && (sel === "mac" || b.ids.has(sel)) ? "hot" : "";
-  const leadSVG = (b) => `<g class="edge-g live lead ${busHot(b)}"><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="3.5"/></g>`;
-  const treeSVG = (b) => b.branches.map((br) => `<g class="edge-g live tree ${sel && (sel === "mac" || hot.has(br.id)) ? "hot" : ""}"><path d="${br.d}"/><circle cx="${br.socket[0]}" cy="${br.socket[1]}" r="3.5"/></g>`).join("");
+  const leadSVG = (b) => `<g class="edge-g live lead ${busHot(b)}"><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="3"/><circle cx="${b.port[0]}" cy="${b.port[1]}" r="3"/></g>`;
+  const powered = new Set(m.buses.map((b) => b.island));
+  // What the plugged-in drives hang off, for the Mac's node.
+  const byBus = {};
+  for (const d of live) { const k = busName(d.bus); byBus[k] = (byBus[k] || 0) + 1; }
+  const busLine = Object.entries(byBus).filter(([k]) => k !== "other").sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(" · ");
   const node = (n) => {
     const cls = `node ${n.type} ${n.id === sel ? "sel" : ""} ${hot.has(n.id) ? "hot" : ""}`;
     const box = `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px`;
@@ -2794,7 +2814,7 @@ function renderMap() {
       const line = !h.bytes ? "empty" : todo ? `<span class="warn">${bytes(todo)} still to copy</span>` : h.unknownBytes ? `<span class="hint">${bytes(h.unknownBytes)} unproven</span>` : `<span class="ok">${ICON.check}every file on ${p.target} drives</span>`;
       return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}<em>${p.target}× copies</em></b><small>${h.bytes ? `${bytes(h.bytes)} · ${(h.contents || 0).toLocaleString()} files · ` : ""}${nd} drive${nd === 1 ? "" : "s"}</small><div class="n-bar"><i class="${st}" style="width:${pct}%"></i></div><small class="n-foot">${h.bytes ? pct + "% backed up" : ""}${h.bytes ? " · " : ""}${line}</small></div></div>`;
     }
-    if (n.type === "mac") return `<div class="${cls}" data-node="mac" style="${box};--pc:var(--accent)"><div class="n-pic"><svg class="pic on" viewBox="0 0 64 48">${PIC.mac}</svg></div><div class="n-body"><b>This Mac</b><small>${live.length} drive${live.length === 1 ? "" : "s"} plugged in</small></div></div>`;
+    if (n.type === "mac") return `<div class="${cls}" data-node="mac" style="${box};--pc:var(--accent)"><div class="n-pic"><svg class="pic on" viewBox="0 0 64 48">${PIC.mac}</svg></div><div class="n-body"><b>This Mac</b><small>${live.length} drive${live.length === 1 ? "" : "s"} plugged in</small>${busLine ? `<small class="n-bus">${esc(busLine)}</small>` : ""}</div></div>`;
     if (n.type === "slice") {
       const p = n.p;
       return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}" title="${esc(p.name)} on ${esc(n.d.title)} · ${esc(n.label)}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}</b><small>${n.backup ? '<span class="n-role">backup</span>' : ""}<span class="n-st ${n.st}">${esc(EDGE_LABEL[n.st] || n.label.split(" · ").pop())}</span> · ${esc(n.label.split(" · ")[0])} here</small></div></div>`;
@@ -2804,16 +2824,16 @@ function renderMap() {
     const sub = d.connected ? `${bytes(d.free)} free` : `seen ${when(d.lastSeen)}`;
     return `<div class="${cls} ${d.connected ? "live" : "away"} ${n.backup ? "backup" : ""} ${n.headOf ? "head" : ""}" data-node="${n.id}" style="${box};--pc:${color || "var(--muted)"}" title="${esc(d.title)}${n.label ? " · " + esc(n.label) : ""}"><div class="n-pic">${drivePic(driveKind(d), color || "var(--muted)", d.connected)}<i class="n-live" title="${d.connected ? "Plugged in" : "Not plugged in"}"></i></div><div class="n-body"><b>${esc(d.title)}</b><small>${n.backup ? '<span class="n-role">backup</span>' : ""}${n.headOf ? `<span class="n-st">${esc(n.label)}</span> · ` : ""}${st}${st ? " · " : ""}${sub}</small></div>${capRing(Math.max(0, d.size - d.free), d.size, "sm")}</div>`;
   };
-  const island = (i) => `<div class="island ${i.p ? "" : i.d ? "shared" : "loose"} ${sel && (i.id === sel || i.drives.some((n) => n.id === sel)) ? "hot" : ""}" data-island="${i.id}" style="left:${i.x}px;top:${i.y}px;width:${i.w}px;height:${i.h}px;--pc:${i.color}">${i.head ? "" : `<span class="island-lbl">Not in a project · ${i.drives.length}</span>`}</div>`;
+  const island = (i) => `<div class="island ${i.p ? "" : i.d ? "shared" : "loose"} ${sel && (i.id === sel || i.drives.some((n) => n.id === sel)) ? "hot" : ""} ${powered.has(i.id) && i.head ? "powered" : ""}" data-island="${i.id}" style="left:${i.x}px;top:${i.y}px;width:${i.w}px;height:${i.h}px;--pc:${i.color}">${i.head ? "" : `<span class="island-lbl">Not in a project · ${i.drives.length}</span>`}</div>`;
   main.innerHTML = `<div class="map ${sel ? "has-sel" : ""}" id="map">
     <div class="map-world" id="map-world" style="width:${W}px;height:${H}px">
       <svg class="map-edges map-leads" width="${W}" height="${H}">${m.buses.map(leadSVG).join("")}</svg>
       ${m.islands.map(island).join("")}
-      <svg class="map-edges" width="${W}" height="${H}">${m.edges.map(edgeSVG).join("")}${m.buses.map(treeSVG).join("")}</svg>
+      <svg class="map-edges" width="${W}" height="${H}">${m.edges.map(edgeSVG).join("")}</svg>
       ${m.edges.map(edgeLabel).join("")}
       ${m.nodes.map(node).join("")}
     </div>
-    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="sep">·</span><span><i class="dot" style="background:var(--ok)"></i>${live.length} plugged in</span>${S.state.awake && S.state.awake.on ? `<span title="Keep drives awake is on">${ICON_TXT.coffee}${(S.state.awake.drives || []).length} kept awake</span>` : ""}<span class="hint">· drag a drive onto a project to add it, out of its island to take it out · drag a project to move its island · ⌘ + scroll zooms</span></div>
+    <div class="map-legend" title="Drag a drive onto a project to add it, out of its island to take it out · drag a project to move its island · ⌘ + scroll zooms"><span><i class="dot"></i>${live.length} plugged in</span>${S.state.awake && S.state.awake.on ? `<span title="Keep drives awake is on">${ICON_TXT.coffee}${(S.state.awake.drives || []).length} kept awake</span>` : ""}</div>
     <div class="map-tools"><button class="icon-btn" data-map="out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button class="icon-btn" data-map="in" title="Zoom in">${ICON.plus}</button><button class="btn small" data-map="fit">Fit</button><button class="btn small" data-map="arrange" title="Put every node back where Lumpy lays it out">Arrange</button></div>
     ${sel ? mapCard(m, sel) : ""}
   </div>`;
@@ -2962,8 +2982,8 @@ function wireMap(m) {
         if (fe) { fe.style.left = isl.x + "px"; fe.style.top = isl.y + "px"; fe.style.width = isl.w + "px"; fe.style.height = isl.h + "px"; }
       }
       const buses = busPaths(m);
-      world.querySelector(".map-leads").innerHTML = buses.map((b) => `<g class="edge-g live lead"><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="3.5"/></g>`).join("");
-      world.querySelector(".map-edges:not(.map-leads)").innerHTML = m.edges.map((e2) => { const g = edgeGeom(m.nodes.find((x) => x.id === e2.from), m.nodes.find((x) => x.id === e2.to)); return g ? `<g class="edge-g ${e2.cls}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>` : ""; }).join("") + buses.flatMap((b) => b.branches.map((br) => `<g class="edge-g live tree"><path d="${br.d}"/><circle cx="${br.socket[0]}" cy="${br.socket[1]}" r="3.5"/></g>`)).join("");
+      world.querySelector(".map-leads").innerHTML = buses.map((b) => `<g class="edge-g live lead"><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="3"/><circle cx="${b.port[0]}" cy="${b.port[1]}" r="3"/></g>`).join("");
+      world.querySelector(".map-edges:not(.map-leads)").innerHTML = m.edges.map((e2) => { const g = edgeGeom(m.nodes.find((x) => x.id === e2.from), m.nodes.find((x) => x.id === e2.to)); return g ? `<g class="edge-g ${e2.cls}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>` : ""; }).join("");
       world.querySelectorAll(".e-lbl").forEach((el) => el.remove());
     } else { MAP.x = d.x + dx; MAP.y = d.y + dy; applyMap(); }
   };
@@ -3365,6 +3385,8 @@ $("#search").oninput = (e) => {
   }, 220);
 };
 $("#main").onclick = async (e) => {
+  const fold = e.target.closest("[data-fold]");
+  if (fold) { const k = fold.dataset.fold; if (S.folded.has(k)) S.folded.delete(k); else S.folded.add(k); localSet("folded", JSON.stringify([...S.folded])); render(); return; }
   const logBtn = e.target.closest("[data-log]");
   if (logBtn) {
     try { await api("/api/catalog", { method: "POST", body: { id: logBtn.dataset.log } }); toast("Logging the drive… its card fills in when the listing is done."); await loadJobs(); toggleActivity(true); } catch (err) { toast(err.message, true); }

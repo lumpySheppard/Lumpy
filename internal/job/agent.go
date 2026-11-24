@@ -68,6 +68,11 @@ func agentDrive(ctx context.Context, db *catalog.DB, v *volume.Volume, r *Report
 	} else if err != nil && !AutoLog {
 		r.Info("%s is new and automatic logging is off (Settings); not logged", v.Name)
 		return
+	} else if err != nil && v.Capture {
+		// Cards, sticks and readers get formatted and reused, so one is
+		// logged only when asked (Connected → Log now).
+		r.Info("%s looks like a card or stick; not logged until you say so", v.Name)
+		return
 	}
 	if err := db.SaveDrive(v); err != nil {
 		r.Info("lumpy: %v", err)

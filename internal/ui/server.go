@@ -506,6 +506,7 @@ type VolumeView struct {
 	Logged     bool   `json:"logged"`
 	SolidState bool   `json:"solidState"`
 	Bus        string `json:"bus"`
+	Capture    bool   `json:"capture"`
 }
 
 func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
@@ -522,7 +523,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	vols := []VolumeView{}
 	for _, v := range s.mounted() {
-		vols = append(vols, VolumeView{v.ID, v.Name, v.Mount, v.Size, v.Free, v.FSType, logged[v.ID], v.SolidState, v.Bus})
+		vols = append(vols, VolumeView{v.ID, v.Name, v.Mount, v.Size, v.Free, v.FSType, logged[v.ID], v.SolidState, v.Bus, v.Capture})
 	}
 	running := 0
 	for _, j := range s.jobs.List(0) {

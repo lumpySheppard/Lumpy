@@ -52,8 +52,12 @@ xattr -dr com.apple.quarantine /Applications/Lumpy.app
 The app has four tabs:
 
 - **Connected**: drives plugged in now. New drives are logged as soon as they
-  mount while the app is open.
-- **Logged**: every drive Lumpy has seen, as cards or a list, with capacity,
+  mount while the app is open, except cards, USB sticks and card readers
+  (removable media, an SD or CFexpress slot, or a camera's folder layout),
+  which get formatted and reused: those show up with a **Log now** button
+  and are logged only when you press it. Network volumes are never listed.
+- **Logged**: every drive Lumpy has seen, as cards or a list, grouped by
+  project (click a group's header to fold it away), with capacity,
   labels (display name, client, project, contact, notes, color), backup
   status and last check. Search finds drives by any label and files by name
   across every drive, plugged in or not. **Export CSV** saves the library.
@@ -167,13 +171,17 @@ where, so there is no wire per drive; each node carries its own line
 instead: green verified, yellow partly, red not at all, grey unproven,
 a **backup** tag on backup drives, and a green dot for plugged in.
 Drives in no project share a grey island. **This Mac** sits in the
-middle with the islands packed either side of it, and a dotted green
-lead runs from the Mac to each island that has a drive plugged in,
-then along the island's margin to every plugged-in drive, the way a
-hub diagram does, so the leads never cross one another or pass over a
-node. Click a node and its island lights up, with a card that opens
-the project or the drive's details; click a plugged-in drive and its
-own lead lights; click the Mac and all of them do. Double-click a
+middle with the islands packed either side of it, and a blue lead runs
+from the Mac to each island that has a drive plugged in (and to each
+plugged-in drive in no project), the way power reaches a hub: inside
+the island every plugged-in drive carries a lit blue ring, and nothing
+else is drawn, so the leads never cross one another or pass over a
+node. The Mac's node says how many drives hang off which bus. The pill
+in the top corner counts what is plugged in and, when Keep drives
+awake is on, how many are kept awake. Click a node and its island
+lights up, with a card that opens the project or the drive's details;
+click a plugged-in drive and its lead lights; click the Mac and all of
+them do. Double-click a
 drive for its details, a project for its page. Drag to pan, ⌘ + scroll
 to zoom, drag a drive out of its island to take it out of the project
 (Lumpy asks first) or onto another project's island to add it there,

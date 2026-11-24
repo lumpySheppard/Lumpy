@@ -29,8 +29,26 @@ type Volume struct {
 	// Bus is how the drive is attached, as diskutil names it: USB,
 	// Thunderbolt, PCI-Express, SATA…
 	Bus string
+	// Capture is a card, stick or reader: removable media, an SD or
+	// CFexpress bus, or a camera's folder layout at the root. Such a
+	// volume is logged by hand, never by itself, since it is formatted
+	// and reused.
+	Capture bool
 	// Disk is the whole disk the volume lives on (disk4), for SMART.
 	Disk string
+}
+
+// cameraDirs are the folders a camera puts at the root of a card.
+var cameraDirs = []string{"DCIM", "PRIVATE", "CLIPS", "XDROOT", "BPAV", "M4ROOT", "AVCHD", "CONTENTS"}
+
+// LooksLikeCard says whether a mounted volume has a camera's layout.
+func LooksLikeCard(mount string) bool {
+	for _, d := range cameraDirs {
+		if st, err := os.Stat(filepath.Join(mount, d)); err == nil && st.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // Hide says which mounted volumes are left out of listings: the Mac's
@@ -150,7 +168,7 @@ func free(mount string) int64 {
 func fallback(mount string) *Volume {
 	name := filepath.Base(mount)
 	size := capacity(mount)
-	return &Volume{ID: "name:" + name + ":" + itoa(size), Name: name, Mount: mount, Size: size, Free: free(mount)}
+	return &Volume{ID: "name:" + name + ":" + itoa(size), Name: name, Mount: mount, Size: size, Free: free(mount), Capture: LooksLikeCard(mount)}
 }
 
 func itoa(n int64) string {

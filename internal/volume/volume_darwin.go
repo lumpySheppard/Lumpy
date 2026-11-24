@@ -90,6 +90,8 @@ func identifyWithDiskutil(mount string) (*Volume, error) {
 	v.Disk = plistValue(p, "ParentWholeDisk")
 	v.Internal = plistBool(p, "Internal") && !plistBool(p, "RemovableMediaOrExternalDevice")
 	v.DiskImage = plistValue(p, "BusProtocol") == "Disk Image" || plistValue(p, "VirtualOrPhysical") == "Virtual" && plistValue(p, "BusProtocol") == ""
+	bus := strings.ToLower(v.Bus)
+	v.Capture = plistBool(p, "RemovableMedia") || strings.Contains(bus, "secure digital") || bus == "sd" || strings.Contains(bus, "cfexpress") || strings.Contains(bus, "cfast") || LooksLikeCard(mount)
 	return v, nil
 }
 

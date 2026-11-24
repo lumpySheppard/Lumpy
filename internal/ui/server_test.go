@@ -182,14 +182,16 @@ func TestProjectsThroughAPI(t *testing.T) {
 	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
 	var st struct{ Drives []DriveView }
 	stateSettled(t, s, ts, &st)
+	// Offload the card to RAID only, then make a project of RAID + SPARE.
+	// The card is not logged by itself; the offload logs it.
+	var started struct{ Job int }
+	call(t, s, ts, "POST", "/api/offload", `{"source":"`+filepath.Join(vols, "A001")+`","dests":["`+filepath.Join(vols, "RAID", "Day01")+`"]}`, &started)
+	waitJobs(t, s, ts)
+	stateSettled(t, s, ts, &st)
 	ids := map[string]string{}
 	for _, d := range st.Drives {
 		ids[d.Name] = d.ID
 	}
-	// Offload the card to RAID only, then make a project of RAID + SPARE.
-	var started struct{ Job int }
-	call(t, s, ts, "POST", "/api/offload", `{"source":"`+filepath.Join(vols, "A001")+`","dests":["`+filepath.Join(vols, "RAID", "Day01")+`"]}`, &started)
-	waitJobs(t, s, ts)
 
 	// The card is wiped and forgotten, so the RAID holds the only copy.
 	if code := call(t, s, ts, "DELETE", "/api/drives/"+ids["A001"], "", nil); code != 200 {

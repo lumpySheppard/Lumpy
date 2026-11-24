@@ -54,10 +54,19 @@ func TestLibraryTracksBackupsOffline(t *testing.T) {
 	os.Mkdir(filepath.Join(vols, "RAID"), 0o755)
 	ctx := context.Background()
 
-	// The agent logs every drive that is plugged in.
+	// The agent logs every drive that is plugged in, except the card,
+	// which is logged by hand.
 	run(t, func(r *Report) error { return AgentRun(ctx, db, r, func(string, string) {}) })
+	if ds, _ := db.Drives(); len(ds) != 2 {
+		t.Fatalf("want 2 drives logged by themselves, got %d", len(ds))
+	}
+	card, err := volume.Identify(filepath.Join(vols, "A001"))
+	if err != nil || !card.Capture {
+		t.Fatalf("card: %+v %v", card, err)
+	}
+	run(t, func(r *Report) error { _, err := CatalogDrive(ctx, db, card, r); return err })
 	if ds, _ := db.Drives(); len(ds) != 3 {
-		t.Fatalf("want 3 drives logged, got %d", len(ds))
+		t.Fatalf("want 3 drives after logging the card, got %d", len(ds))
 	}
 
 	// Before any copy the card is not backed up.
