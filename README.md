@@ -397,13 +397,26 @@ Read metadata** or `lumpy drive metadata DRIVE`.
 The **Clips** tab lists every distinct clip across the library (the same
 checksum on three drives is one row), with filters by project, drive,
 kind, codec, frame rate and QC state, and a search over names, cameras,
-reels, scenes, notes and tags. Clicking a clip opens it: a playback
-preview when its drive is plugged in, the technical details, every drive
-holding a copy, and a log section for scene, shot, take, tags, notes and
-a QC mark (OK, flag or reject). Log entries follow the content: set them
-on one copy and every copy has them. **Export CSV…** writes the current
-list with every column; a project page has the same button for just its
-clips.
+reels, scenes, notes and tags. Opening Clips from a project shows that
+project's clips (the filter can still be changed). Clicking a clip opens
+it: a player when its drive is plugged in, the technical details, every
+drive holding a copy, and a log section for scene, shot, take, tags,
+notes and a QC mark (OK, flag or reject). Log entries follow the
+content: set them on one copy and every copy has them. **Export CSV…**
+writes the current list with every column; a project page has the same
+button for just its clips.
+
+The player is an edit-suite viewer, not a web one: space or **K**
+plays and pauses, **L** plays forward and doubles the speed on each
+press (up to 8×), **J** shuttles backwards the same way, **,** and
+**.** step one frame (with shift, ten), **-** and **=** halve and double
+the speed, Home and End jump to either end, **M** mutes, **F** fills the
+screen, and the readout shows the clip's own timecode and the frame
+count. **←** and **→** go to the previous and next clip in the list,
+whether or not the current one plays. Playback itself is macOS's
+(whatever QuickTime Player plays, Lumpy plays); RED, BRAW, ARRIRAW and
+Canon RAW have no player or frame, because decoding them needs each
+maker's own SDK, which is not something Lumpy can ship.
 
 ### Pull shots from an edit
 

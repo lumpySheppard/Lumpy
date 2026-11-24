@@ -454,7 +454,7 @@ table.grouped tr.sub td:first-child { width: 22px; padding-right: 0; }
 @keyframes sheet-in { from { opacity: 0; transform: translateX(-50%) translateY(6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 .sheet.small { animation: none; }
 .sheet.wide { width: min(1180px, calc(100vw - 32px)); }
-.sheet.wide .preview video, .sheet.wide .preview img { max-height: 62vh; }
+.sheet.wide .preview video, .sheet.wide .preview img { max-height: 70vh; }
 @media (prefers-reduced-motion: reduce) { .sheet { animation: none; } }
 .sheet.small { top: 50%; bottom: auto; transform: translate(-50%, -50%); max-height: 80vh; width: min(520px, calc(100vw - 32px)); }
 .sheet-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px 14px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, rgba(255,255,255,.025), transparent); }
@@ -695,6 +695,21 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 3px; paddi
 .file-ico { width: 22px !important; height: 22px !important; }
 .preview { margin-top: 14px; border-radius: 10px; overflow: hidden; background: #000; border: 1px solid var(--line); display: grid; place-items: center; min-height: 120px; }
 .preview video { width: 100%; max-height: 380px; display: block; background: #000; }
+.preview .player { width: 100%; outline: 0; }
+.preview .player video { cursor: pointer; }
+.transport { display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: var(--panel); border-top: 1px solid var(--line); }
+.transport .icon-btn { width: 28px; height: 26px; color: var(--text); }
+.transport .icon-btn.play { width: 34px; }
+.transport .icon-btn svg { width: 14px; height: 14px; }
+.transport .tc { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; padding: 0 6px; color: var(--text); }
+.transport .tc.dur { color: var(--muted); }
+.transport .scrub { flex: 1; min-width: 80px; accent-color: var(--accent); }
+.transport .speed { font-size: 11.5px; color: var(--text-2); min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
+:root[data-style="classic"] .transport { background: var(--paper); border-top: 1px solid var(--ink); }
+:root[data-style="classic"] .transport .tc { font-family: var(--chicago); }
+:root[data-style="classic"] .transport .scrub { accent-color: var(--ink); }
+/* The close box in the title bar closes the window; the modern × would be a second one. */
+:root[data-style="classic"] .sheet .icon-btn#close[title="Close"], :root[data-style="classic"] .popover .icon-btn#close[title="Close"] { display: none; }
 .preview img { max-width: 100%; max-height: 380px; display: block; }
 .preview .audio-box { width: 100%; display: flex; align-items: center; gap: 14px; padding: 18px; }
 .preview .audio-box svg { width: 28px; height: 28px; color: var(--muted); flex: none; }

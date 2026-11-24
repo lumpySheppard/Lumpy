@@ -2049,6 +2049,7 @@ function renderMediaTable() {
   const bytesTotal = files.reduce((a, f) => a + f.size, 0);
   const flagged = files.filter((f) => f.edits.qc === "flag").length, rejected = files.filter((f) => f.edits.qc === "reject").length;
   const byId = Object.fromEntries(S.state.drives.map((x) => [x.id, x]));
+  S.mediaOrder = files.map((f) => ({ driveId: f.driveId, path: f.path }));
   const mp = $("#m-pills"); if (mp) mp.innerHTML = `<span class="pill">Clips:<b>${files.length.toLocaleString()}${files.length >= d.limit ? "+" : ""}</b></span>
       <span class="pill">Running time:<b>${dur(total) || "—"}</b></span>
       <span class="pill">Size:<b>${bytes(bytesTotal)}</b></span>
@@ -2139,7 +2140,7 @@ async function openFile(driveId, path, back) {
   const stream = `/api/drives/${encodeURIComponent(driveId)}/stream?path=${encodeURIComponent(path)}&t=${encodeURIComponent(token)}`;
   const kind = (m && m.kind) || (/\.(mov|mp4|m4v|mxf|r3d|braw|avi)$/i.test(name) ? "video" : /\.(wav|aif|aiff|mp3|m4a|flac)$/i.test(name) ? "audio" : /\.(jpe?g|png|gif|heic|webp|tiff?)$/i.test(name) ? "image" : "other");
   const preview = data.playable
-    ? (kind === "video" ? `<video controls preload="metadata" src="${stream}"></video>` : kind === "audio" ? `<div class="audio-box">${ICON.clapper}<audio controls preload="metadata" src="${stream}"></audio></div>` : `<img src="${stream}" alt="">`)
+    ? (kind === "video" ? playerHTML(stream, m) : kind === "audio" ? `<div class="audio-box">${ICON.clapper}<audio controls preload="metadata" src="${stream}"></audio></div>` : `<img src="${stream}" alt="">`)
     : `<div class="no-preview">${ICON.film}<span>${dr.connected ? "No preview for this file type" : `Plug in ${esc(dr.title)} to preview`}</span></div>`;
   const kv = [];
   if (m) {
@@ -2190,6 +2191,113 @@ async function openFile(driveId, path, back) {
     </div>`);
   if (kind === "video" || kind === "image") $("#sheet").classList.add("wide");
   wireFile(driveId, path, m);
+  if (kind === "video") wirePlayer(m);
+}
+// playerHTML is the clip player: the video with Lumpy's own transport
+// under it, the way an edit suite's viewer works. J K L shuttle, space
+// plays, , and . step a frame (⇧ ten), ← → go to the previous and
+// next clip in the list, - and = change speed, F fills the screen.
+function playerHTML(stream, m) {
+  const rate = (m && m.frameRate) || 0;
+  return `<div class="player" id="player" tabindex="0">
+    <video preload="auto" playsinline src="${stream}"></video>
+    <div class="transport">
+      <button class="icon-btn" data-pl="prev" title="Previous clip (←)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button class="icon-btn" data-pl="rev" title="Reverse (J)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 6v12L2 12zM22 6v12l-9-6z"/></svg></button>
+      <button class="icon-btn play" data-pl="play" title="Play / pause (space, K)">${ICON.play}</button>
+      <button class="icon-btn" data-pl="fwd" title="Forward, faster each press (L)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 6v12l9-6zM2 6v12l9-6z"/></svg></button>
+      <button class="icon-btn" data-pl="next" title="Next clip (→)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+      <span class="tc" id="pl-tc" title="Timecode · frame">${rate && m.timecode ? esc(m.timecode) : "00:00:00:00"}</span>
+      <input type="range" class="scrub" id="pl-scrub" min="0" max="1000" value="0" step="1">
+      <span class="tc dur" id="pl-dur">${m && m.durationMs ? esc(dur(m.durationMs)) : "—"}</span>
+      <span class="speed" id="pl-speed" title="Speed (- and =)">1×</span>
+      <button class="icon-btn" data-pl="mute" title="Mute (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6"/></svg></button>
+      <button class="icon-btn" data-pl="full" title="Fill the screen (F)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div></div>`;
+}
+function wirePlayer(m) {
+  const box = $("#player"), v = box && box.querySelector("video");
+  if (!v) return;
+  const rate = (m && m.frameRate) || 25, startFrames = m && m.timecode ? tcFrames(m.timecode, rate) : 0;
+  const scrub = $("#pl-scrub"), tc = $("#pl-tc"), speedEl = $("#pl-speed"), playBtn = box.querySelector("[data-pl=play]");
+  let speed = 1, rev = null; // rev: the timer stepping backwards
+  const stopRev = () => { if (rev) { cancelAnimationFrame(rev); rev = null; } };
+  const show = () => {
+    const f = Math.round(v.currentTime * rate);
+    tc.textContent = tcString(startFrames + f, rate) + ` · ${f}`;
+    if (v.duration) scrub.value = Math.round((v.currentTime / v.duration) * 1000);
+    playBtn.innerHTML = v.paused && !rev ? ICON.play : `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>`;
+  };
+  const setSpeed = (x) => { speed = Math.max(0.25, Math.min(8, x)); v.playbackRate = speed; speedEl.textContent = (speed % 1 ? speed.toFixed(2).replace(/0+$/, "") : speed) + "×"; };
+  const play = () => { stopRev(); const p = v.play(); if (p && p.catch) p.catch(() => {}); };
+  const pause = () => { stopRev(); v.pause(); setSpeed(1); show(); };
+  const step = (n) => { pause(); v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + n / rate)); };
+  const reverse = () => {
+    // Browsers don't play backwards; step frames on a clock instead.
+    v.pause();
+    if (rev) { speed = Math.min(8, speed * 2); } else { speed = 1; }
+    speedEl.textContent = "-" + speed + "×";
+    stopRev();
+    let last = performance.now();
+    const tick = (now) => { v.currentTime = Math.max(0, v.currentTime - ((now - last) / 1000) * speed); last = now; show(); if (v.currentTime <= 0) { stopRev(); setSpeed(1); } else rev = requestAnimationFrame(tick); };
+    rev = requestAnimationFrame(tick);
+  };
+  const forward = () => { if (!v.paused && !rev) setSpeed(speed * 2); else { setSpeed(1); play(); } };
+  const nav = fileNav;
+  v.ontimeupdate = show; v.onplay = show; v.onpause = show; v.onloadedmetadata = () => { show(); if (!m || !m.durationMs) $("#pl-dur").textContent = dur(v.duration * 1000); };
+  scrub.oninput = () => { if (v.duration) { stopRev(); v.currentTime = (scrub.value / 1000) * v.duration; show(); } };
+  box.querySelector("[data-pl=play]").onclick = () => (v.paused && !rev ? play() : pause());
+  box.querySelector("[data-pl=rev]").onclick = reverse;
+  box.querySelector("[data-pl=fwd]").onclick = forward;
+  box.querySelector("[data-pl=prev]").onclick = () => nav(-1);
+  box.querySelector("[data-pl=next]").onclick = () => nav(1);
+  box.querySelector("[data-pl=mute]").onclick = () => { v.muted = !v.muted; };
+  box.querySelector("[data-pl=full]").onclick = () => { if (v.requestFullscreen) v.requestFullscreen(); else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen(); };
+  v.onclick = () => (v.paused && !rev ? play() : pause());
+  v.ondblclick = () => box.querySelector("[data-pl=full]").click();
+  const keys = (e) => {
+    if ($("#sheet").hidden || !$("#player")) { document.removeEventListener("keydown", keys); return; }
+    if (e.target.matches("input:not([type=range]), textarea, select")) return;
+    const k = e.key.toLowerCase();
+    if (k === " ") { e.preventDefault(); v.paused && !rev ? play() : pause(); }
+    else if (k === "k") pause();
+    else if (k === "l") forward();
+    else if (k === "j") reverse();
+    else if (k === ",") step(e.shiftKey ? -10 : -1);
+    else if (k === ".") step(e.shiftKey ? 10 : 1);
+    else if (k === "home") { pause(); v.currentTime = 0; }
+    else if (k === "end") { pause(); v.currentTime = v.duration || 0; }
+    else if (k === "-" || k === "_") setSpeed(speed / 2);
+    else if (k === "=" || k === "+") setSpeed(speed * 2);
+    else if (k === "m") v.muted = !v.muted;
+    else if (k === "f") box.querySelector("[data-pl=full]").click();
+    else return;
+    e.stopPropagation();
+  };
+  document.addEventListener("keydown", keys);
+  show();
+}
+// fileNav opens the previous or next clip in the order the Clips list shows.
+function fileNav(dir) {
+  if (!S.file) return;
+  const list = S.mediaOrder || [], i = list.findIndex((x) => x.driveId === S.file.driveId && x.path === S.file.path);
+  if (i < 0 || !list[i + dir]) { toast(dir > 0 ? "Last clip in the list" : "First clip in the list"); return; }
+  openFile(list[i + dir].driveId, list[i + dir].path, S.file.back);
+}
+document.addEventListener("keydown", (e) => {
+  if (!S.file || $("#sheet").hidden || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+  if (e.target.matches("input:not([type=range]), textarea, select")) return;
+  e.preventDefault(); fileNav(e.key === "ArrowRight" ? 1 : -1);
+});
+function tcFrames(tc, rate) {
+  const p = String(tc).split(/[:;]/).map(Number);
+  if (p.length !== 4 || p.some(isNaN)) return 0;
+  return ((p[0] * 60 + p[1]) * 60 + p[2]) * Math.round(rate) + p[3];
+}
+function tcString(frames, rate) {
+  const r = Math.round(rate) || 25, f = frames % r, s = Math.floor(frames / r);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}:${pad(f)}`;
 }
 function closeFile() {
   const back = S.file && S.file.back;
@@ -3128,6 +3236,8 @@ document.querySelector(".tabs").onclick = (e) => {
   const b = e.target.closest("button[data-tab]");
   if (!b) return;
   if (b.dataset.tab === "projects" && S.tab === "projects") S.project = null;
+  // Coming from an open project, Clips shows that project.
+  if (b.dataset.tab === "media" && S.project && S.media.project !== String(S.project)) { S.media.project = String(S.project); S.mediaData = null; }
   S.tab = b.dataset.tab;
   if (S.tab !== "projects") S.project = null;
   localSet("tab", S.tab);
