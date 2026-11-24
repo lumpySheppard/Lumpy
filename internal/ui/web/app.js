@@ -2426,7 +2426,7 @@ async function openSettings(focus) {
 // it touches lights up; open it from the card, or double-click.
 const MAP = { k: 1, x: 0, y: 0, pos: {}, sel: null, drag: null, fitted: false, dirty: false };
 try { MAP.pos = JSON.parse(localGet("map.pos", "{}")) || {}; } catch { MAP.pos = {}; }
-const NODE = { project: [300, 96], drive: [296, 72], slice: [296, 60] };
+const NODE = { project: [300, 96], drive: [296, 72], slice: [296, 60], mac: [176, 62] };
 const ICON_TXT = { coffee: "☕ " };
 const EDGE_LABEL = { full: "verified", none: "no backup", unknown: "unproven", likely: "probably backed up", empty: "empty" };
 
@@ -2501,16 +2501,25 @@ function mapModel() {
     nodes.push(dn); loose.drives.push(dn);
   }
   if (loose.drives.length) islands.push(loose);
+  // This Mac, with a dotted wire to every drive plugged in: drives only,
+  // never a project's node on a shared drive.
+  const mac = { id: "mac", type: "mac" };
+  nodes.push(mac);
+  for (const n of nodes) if (n.type === "drive" && n.d.connected) edges.push({ from: "mac", to: n.id, cls: "live", label: "" });
   return { nodes, edges, islands };
 }
 
 // mapLayout lays each island out as a header with its drives in a grid
-// beneath, and flows the islands left to right, wrapping like text.
-// Dragged positions win; an island's frame always wraps its members.
-const ISL = { pad: 18, gap: 14, row: 40, wrap: 1420 };
+// beneath, then packs the islands into lanes the way a mason lays
+// stones: each goes to the lowest spot it fits, so the map is a block
+// rather than a column. Dragged positions win; an island's frame
+// always wraps its members.
+const ISL = { pad: 18, gap: 14, row: 40, lane: 296 + 2 * 18, lanes: 5 };
 function mapLayout(m) {
   for (const n of m.nodes) [n.w, n.h] = NODE[n.type];
-  let x = 40, y = 40, rowH = 0;
+  const box = $("#map"), lanes = Math.max(2, Math.min(ISL.lanes, Math.floor(((box ? box.clientWidth : 1400) / 0.72) / (ISL.lane + ISL.row))));
+  const sky = new Array(lanes).fill(40);
+  const X0 = 40 + NODE.mac[0] + 60;
   for (const isl of m.islands) {
     const n = isl.drives.length, cols = n <= 2 ? Math.max(1, n) : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
     const gw = cols * NODE.drive[0] + (cols - 1) * ISL.gap;
@@ -2518,13 +2527,19 @@ function mapLayout(m) {
     if (isl.head) isl.head.w = w - ISL.pad * 2;
     const hh = isl.head ? isl.head.h : 0, mh = isl.drives.length ? isl.drives[0].h : NODE.drive[1];
     const h = ISL.pad * 2 + (isl.head ? hh + ISL.gap : 26) + rows * mh + (rows - 1) * ISL.gap;
-    if (x > 40 && x + w > ISL.wrap) { x = 40; y += rowH + ISL.row; rowH = 0; }
+    const span = Math.min(lanes, cols);
+    // The lowest place this many lanes wide; the leftmost among ties.
+    let best = 0, bestY = Infinity;
+    for (let l = 0; l + span <= lanes; l++) { const y = Math.max(...sky.slice(l, l + span)); if (y < bestY) { bestY = y; best = l; } }
+    const x = X0 + best * (ISL.lane + ISL.row), y = bestY;
+    for (let l = best; l < best + span; l++) sky[l] = y + h + ISL.row;
     let cy = y + ISL.pad;
     if (isl.head) { isl.head.x = x + ISL.pad; isl.head.y = cy; cy += hh + ISL.gap; }
     else cy += 26;
     isl.drives.forEach((dn, i) => { dn.x = x + ISL.pad + (i % cols) * (NODE.drive[0] + ISL.gap); dn.y = cy + Math.floor(i / cols) * (mh + ISL.gap); });
-    x += w + ISL.row; rowH = Math.max(rowH, h);
   }
+  const mac = m.nodes.find((n) => n.type === "mac");
+  if (mac) { mac.x = 40; mac.y = Math.max(40, (Math.max(...sky) - 40) / 2 - mac.h / 2); }
   for (const n of m.nodes) { const p = MAP.pos[n.id]; if (p) { n.x = p.x; n.y = p.y; } }
   for (const isl of m.islands) islandFrame(isl);
 }
@@ -2568,6 +2583,7 @@ function renderMap() {
   if (sel) {
     hot.add(sel);
     for (const e of m.edges) { if (e.from === sel) hot.add(e.to); if (e.to === sel) hot.add(e.from); }
+    if (sel === "mac") for (const n of m.nodes) if (n.type === "drive" && n.d.connected) hot.add(n.id);
     const isl = m.islands.find((i) => i.id === sel || i.drives.some((n) => n.id === sel));
     if (isl && isl.id === sel) for (const n of isl.drives) hot.add(n.id);
     else if (isl && isl.head) hot.add(isl.head.id);
@@ -2599,6 +2615,7 @@ function renderMap() {
       const line = !h.bytes ? "empty" : todo ? `<span class="warn">${bytes(todo)} still to copy</span>` : h.unknownBytes ? `<span class="hint">${bytes(h.unknownBytes)} unproven</span>` : `<span class="ok">${ICON.check}every file on ${p.target} drives</span>`;
       return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}<em>${p.target}× copies</em></b><small>${h.bytes ? `${bytes(h.bytes)} · ${(h.contents || 0).toLocaleString()} files · ` : ""}${nd} drive${nd === 1 ? "" : "s"}</small><div class="n-bar"><i class="${st}" style="width:${pct}%"></i></div><small class="n-foot">${h.bytes ? pct + "% backed up" : ""}${h.bytes ? " · " : ""}${line}</small></div></div>`;
     }
+    if (n.type === "mac") return `<div class="${cls}" data-node="mac" style="${box};--pc:var(--accent)"><div class="n-pic"><svg class="pic on" viewBox="0 0 64 48">${PIC.mac}</svg></div><div class="n-body"><b>This Mac</b><small>${live.length} drive${live.length === 1 ? "" : "s"} plugged in</small></div></div>`;
     if (n.type === "slice") {
       const p = n.p;
       return `<div class="${cls}" data-node="${n.id}" style="${box};--pc:${COLORS[p.color] || "var(--accent)"}" title="${esc(p.name)} on ${esc(n.d.title)} · ${esc(n.label)}"><span class="n-tag">${ICON.film}</span><div class="n-body"><b>${esc(p.name)}</b><small>${n.backup ? '<span class="n-role">backup</span>' : ""}<span class="n-st ${n.st}">${esc(EDGE_LABEL[n.st] || n.label.split(" · ").pop())}</span> · ${esc(n.label.split(" · ")[0])} here</small></div></div>`;
@@ -2611,12 +2628,12 @@ function renderMap() {
   const island = (i) => `<div class="island ${i.p ? "" : i.d ? "shared" : "loose"} ${sel && (i.id === sel || i.drives.some((n) => n.id === sel)) ? "hot" : ""}" data-island="${i.id}" style="left:${i.x}px;top:${i.y}px;width:${i.w}px;height:${i.h}px;--pc:${i.color}">${i.head ? "" : `<span class="island-lbl">Not in a project · ${i.drives.length}</span>`}</div>`;
   main.innerHTML = `<div class="map ${sel ? "has-sel" : ""}" id="map">
     <div class="map-world" id="map-world" style="width:${W}px;height:${H}px">
-      ${m.islands.map(island).join("")}
       <svg class="map-edges" width="${W}" height="${H}">${m.edges.map(edgeSVG).join("")}</svg>
+      ${m.islands.map(island).join("")}
       ${m.edges.map(edgeLabel).join("")}
       ${m.nodes.map(node).join("")}
     </div>
-    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="sep">·</span><span><i class="dot" style="background:var(--ok)"></i>${live.length} plugged in</span>${S.state.awake && S.state.awake.on ? `<span title="Keep drives awake is on">${ICON_TXT.coffee}${(S.state.awake.drives || []).length} kept awake</span>` : ""}<span class="hint">· drag a drive's edge onto a project to add or remove it · drag a project to move its island · ⌘ + scroll zooms</span></div>
+    <div class="map-legend"><span><i style="background:var(--ok)"></i>verified</span><span><i style="background:var(--warn)"></i>partly</span><span><i style="background:var(--bad)"></i>no backup</span><span><i style="background:var(--muted)"></i>unproven</span><span class="sep">·</span><span><i class="dot" style="background:var(--ok)"></i>${live.length} plugged in</span>${S.state.awake && S.state.awake.on ? `<span title="Keep drives awake is on">${ICON_TXT.coffee}${(S.state.awake.drives || []).length} kept awake</span>` : ""}<span class="hint">· drag a drive onto a project to add it, out of its island to take it out · drag a project to move its island · ⌘ + scroll zooms</span></div>
     <div class="map-tools"><button class="icon-btn" data-map="out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button class="icon-btn" data-map="in" title="Zoom in">${ICON.plus}</button><button class="btn small" data-map="fit">Fit</button><button class="btn small" data-map="arrange" title="Put every node back where Lumpy lays it out">Arrange</button></div>
     ${sel ? mapCard(m, sel) : ""}
   </div>`;
@@ -2629,6 +2646,11 @@ function renderMap() {
 function mapCard(m, id) {
   const n = m.nodes.find((x) => x.id === id);
   if (!n) return "";
+  if (n.type === "mac") {
+    const live = S.state.drives.filter((d) => d.connected);
+    return `<div class="map-card"><div class="mc-head"><b>This Mac</b><button class="btn small primary" data-open="connected">Connected</button></div>
+      <div class="mc-list">${live.length ? live.map((d) => `<div data-node-go="d${esc(d.id)}"><span class="dot live" style="background:var(--ok);color:var(--ok)"></span>${esc(d.title)}<small>${esc(d.bus || "")}</small></div>`).join("") : '<span class="hint">Nothing plugged in.</span>'}</div></div>`;
+  }
   if (n.type === "project" || n.type === "slice") {
     const p = n.p, h = p.health || {};
     const isl = m.islands.find((i) => i.id === "p" + p.id);
@@ -2666,28 +2688,29 @@ function mapZoom(f, cx, cy) {
   MAP.k = k;
   applyMap();
 }
-// wireDrop connects a drive to a project (asking which folder) or, when
-// the project already holds the drive, offers to take it out.
-function wireDrop(a, b) {
-  const pn = a.type === "project" ? a : b, dn = a.type === "drive" ? a : b;
-  const p = pn.p, d = dn.d;
-  const held = (p.sources || []).filter((s) => s.driveId === d.id);
+// mapChange carries out a drop: adding a drive to a project asks
+// which folder; taking one out asks first, in case it was a slip.
+function mapChange(act) {
+  const { p, d } = act;
   const change = async (body) => {
     try { await api(`/api/projects/${p.id}`, { method: "PATCH", body }); await loadState(); S.projects = null; renderMap(); }
     catch (e) { toast(e.message, true); }
   };
-  if (!held.length) {
+  if (act.kind === "add") {
     addSourceDialog((src) => change({ add: [src] }), d.id, { lock: true, title: `Add ${d.title} to ${p.name}`, ok: "Add" });
     return;
   }
+  const held = (p.sources || []).filter((s) => s.driveId === d.id);
+  if (!held.length) return;
   openSheet(`<div class="sheet-head"><h2>Take ${esc(d.title)} out of ${esc(p.name)}?</h2><div class="actions"><button class="icon-btn" id="wd-close">${ICON.x}</button></div></div>
-    <div class="sheet-body" style="padding-top:12px"><p class="hint">${held.map((s) => esc(s.folder || "the whole drive")).join(", ")} would leave the project. Nothing on the drive is touched.</p></div>
-    <div class="sheet-foot"><button class="btn" id="wd-cancel">Keep it</button><button class="btn danger-fill" id="wd-ok">Take it out</button></div>`, true);
+    <div class="sheet-body" style="padding-top:12px"><p class="hint">${held.map((s) => esc(s.folder || "the whole drive")).join(", ")} would leave the project. Nothing on the drive is touched, and it can be added back any time.</p></div>
+    <div class="sheet-foot"><button class="btn" id="wd-cancel">Keep it in</button><button class="btn danger-fill" id="wd-ok">Take it out</button></div>`, true);
   const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
   $("#wd-close").onclick = $("#wd-cancel").onclick = close;
   $("#wd-ok").onclick = () => { close(); change({ remove: held }); };
 }
 function openNode(id) {
+  if (id === "mac") { S.tab = "connected"; localSet("tab", S.tab); render(); return; }
   if (id[0] === "p" || id[0] === "s") { S.tab = "projects"; S.project = +id.slice(1).split("|")[0]; localSet("tab", S.tab); render(); return; }
   openDetail(id.slice(1));
 }
@@ -2701,64 +2724,63 @@ function wireMap(m) {
   }, { passive: false });
   // World coordinates of a pointer position.
   const toWorld = (e) => { const r = box.getBoundingClientRect(); return { x: (e.clientX - r.left - MAP.x) / MAP.k, y: (e.clientY - r.top - MAP.y) / MAP.k }; };
-  const socketOf = (node, n, e) => {
-    // A press within the connector zone at either edge of a drive or
-    // project node starts a wire instead of moving the node.
-    if (!n || n.type === "slice") return null;
-    const r = node.getBoundingClientRect(), zone = 14 * MAP.k;
-    if (e.clientX - r.left <= zone) return { x: n.x, y: n.y + node.offsetHeight / 2 };
-    if (r.right - e.clientX <= zone) return { x: n.x + node.offsetWidth, y: n.y + node.offsetHeight / 2 };
-    return null;
-  };
   box.onpointerdown = (e) => {
     if (e.button !== 0 || e.target.closest(".map-tools, .map-card, button")) return;
     const node = e.target.closest(".node");
     const n = node ? m.nodes.find((x) => x.id === node.dataset.node) : null;
-    const socket = node && socketOf(node, n, e);
-    if (socket) {
-      MAP.drag = { wire: true, from: n, socket, node };
-      try { box.setPointerCapture(e.pointerId); } catch {}
-      box.classList.add("wiring");
-      return;
-    }
     const group = n ? (n.island && n.island.head === n ? [n, ...n.island.drives] : [n]) : [];
     MAP.drag = { sx: e.clientX, sy: e.clientY, x: MAP.x, y: MAP.y, node, n, group: group.map((g) => ({ n: g, x: g.x, y: g.y, el: world.querySelector(`[data-node="${CSS.escape(g.id)}"]`) })), moved: false };
     box.setPointerCapture(e.pointerId);
     if (!node) box.classList.add("panning");
   };
-  const wireTarget = (e, d) => {
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const node = el && el.closest(".node");
-    const n = node ? m.nodes.find((x) => x.id === node.dataset.node) : null;
-    if (!n || n === d.from || n.type === "slice" || n.type === d.from.type) return null;
-    return { node, n };
+  // The island under the pointer, other than the one the node came
+  // from, while a drive or a project's node is being carried.
+  const islandUnder = (e, d) => {
+    const from = d.n.island;
+    const els = document.elementsFromPoint(e.clientX, e.clientY);
+    const fe = els.find((x) => x.classList && x.classList.contains("island") && (!from || x.dataset.island !== from.id));
+    return fe ? m.islands.find((i) => i.id === fe.dataset.island) || null : null;
+  };
+  // What a drop would do: add to a project, take out of one, or nothing.
+  const dropAction = (e, d) => {
+    const n = d.n;
+    if (!n || n.type === "mac" || n.type === "project") return null;
+    const over = islandUnder(e, d);
+    const inside = over || (n.island && document.elementsFromPoint(e.clientX, e.clientY).some((x) => x.dataset && x.dataset.island === n.island.id) ? n.island : null);
+    if (n.type === "slice") return inside ? null : { kind: "remove", p: n.p, d: n.d };
+    const d0 = n.d, held = (p) => (p.sources || []).some((src) => src.driveId === d0.id);
+    if (over && over.p && !held(over.p)) return { kind: "add", p: over.p, d: d0 };
+    if (!inside && n.island && n.island.p) return { kind: "remove", p: n.island.p, d: d0 };
+    return null;
   };
   box.onpointermove = (e) => {
     const d = MAP.drag;
     if (!d) return;
-    if (d.wire) {
-      const w = toWorld(e), edges = world.querySelector(".map-edges");
-      let draft = edges.querySelector(".draft");
-      if (!draft) { edges.insertAdjacentHTML("beforeend", `<g class="edge-g draft"><path d=""/></g>`); draft = edges.querySelector(".draft"); }
-      const dx = (w.x - d.socket.x) / 2;
-      draft.querySelector("path").setAttribute("d", `M${d.socket.x} ${d.socket.y} C${d.socket.x + dx} ${d.socket.y} ${w.x - dx} ${w.y} ${w.x} ${w.y}`);
-      const t = wireTarget(e, d);
-      world.querySelectorAll(".node.target").forEach((x) => { if (!t || x !== t.node) x.classList.remove("target"); });
-      if (t) t.node.classList.add("target");
-      return;
-    }
     const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
     if (d.node) {
+      // Say what a drop here would do.
+      if (d.moved && d.group.length === 1) {
+        d.node.style.pointerEvents = "none";
+        const act = dropAction(e, d);
+        world.querySelectorAll(".island.target").forEach((x) => x.classList.remove("target"));
+        d.node.classList.toggle("leaving", !!act && act.kind === "remove");
+        if (act && act.kind === "add") { const fe = world.querySelector(`[data-island="${CSS.escape("p" + act.p.id)}"]`); if (fe) fe.classList.add("target"); }
+        box.classList.toggle("carrying", true);
+      }
       for (const g of d.group) {
         g.n.x = g.x + dx / MAP.k; g.n.y = g.y + dy / MAP.k;
         if (g.el) { g.el.style.left = g.n.x + "px"; g.el.style.top = g.n.y + "px"; }
         MAP.pos[g.n.id] = { x: g.n.x, y: g.n.y };
       }
-      const isl = d.n.island || m.islands.find((i) => i.id === d.n.id);
-      islandFrame(isl);
-      const fe = world.querySelector(`[data-island="${CSS.escape(isl.id)}"]`);
-      if (fe) { fe.style.left = isl.x + "px"; fe.style.top = isl.y + "px"; fe.style.width = isl.w + "px"; fe.style.height = isl.h + "px"; }
+      // An island follows its header; a single node carried out of
+      // it floats free, so the frame stays put.
+      if (d.group.length > 1) {
+        const isl = d.n.island || m.islands.find((i) => i.id === d.n.id);
+        islandFrame(isl);
+        const fe = world.querySelector(`[data-island="${CSS.escape(isl.id)}"]`);
+        if (fe) { fe.style.left = isl.x + "px"; fe.style.top = isl.y + "px"; fe.style.width = isl.w + "px"; fe.style.height = isl.h + "px"; }
+      }
       world.querySelector(".map-edges").innerHTML = m.edges.map((e2) => { const g = edgeGeom(m.nodes.find((x) => x.id === e2.from), m.nodes.find((x) => x.id === e2.to)); return g ? `<g class="edge-g ${e2.cls}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>` : ""; }).join("");
       world.querySelectorAll(".e-lbl").forEach((el) => el.remove());
     } else { MAP.x = d.x + dx; MAP.y = d.y + dy; applyMap(); }
@@ -2767,16 +2789,21 @@ function wireMap(m) {
     const d = MAP.drag;
     if (!d) return;
     MAP.drag = null;
-    box.classList.remove("panning");
-    if (d.wire) {
-      box.classList.remove("wiring");
-      const t = e.type === "pointerup" ? wireTarget(e, d) : null;
-      world.querySelectorAll(".draft, .node.target").forEach((x) => x.classList ? x.classList.remove("target") : x.remove());
-      world.querySelectorAll(".draft").forEach((x) => x.remove());
-      if (t) wireDrop(d.from, t.n);
-      return;
-    }
+    box.classList.remove("panning", "carrying");
     if (d.node) {
+      d.node.style.pointerEvents = "";
+      d.node.classList.remove("leaving");
+      world.querySelectorAll(".island.target").forEach((x) => x.classList.remove("target"));
+      const act = d.moved && d.group.length === 1 && e.type === "pointerup" ? dropAction(e, d) : null;
+      if (act) {
+        // The node goes back where it was; the change, if confirmed,
+        // redraws the map.
+        for (const g of d.group) { g.n.x = g.x; g.n.y = g.y; delete MAP.pos[g.n.id]; }
+        localSet("map.pos", JSON.stringify(MAP.pos));
+        renderMap();
+        mapChange(act);
+        return;
+      }
       if (d.moved) { localSet("map.pos", JSON.stringify(MAP.pos)); renderMap(); }
       else if (MAP.last && MAP.last.id === d.n.id && Date.now() - MAP.last.at < 400) { MAP.last = null; openNode(d.n.id); }
       else { MAP.last = { id: d.n.id, at: Date.now() }; MAP.sel = d.n.id; renderMap(); }
@@ -2791,7 +2818,8 @@ function wireMap(m) {
     else { MAP.pos = {}; localSet("map.pos", "{}"); MAP.fitted = false; renderMap(); }
   };
   for (const b of box.querySelectorAll("[data-open]")) b.onclick = () => {
-    if (b.dataset.open === "project") openNode("p" + b.dataset.id);
+    if (b.dataset.open === "connected") { S.tab = "connected"; localSet("tab", S.tab); render(); }
+    else if (b.dataset.open === "project") openNode("p" + b.dataset.id);
     else openNode("d" + b.dataset.id);
   };
   for (const el of box.querySelectorAll("[data-node-go]")) el.onclick = () => { MAP.sel = el.dataset.nodeGo; renderMap(); };
