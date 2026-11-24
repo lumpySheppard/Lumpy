@@ -187,9 +187,10 @@ details.notes pre { white-space: pre-wrap; font: 12px/1.5 inherit; color: var(--
 :root[data-style="classic"] .sp-bar { border: 1px solid var(--ink); background: var(--paper); height: 8px; }
 
 /* Toolbar */
-.toolbar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 12px 20px; border-bottom: 1px solid var(--line);
+/* Every tab's bar is the same row: one height, one look, whatever is in it. */
+.toolbar, .page-bar, .media-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; box-sizing: border-box; min-height: 58px;
+  padding: 10px 20px; border-bottom: 1px solid var(--line);
 }
 .toolbar-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; margin-right: 6px; }
 .toolbar-title svg { width: 17px; height: 17px; color: var(--muted); }
@@ -216,7 +217,7 @@ details.notes pre { white-space: pre-wrap; font: 12px/1.5 inherit; color: var(--
 .toolbar .pills { flex-wrap: wrap; }
 .toolbar-title .count { margin-left: 2px; }
 /* page-bar: the same header row as the toolbar, for pages that draw their own. */
-.page-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -20px -20px 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.page-bar { margin: -20px -20px 16px; }
 .page-bar .right { margin-left: auto; display: flex; gap: 6px; }
 .search-icon { position: absolute; left: 10px; width: 14px; height: 14px; color: var(--muted); display: grid; }
 .search input {
@@ -562,6 +563,17 @@ select.plain.small { padding: 2px 24px 2px 8px; font-size: 12px; }
 .pcard .card-top { display: flex; align-items: center; gap: 10px; }
 .pcard .card-top .n-tag { width: 30px; height: 30px; border-radius: 9px; }
 .pcard .card-top .n-tag svg { width: 16px; height: 16px; }
+/* Project cards line up: the name on its own line, the folder count
+   under it, the bar the full width with its reading beneath, and one
+   line of figures, however long the name or the reading. */
+.pcard .card-title { flex-direction: column; align-items: flex-start; gap: 1px; flex-wrap: nowrap; flex: 1; }
+.pcard .card-title h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; overflow-wrap: normal; }
+.pcard .card-title .vol { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; word-break: normal; }
+.pcard .bbar { flex-wrap: wrap; gap: 5px 0; margin-top: 10px; }
+.pcard .bbar .track { flex: 1 0 100%; }
+.pcard .bbar .lbl { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 1.3; }
+.pcard .bbar .lbl svg { vertical-align: -2px; margin-right: 4px; }
+.pcard .cap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .phead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .phead.page-bar { padding-top: 10px; padding-bottom: 10px; }
 .col-title { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 16px; font-weight: 650; }
@@ -679,7 +691,7 @@ details.term-wrap > summary:hover { color: var(--text); }
 mark { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 1px; }
 
 /* Clips */
-.media-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -20px -20px 0; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.media-bar { margin: -20px -20px 0; }
 .media-bar .toolbar-title { margin-right: 4px; }
 .media-bar .search { flex: 1 1 180px; }
 .media-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 -20px 14px; padding: 8px 20px; border-bottom: 1px solid var(--line); background: var(--bg-2); }
@@ -736,7 +748,13 @@ table.list.tidy .select select { min-width: 150px; }
 .master-head h2 { margin: 0; }
 .master-head .right { margin-left: auto; display: flex; gap: 6px; }
 .master-head .warn { color: var(--warn); }
-.preview .player video { cursor: pointer; }
+.preview .player video { cursor: pointer; transform: translateZ(0); will-change: transform; }
+/* While a clip plays, nothing blurs: a backdrop filter is re-rendered
+   with every video frame and that is what stutters the picture. */
+:root:has(#player video) .scrim, :root:has(#player video) .sheet, :root:has(#player video) .popover, :root:has(#player video) .map-card,
+:root:has(#player video) .card, :root:has(#player video) .job, :root:has(#player video) .toast { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+:root:has(#player video) .scrim { background: rgba(0,0,0,.7); }
+:root:has(#player video) .sheet { animation: none; }
 .transport { display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: var(--panel); border-top: 1px solid var(--line); }
 .transport .icon-btn { width: 28px; height: 26px; color: var(--text); }
 .transport .icon-btn.play { width: 34px; }
@@ -797,7 +815,7 @@ table.list.tidy .select select { min-width: 150px; }
 /* Map: the home screen. Nodes are HTML, edges are one SVG underneath,
    both inside a world that pans and zooms with a transform. */
 main.map-main { padding: 0; overflow: hidden; }
-.map { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; user-select: none; touch-action: none;
+.map { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
   background: radial-gradient(circle at 1px 1px, rgba(255,255,255,.075) 1px, transparent 1.6px) 0 0 / 22px 22px, radial-gradient(700px 420px at 28% 18%, rgba(138,92,246,.09), transparent 65%), var(--bg); }
 .map.panning { cursor: grabbing; }
 .map-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
@@ -811,8 +829,14 @@ main.map-main { padding: 0; overflow: hidden; }
 .edge-g.none { color: var(--bad); }
 .edge-g.unknown, .edge-g.empty { color: var(--muted); } .edge-g.unknown path { stroke-dasharray: 3 4; }
 .edge-g.live { color: var(--power); opacity: .85; }
-.map.has-sel .edge-g.live.hot { opacity: 1; } .edge-g.live.lead path { stroke-width: 2.4; stroke-dasharray: 5 7; stroke-linecap: round; }
+.map.has-sel .edge-g.live.hot { opacity: 1; }
+/* Leads from the Mac: a solid cable with a soft glow around it. */
+.edge-g.live.lead { opacity: 1; }
+.edge-g.live.lead path { stroke-width: 4; stroke-linecap: round; }
+.edge-g.live.lead path.halo { stroke-width: 11; opacity: .22; }
 .edge-g.live.lead circle { fill: var(--power); stroke: none; }
+:root[data-style="classic"] .edge-g.live.lead path { stroke-width: 3; }
+:root[data-style="classic"] .edge-g.live.lead path.halo { display: none; }
 .e-lbl { position: absolute; transform: translate(-50%, -50%); font-size: 10.5px; font-weight: 500; padding: 2px 8px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); color: var(--text-2); white-space: nowrap; pointer-events: none; transition: opacity .2s; font-variant-numeric: tabular-nums; }
 .e-lbl.full { color: var(--ok); border-color: rgba(61,220,132,.35); }
 .e-lbl.partial, .e-lbl.likely { color: var(--warn); border-color: rgba(255,204,77,.35); }
@@ -850,6 +874,10 @@ main.map-main { padding: 0; overflow: hidden; }
   border: 1px solid color-mix(in srgb, var(--pc, var(--accent)) 45%, var(--line)); box-shadow: 0 8px 24px rgba(0,0,0,.45); transition: box-shadow .15s, border-color .15s, opacity .2s; }
 /* Connectors: a socket on each side; a wire's end dot lands on one. */
 .map.carrying .node { cursor: grabbing; }
+.node.dragging { z-index: 5; transition: none; }
+.node.shift { transition: left .18s ease, top .18s ease, box-shadow .15s, border-color .15s, opacity .2s; }
+.island { cursor: grab; }
+.map.carrying .island { cursor: grabbing; }
 .node.leaving { opacity: .5; outline: 2px dashed var(--bad); outline-offset: 3px; }
 .island.target { border-style: solid; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
 .node:hover { border-color: color-mix(in srgb, var(--pc, var(--accent)) 85%, var(--line)); box-shadow: 0 10px 28px rgba(0,0,0,.5), 0 0 22px color-mix(in srgb, var(--pc, var(--accent)) 35%, transparent); }
@@ -872,7 +900,7 @@ main.map-main { padding: 0; overflow: hidden; }
 .map-legend .dot { background: var(--power); box-shadow: 0 0 6px var(--power); }
 .map-legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
 .map-tools { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 4px; align-items: center; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
-.map-card { position: absolute; right: 14px; top: 40px; width: 320px; max-height: calc(100% - 110px); overflow: auto; background: rgba(26,26,30,.86); backdrop-filter: blur(20px) saturate(150%); -webkit-backdrop-filter: blur(20px) saturate(150%); border: 1px solid color-mix(in srgb, var(--pc, var(--accent)) 40%, var(--line-2)); border-radius: 13px; padding: 12px 14px 12px; box-shadow: var(--shadow); cursor: default; user-select: text; }
+.map-card { position: absolute; right: 14px; top: 40px; width: 320px; max-height: calc(100% - 110px); overflow: auto; background: rgba(26,26,30,.86); backdrop-filter: blur(20px) saturate(150%); -webkit-backdrop-filter: blur(20px) saturate(150%); border: 1px solid color-mix(in srgb, var(--pc, var(--accent)) 40%, var(--line-2)); border-radius: 13px; padding: 12px 14px 12px; box-shadow: var(--shadow); cursor: default; user-select: text; -webkit-user-select: text; }
 .mc-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
 .mc-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .mc-list { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
@@ -1032,7 +1060,11 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .agent-pill.on::before { background: var(--ok); box-shadow: none; }
 :root[data-style="classic"] .update-pill { background: var(--accent); color: #fff; border-radius: 5px; box-shadow: none; }
 /* Controls: one height, one radius, the pop-up's drop shadow for pop-ups only. */
-:root[data-style="classic"] .toolbar, :root[data-style="classic"] .page-bar, :root[data-style="classic"] .media-bar { background: var(--paper); border-bottom: 1px solid var(--ink); padding: 8px 14px; }
+:root[data-style="classic"] .toolbar, :root[data-style="classic"] .page-bar, :root[data-style="classic"] .media-bar {
+  background: var(--paper-t2); border: 1px solid var(--ink); border-radius: 4px; box-shadow: 2px 2px 0 var(--ink); padding: 8px 10px; min-height: 54px;
+  backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%);
+}
+:root[data-style="classic"] .page-bar { margin-bottom: 12px; }
 :root[data-style="classic"] .media-filters { background: var(--paper-t); border-bottom: 1px solid var(--ink); }
 :root[data-style="classic"] .pop-head { border-bottom-color: var(--ink); }
 :root[data-style="classic"] .btn, :root[data-style="classic"] .pill, :root[data-style="classic"] .seg, :root[data-style="classic"] .select select, :root[data-style="classic"] select.plain,
@@ -1082,7 +1114,7 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .section-head .chev { color: var(--ink); }
 :root[data-style="classic"] .card .icon-btn { color: var(--text); }
 :root[data-style="classic"] .card .icon-btn svg { color: inherit; }
-:root[data-style="classic"] .media-bar { padding: 8px 10px; margin-bottom: 12px; }
+:root[data-style="classic"] .media-bar { margin-bottom: 12px; }
 :root[data-style="classic"] .empty { padding: 20px 24px 24px; color: var(--text); }
 :root[data-style="classic"] .sheet { padding-top: 0; overflow: visible; }
 /* The title bar: a flat band of darker grey inside the window's own

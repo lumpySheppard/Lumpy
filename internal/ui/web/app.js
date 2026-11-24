@@ -164,7 +164,12 @@ async function loadState() {
     if (S.state.summarising) { clearTimeout(S.sumTimer); S.sumTimer = setTimeout(loadState, 1500); }
     // The offload form keeps what's being typed; only the counts refresh.
     if (!first && (S.tab === "offload" || S.tab === "media" || S.tab === "space")) { renderCounts(); if (S.tab === "space") spaceTick(); }
-    else if (!first && S.tab === "projects") { renderCounts(); if (S.project) loadProject(S.project, true); else loadProjects(); }
+    else if (!first && S.tab === "projects") {
+      renderCounts();
+      // The page is left alone while its master print plays.
+      const v = document.querySelector("#main #player video");
+      if (S.project) { if (!v || v.paused) loadProject(S.project, true); } else loadProjects();
+    }
     else if (!first && S.tab === "map") { renderCounts(); loadProjects(); }
     else render();
   } catch (e) {
@@ -1305,7 +1310,7 @@ function masterSection(data) {
       ${m.matte ? `<div class="seg" id="master-seg"><button data-matte="0" class="${matte ? "" : "on"}">Master</button><button data-matte="1" class="${matte ? "on" : ""}">Open matte</button></div>` : ""}
       <span class="hint">${esc(cur.name)} · ${esc(m.drive)}${md.width ? ` · ${md.width}×${md.height}` : ""}${md.durationMs ? ` · ${esc(dur(md.durationMs))}` : ""}${m.final ? "" : ' · <span class="warn">not in OUTPUT</span>'}</span>
       <div class="right">${native && m.connected ? `<button class="btn small" id="master-reveal">${ICON.reveal}Show in Finder</button>` : ""}<button class="btn small" id="master-open">${ICON.film}Details</button></div></div>
-    ${m.connected ? `<div class="preview">${playerHTML(stream, md)}</div>` : `<div class="preview"><div class="no-preview">${ICON.film}<span>Plug in ${esc(m.drive)} to play it</span></div></div>`}</section>`;
+    ${m.connected ? `<div class="preview">${playerHTML(stream, md, m.connected && driveOf(cur.driveId) ? driveOf(cur.driveId).mount + "/" + cur.path : "")}</div>` : `<div class="preview"><div class="no-preview">${ICON.film}<span>Plug in ${esc(m.drive)} to play it</span></div></div>`}</section>`;
 }
 function wireMaster(data) {
   const ms = data.masters || [];
@@ -1859,7 +1864,7 @@ function renderOffload() {
   const recentSel = (kind, i) => { const list = recent[kind] || []; return list.length ? `<select class="plain recent" data-recent="${kind}" data-i="${i ?? ""}" title="Recently used"><option value="">Recent…</option>${list.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}</select>` : ""; };
   const name = o.name || (o.source ? o.source.replace(/\/+$/, "").split("/").pop() : "");
   const busy = S.jobs.some((j) => j.kind === "offload" && j.state === "running");
-  $("#main").innerHTML = `<div class="offload split ${busy ? "busy" : ""}">
+  $("#main").innerHTML = `<div class="page-bar"><div class="toolbar-title">${ICON.copy}Offload</div></div><div class="offload split ${busy ? "busy" : ""}">
     <section class="panel">
       <h2>New offload</h2>
       <p class="hint">Lumpy reads the source once, writes every destination at the same time, reads each copy back from its drive and compares xxh64 checksums. Each copy gets an ASC MHL manifest and is recorded in the library.</p>
@@ -2364,8 +2369,8 @@ async function openFile(driveId, path, back) {
   const px = data.proxy, pxStream = px ? `/api/drives/${encodeURIComponent(px.driveId)}/stream?path=${encodeURIComponent(px.path)}&t=${encodeURIComponent(token)}` : "";
   const rawNote = /\.(crm|braw|r3d|ari|arx|cine)$/i.test(name) ? `${name.split(".").pop().toUpperCase()} has no player without the camera maker's SDK` : "No preview for this file type";
   const preview = data.playable
-    ? (kind === "video" ? playerHTML(stream, m) : kind === "audio" ? `<div class="audio-box">${ICON.clapper}<audio controls preload="metadata" src="${stream}"></audio></div>` : `<img src="${stream}" alt="">`)
-    : px ? playerHTML(pxStream, m) + `<div class="proxy-note">${ICON.info}Playing the proxy <b>${esc(px.path.split("/").pop())}</b> on ${esc(px.drive)} · ${esc(rawNote)}</div>`
+    ? (kind === "video" ? playerHTML(stream, m, dr.connected && driveOf(driveId) ? driveOf(driveId).mount + "/" + path : "") : kind === "audio" ? `<div class="audio-box">${ICON.clapper}<audio controls preload="metadata" src="${stream}"></audio></div>` : `<img src="${stream}" alt="">`)
+    : px ? playerHTML(pxStream, m, driveOf(px.driveId) ? driveOf(px.driveId).mount + "/" + px.path : "") + `<div class="proxy-note">${ICON.info}Playing the proxy <b>${esc(px.path.split("/").pop())}</b> on ${esc(px.drive)} · ${esc(rawNote)}</div>`
     : `<div class="no-preview">${ICON.film}<span>${dr.connected ? rawNote : `Plug in ${esc(dr.title)} to preview`}</span></div>`;
   const kv = [];
   if (m) {
@@ -2422,9 +2427,9 @@ async function openFile(driveId, path, back) {
 // under it, the way an edit suite's viewer works. J K L shuttle, space
 // plays, , and . step a frame (⇧ ten), ← → go to the previous and
 // next clip in the list, - and = change speed, F fills the screen.
-function playerHTML(stream, m) {
+function playerHTML(stream, m, file) {
   const rate = (m && m.frameRate) || 0;
-  return `<div class="player" id="player" tabindex="0">
+  return `<div class="player" id="player" tabindex="0" data-file="${esc(file || "")}">
     <video preload="auto" playsinline src="${stream}"></video>
     <div class="transport">
       <button class="icon-btn" data-pl="prev" title="Previous clip (←)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
@@ -2437,6 +2442,7 @@ function playerHTML(stream, m) {
       <span class="tc dur" id="pl-dur">${m && m.durationMs ? esc(dur(m.durationMs)) : "—"}</span>
       <span class="speed" id="pl-speed" title="Speed (- and =)">1×</span>
       <button class="icon-btn" data-pl="mute" title="Mute (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6"/></svg></button>
+      ${native && file ? `<button class="icon-btn" data-pl="qt" title="Open in QuickTime Player">${ICON.clapper}</button>` : ""}
       <button class="icon-btn" data-pl="full" title="Fill the screen (F)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     </div></div>`;
 }
@@ -2447,11 +2453,16 @@ function wirePlayer(m) {
   const scrub = $("#pl-scrub"), tc = $("#pl-tc"), speedEl = $("#pl-speed"), playBtn = box.querySelector("[data-pl=play]");
   let speed = 1, rev = null; // rev: the timer stepping backwards
   const stopRev = () => { if (rev) { cancelAnimationFrame(rev); rev = null; } };
+  // Only what changed is written: the player ticks many times a second
+  // and every write here is a repaint beside the video.
+  let lastTc = "", lastScrub = -1, lastPlaying = null;
   const show = () => {
     const f = Math.round(v.currentTime * rate);
-    tc.textContent = tcString(startFrames + f, rate) + ` · ${f}`;
-    if (v.duration) scrub.value = Math.round((v.currentTime / v.duration) * 1000);
-    playBtn.innerHTML = v.paused && !rev ? ICON.play : `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>`;
+    const t = tcString(startFrames + f, rate) + ` · ${f}`;
+    if (t !== lastTc) { tc.textContent = t; lastTc = t; }
+    if (v.duration) { const sv = Math.round((v.currentTime / v.duration) * 1000); if (sv !== lastScrub) { scrub.value = sv; lastScrub = sv; } }
+    const playing = !(v.paused && !rev);
+    if (playing !== lastPlaying) { playBtn.innerHTML = playing ? `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>` : ICON.play; lastPlaying = playing; }
   };
   const setSpeed = (x) => { speed = Math.max(0.25, Math.min(8, x)); v.playbackRate = speed; speedEl.textContent = (speed % 1 ? speed.toFixed(2).replace(/0+$/, "") : speed) + "×"; };
   const play = () => { stopRev(); const p = v.play(); if (p && p.catch) p.catch(() => {}); };
@@ -2477,6 +2488,7 @@ function wirePlayer(m) {
   box.querySelector("[data-pl=prev]").onclick = () => nav(-1);
   box.querySelector("[data-pl=next]").onclick = () => nav(1);
   box.querySelector("[data-pl=mute]").onclick = () => { v.muted = !v.muted; };
+  const qt = box.querySelector("[data-pl=qt]"); if (qt) qt.onclick = () => { pause(); nativeCall("quicktime", { path: box.dataset.file }); };
   box.querySelector("[data-pl=full]").onclick = () => { if (v.requestFullscreen) v.requestFullscreen(); else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen(); };
   v.onclick = () => (v.paused && !rev ? play() : pause());
   v.ondblclick = () => box.querySelector("[data-pl=full]").click();
@@ -2774,8 +2786,14 @@ async function openSettings(focus) {
 // them, as nodes on a canvas. An edge says how much of a project sits
 // on a drive and whether that part is backed up. Click a node and what
 // it touches lights up; open it from the card, or double-click.
-const MAP = { k: 1, x: 0, y: 0, pos: {}, sel: null, drag: null, fitted: false, dirty: false };
-try { MAP.pos = JSON.parse(localGet("map.pos", "{}")) || {}; } catch { MAP.pos = {}; }
+// What the map remembers: where each island was put (isl), the order
+// of the nodes inside each (order), and where the Mac sits (pos).
+const MAP = { k: 1, x: 0, y: 0, pos: {}, isl: {}, order: {}, sel: null, drag: null, fitted: false, dirty: false };
+for (const k of ["pos", "isl", "order"]) { try { MAP[k] = JSON.parse(localGet("map." + k, "{}")) || {}; } catch { MAP[k] = {}; } }
+function mapSave() { for (const k of ["pos", "isl", "order"]) localSet("map." + k, JSON.stringify(MAP[k])); }
+// The grid everything snaps to: the dots in the background.
+const GRID = 22;
+const snap = (v) => Math.round(v / GRID) * GRID;
 const NODE = { project: [300, 96], drive: [296, 72], slice: [296, 60], mac: [224, 92] };
 // busName is how a drive's bus reads on the Mac's node.
 function busName(bus) {
@@ -2863,6 +2881,13 @@ function mapModel() {
     nodes.push(dn); loose.drives.push(dn);
   }
   if (loose.drives.length) islands.push(loose);
+  // Nodes keep the order they were put in; newcomers go last.
+  for (const isl of islands) {
+    const want = MAP.order[isl.id];
+    if (!want) continue;
+    const rank = new Map(want.map((id, i) => [id, i]));
+    isl.drives.sort((a, b) => (rank.has(a.id) ? rank.get(a.id) : 1e9) - (rank.has(b.id) ? rank.get(b.id) : 1e9));
+  }
   // This Mac; its wires to plugged-in drives are drawn by busPaths.
   nodes.push({ id: "mac", type: "mac" });
   return { nodes, edges, islands };
@@ -2893,6 +2918,10 @@ function mapLayout(m) {
     if (isl.head) isl.head.w = w - ISL.pad * 2;
     const hh = isl.head ? isl.head.h : 0, mh = isl.drives.length ? isl.drives[0].h : NODE.drive[1];
     const h = ISL.pad * 2 + (isl.head ? hh + ISL.gap : 26) + rows * mh + (rows - 1) * ISL.gap;
+    isl.cols = cols; isl.mh = mh;
+    // An island that was put somewhere stays there, out of the packing.
+    const put = MAP.isl[isl.id];
+    if (put) { islandPlace(isl, put.x, put.y); continue; }
     const span = cols;
     // The lowest place this many lanes wide on either side; nearest the
     // Mac among ties, and the left side before the right.
@@ -2903,15 +2932,32 @@ function mapLayout(m) {
     for (let l = best.l; l < best.l + span && l < sd.lanes; l++) sd.sky[l] = y + h + ISL.row;
     // Lane 0 is the one beside the Mac; islands hug it.
     const x = best.si === 0 ? leftEnd - best.l * laneW - w : rightStart + best.l * laneW;
-    let cy = y + ISL.pad;
-    if (isl.head) { isl.head.x = x + ISL.pad; isl.head.y = cy; cy += hh + ISL.gap; }
-    else cy += 26;
-    isl.drives.forEach((dn, i) => { dn.x = x + ISL.pad + (i % cols) * (NODE.drive[0] + ISL.gap); dn.y = cy + Math.floor(i / cols) * (mh + ISL.gap); });
+    islandPlace(isl, x, y);
   }
   if (mac) { mac.x = leftEnd + ISL.aisle; mac.y = Math.max(40, (Math.max(...sides.flatMap((sd) => sd.sky)) - ISL.row - 40) / 2 + 40 - mac.h / 2); }
-  for (const n of m.nodes) { const p = MAP.pos[n.id]; if (p) { n.x = p.x; n.y = p.y; } }
+  if (mac && MAP.pos.mac) { mac.x = MAP.pos.mac.x; mac.y = MAP.pos.mac.y; }
   for (const isl of m.islands) islandFrame(isl);
   m.buses = busPaths(m);
+}
+// islandSlot is where the i-th member of an island sits when the
+// island's top-left corner is at (x, y): a grid under the header.
+function islandSlot(isl, i, x, y) {
+  const top = y + ISL.pad + (isl.head ? isl.head.h + ISL.gap : 26);
+  return { x: x + ISL.pad + (i % isl.cols) * (NODE.drive[0] + ISL.gap), y: top + Math.floor(i / isl.cols) * (isl.mh + ISL.gap) };
+}
+// islandPlace puts an island's corner at (x, y) and its members in
+// their slots.
+function islandPlace(isl, x, y) {
+  if (isl.head) { isl.head.x = x + ISL.pad; isl.head.y = y + ISL.pad; }
+  isl.drives.forEach((dn, i) => { const sl = islandSlot(isl, i, x, y); dn.x = sl.x; dn.y = sl.y; });
+}
+// slotAt is the slot index nearest a point inside an island, for the
+// home-screen shuffle while a node is carried.
+function slotAt(isl, wx, wy) {
+  const top = isl.y + ISL.pad + (isl.head ? isl.head.h + ISL.gap : 26);
+  const col = Math.max(0, Math.min(isl.cols - 1, Math.floor((wx - isl.x - ISL.pad + ISL.gap / 2) / (NODE.drive[0] + ISL.gap))));
+  const row = Math.max(0, Math.floor((wy - top + ISL.gap / 2) / (isl.mh + ISL.gap)));
+  return Math.max(0, Math.min(isl.drives.length - 1, row * isl.cols + col));
 }
 // busPaths runs a lead from the Mac to every island that has a drive
 // plugged in, ending at the island's near side, and to each plugged-in
@@ -3009,7 +3055,8 @@ function renderMap() {
   };
   const live = S.state.drives.filter((d) => d.connected);
   const busHot = (b) => sel && (sel === "mac" || b.ids.has(sel)) ? "hot" : "";
-  const leadSVG = (b) => `<g class="edge-g live lead ${busHot(b)}"><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="3"/><circle cx="${b.port[0]}" cy="${b.port[1]}" r="3"/></g>`;
+  const leadSVG = (b, cls = "") => `<g class="edge-g live lead ${cls}"><path class="halo" d="${b.lead}"/><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="4"/><circle cx="${b.port[0]}" cy="${b.port[1]}" r="4"/></g>`;
+  MAP.leadSVG = leadSVG;
   const powered = new Set(m.buses.map((b) => b.island));
   // What the plugged-in drives hang off, for the Mac's node.
   const byBus = {};
@@ -3039,13 +3086,13 @@ function renderMap() {
   const island = (i) => `<div class="island ${i.p ? "" : i.d ? "shared" : "loose"} ${sel && (i.id === sel || i.drives.some((n) => n.id === sel)) ? "hot" : ""} ${powered.has(i.id) && i.head ? "powered" : ""}" data-island="${i.id}" style="left:${i.x}px;top:${i.y}px;width:${i.w}px;height:${i.h}px;--pc:${i.color}">${i.head ? "" : `<span class="island-lbl">Not in a project · ${i.drives.length}</span>`}</div>`;
   main.innerHTML = `<div class="map ${sel ? "has-sel" : ""}" id="map">
     <div class="map-world" id="map-world" style="width:${W}px;height:${H}px">
-      <svg class="map-edges map-leads" width="${W}" height="${H}">${m.buses.map(leadSVG).join("")}</svg>
+      <svg class="map-edges map-leads" width="${W}" height="${H}">${m.buses.map((b) => leadSVG(b, busHot(b))).join("")}</svg>
       ${m.islands.map(island).join("")}
       <svg class="map-edges" width="${W}" height="${H}">${m.edges.map(edgeSVG).join("")}</svg>
       ${m.edges.map(edgeLabel).join("")}
       ${m.nodes.map(node).join("")}
     </div>
-    <div class="map-legend" title="Drag a drive onto a project to add it, out of its island to take it out · drag a project to move its island · ⌘ + scroll zooms"><span><i class="dot"></i>${live.length} plugged in</span>${S.state.awake && S.state.awake.on ? `<span title="Keep drives awake is on">${ICON_TXT.coffee}${(S.state.awake.drives || []).length} kept awake</span>` : ""}</div>
+    <div class="map-legend" title="Drag a drive within its island to reorder, onto a project to add it, out of its island to take it out · drag an island by its header or background · ⌘ + scroll zooms"><span><i class="dot"></i>${live.length} plugged in</span>${S.state.awake && S.state.awake.on ? `<span title="Keep drives awake is on">${ICON_TXT.coffee}${(S.state.awake.drives || []).length} kept awake</span>` : ""}</div>
     <div class="map-tools"><button class="icon-btn" data-map="out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button class="icon-btn" data-map="in" title="Zoom in">${ICON.plus}</button><button class="btn small" data-map="fit">Fit</button><button class="btn small" data-map="arrange" title="Put every node back where Lumpy lays it out">Arrange</button></div>
     ${sel ? mapCard(m, sel) : ""}
   </div>`;
@@ -3138,12 +3185,18 @@ function wireMap(m) {
   const toWorld = (e) => { const r = box.getBoundingClientRect(); return { x: (e.clientX - r.left - MAP.x) / MAP.k, y: (e.clientY - r.top - MAP.y) / MAP.k }; };
   box.onpointerdown = (e) => {
     if (e.button !== 0 || e.target.closest(".map-tools, .map-card, button")) return;
+    e.preventDefault(); // no text selection while things are dragged
     const node = e.target.closest(".node");
     const n = node ? m.nodes.find((x) => x.id === node.dataset.node) : null;
-    const group = n ? (n.island && n.island.head === n ? [n, ...n.island.drives] : [n]) : [];
-    MAP.drag = { sx: e.clientX, sy: e.clientY, x: MAP.x, y: MAP.y, node, n, group: group.map((g) => ({ n: g, x: g.x, y: g.y, el: world.querySelector(`[data-node="${CSS.escape(g.id)}"]`) })), moved: false };
+    // A whole island moves by its header or its background; a node
+    // inside it moves on its own.
+    const islEl = node ? null : e.target.closest(".island");
+    const isl = n ? (n.island && n.island.head === n ? n.island : null) : islEl ? m.islands.find((i) => i.id === islEl.dataset.island) : null;
+    const group = isl ? (isl.head ? [isl.head, ...isl.drives] : isl.drives) : n ? [n] : [];
+    MAP.drag = { sx: e.clientX, sy: e.clientY, x: MAP.x, y: MAP.y, node, n, isl, group: group.map((g) => ({ n: g, x: g.x, y: g.y, el: world.querySelector(`[data-node="${CSS.escape(g.id)}"]`) })), moved: false, slot: -1 };
+    if (node) node.classList.add("dragging");
     box.setPointerCapture(e.pointerId);
-    if (!node) box.classList.add("panning");
+    if (!group.length) box.classList.add("panning");
   };
   // The island under the pointer, other than the one the node came
   // from, while a drive or a project's node is being carried.
@@ -3165,36 +3218,55 @@ function wireMap(m) {
     if (!inside && n.island && n.island.p) return { kind: "remove", p: n.island.p, d: d0 };
     return null;
   };
+  // Where a node's island's members sit for the order they are in now,
+  // the carried one aside: the others slide over, home-screen style.
+  const reflow = (d) => {
+    const isl = d.n.island;
+    isl.drives.forEach((dn, i) => {
+      if (dn === d.n) return;
+      const sl = islandSlot(isl, i, isl.x, isl.y);
+      dn.x = sl.x; dn.y = sl.y;
+      const el = world.querySelector(`[data-node="${CSS.escape(dn.id)}"]`);
+      if (el) { el.classList.add("shift"); el.style.left = sl.x + "px"; el.style.top = sl.y + "px"; }
+    });
+  };
   box.onpointermove = (e) => {
     const d = MAP.drag;
     if (!d) return;
     const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
-    if (d.node) {
-      // Say what a drop here would do.
-      if (d.moved && d.group.length === 1) {
+    if (d.group.length) {
+      const single = d.group.length === 1 && !d.isl;
+      // A node carried inside its own island takes a new place in the
+      // grid; carried out, say what a drop would do.
+      if (d.moved && single && d.n.type !== "mac") {
         d.node.style.pointerEvents = "none";
-        const act = dropAction(e, d);
+        const isl = d.n.island, w = toWorld(e);
+        const home = isl && w.x >= isl.x - 8 && w.x <= isl.x + isl.w + 8 && w.y >= isl.y - 8 && w.y <= isl.y + isl.h + 8;
         world.querySelectorAll(".island.target").forEach((x) => x.classList.remove("target"));
-        d.node.classList.toggle("leaving", !!act && act.kind === "remove");
-        if (act && act.kind === "add") { const fe = world.querySelector(`[data-island="${CSS.escape("p" + act.p.id)}"]`); if (fe) fe.classList.add("target"); }
+        if (home) {
+          d.node.classList.remove("leaving");
+          const want = slotAt(isl, w.x, w.y), at = isl.drives.indexOf(d.n);
+          if (want !== at) { isl.drives.splice(at, 1); isl.drives.splice(want, 0, d.n); d.slot = want; reflow(d); }
+        } else {
+          const act = dropAction(e, d);
+          d.node.classList.toggle("leaving", !!act && act.kind === "remove");
+          if (act && act.kind === "add") { const fe = world.querySelector(`[data-island="${CSS.escape("p" + act.p.id)}"]`); if (fe) fe.classList.add("target"); }
+        }
         box.classList.toggle("carrying", true);
       }
       for (const g of d.group) {
         g.n.x = g.x + dx / MAP.k; g.n.y = g.y + dy / MAP.k;
         if (g.el) { g.el.style.left = g.n.x + "px"; g.el.style.top = g.n.y + "px"; }
-        MAP.pos[g.n.id] = { x: g.n.x, y: g.n.y };
       }
-      // An island follows its header; a single node carried out of
-      // it floats free, so the frame stays put.
-      if (d.group.length > 1) {
-        const isl = d.n.island || m.islands.find((i) => i.id === d.n.id);
-        islandFrame(isl);
-        const fe = world.querySelector(`[data-island="${CSS.escape(isl.id)}"]`);
-        if (fe) { fe.style.left = isl.x + "px"; fe.style.top = isl.y + "px"; fe.style.width = isl.w + "px"; fe.style.height = isl.h + "px"; }
+      // An island's frame follows its members.
+      if (d.isl) {
+        islandFrame(d.isl);
+        const fe = world.querySelector(`[data-island="${CSS.escape(d.isl.id)}"]`);
+        if (fe) { fe.style.left = d.isl.x + "px"; fe.style.top = d.isl.y + "px"; }
       }
       const buses = busPaths(m);
-      world.querySelector(".map-leads").innerHTML = buses.map((b) => `<g class="edge-g live lead"><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="3"/><circle cx="${b.port[0]}" cy="${b.port[1]}" r="3"/></g>`).join("");
+      world.querySelector(".map-leads").innerHTML = buses.map((b) => MAP.leadSVG(b)).join("");
       world.querySelector(".map-edges:not(.map-leads)").innerHTML = m.edges.map((e2) => { const g = edgeGeom(m.nodes.find((x) => x.id === e2.from), m.nodes.find((x) => x.id === e2.to)); return g ? `<g class="edge-g ${e2.cls}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>` : ""; }).join("");
       world.querySelectorAll(".e-lbl").forEach((el) => el.remove());
     } else { MAP.x = d.x + dx; MAP.y = d.y + dy; applyMap(); }
@@ -3204,23 +3276,33 @@ function wireMap(m) {
     if (!d) return;
     MAP.drag = null;
     box.classList.remove("panning", "carrying");
-    if (d.node) {
-      d.node.style.pointerEvents = "";
-      d.node.classList.remove("leaving");
+    if (d.group.length) {
+      if (d.node) { d.node.style.pointerEvents = ""; d.node.classList.remove("leaving", "dragging"); }
       world.querySelectorAll(".island.target").forEach((x) => x.classList.remove("target"));
-      const act = d.moved && d.group.length === 1 && e.type === "pointerup" ? dropAction(e, d) : null;
+      const single = d.group.length === 1 && !d.isl;
+      if (d.moved && d.isl) {
+        // The island lands on the grid, and stays there.
+        MAP.isl[d.isl.id] = { x: snap(d.isl.x), y: snap(d.isl.y) };
+        mapSave(); renderMap(); return;
+      }
+      if (d.moved && single && d.n.type === "mac") { MAP.pos.mac = { x: snap(d.n.x), y: snap(d.n.y) }; mapSave(); renderMap(); return; }
+      const act = d.moved && single && e.type === "pointerup" ? dropAction(e, d) : null;
       if (act) {
         // The node goes back where it was; the change, if confirmed,
         // redraws the map.
-        for (const g of d.group) { g.n.x = g.x; g.n.y = g.y; delete MAP.pos[g.n.id]; }
-        localSet("map.pos", JSON.stringify(MAP.pos));
         renderMap();
         mapChange(act);
         return;
       }
-      if (d.moved) { localSet("map.pos", JSON.stringify(MAP.pos)); renderMap(); }
-      else if (MAP.last && MAP.last.id === d.n.id && Date.now() - MAP.last.at < 400) { MAP.last = null; openNode(d.n.id); }
-      else { MAP.last = { id: d.n.id, at: Date.now() }; MAP.sel = d.n.id; renderMap(); }
+      if (d.moved && single && d.slot >= 0 && d.n.island) {
+        // Dropped in its own island: the new order is kept.
+        MAP.order[d.n.island.id] = d.n.island.drives.map((x) => x.id);
+        mapSave(); renderMap(); return;
+      }
+      if (d.moved) renderMap(); // nowhere to land: back to its place
+      else if (d.n && MAP.last && MAP.last.id === d.n.id && Date.now() - MAP.last.at < 400) { MAP.last = null; openNode(d.n.id); }
+      else if (d.n) { MAP.last = { id: d.n.id, at: Date.now() }; MAP.sel = d.n.id; renderMap(); }
+      else if (MAP.sel) { MAP.sel = null; renderMap(); }
     } else if (!d.moved && MAP.sel) { MAP.sel = null; renderMap(); }
     else if (MAP.dirty) { MAP.dirty = false; renderMap(); }
   };
@@ -3229,7 +3311,7 @@ function wireMap(m) {
     if (b.dataset.map === "in") mapZoom(1.25, r.width / 2, r.height / 2);
     else if (b.dataset.map === "out") mapZoom(0.8, r.width / 2, r.height / 2);
     else if (b.dataset.map === "fit") { mapFit(m); applyMap(); }
-    else { MAP.pos = {}; localSet("map.pos", "{}"); MAP.fitted = false; renderMap(); }
+    else { MAP.pos = {}; MAP.isl = {}; MAP.order = {}; mapSave(); MAP.fitted = false; renderMap(); }
   };
   for (const b of box.querySelectorAll("[data-open]")) b.onclick = () => {
     if (b.dataset.open === "connected") { S.tab = "connected"; localSet("tab", S.tab); render(); }

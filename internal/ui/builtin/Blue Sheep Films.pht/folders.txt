@@ -1,0 +1,17 @@
+01_Original footage
+01_Original footage/Offline
+01_Original footage/Online
+02_Scratch disk
+03_Project files
+03_Project files/DRP
+03_Project files/Premiere
+04_Graphics Sources
+05_Graphics exports
+06_Audio sources
+07_Stock footage
+08_Production paperwork
+08_Production paperwork/Scripts
+09_OUTPUT
+09_OUTPUT/Drafts
+09_OUTPUT/Final
+09_OUTPUT/Stills

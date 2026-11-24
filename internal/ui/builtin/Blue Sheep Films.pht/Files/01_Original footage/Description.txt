@@ -1,0 +1,4 @@
+This folder contains all raw footage from set, and transcoded footage for offline editing.
+~ Online footage or camera 'negatives' are located in /Online -- This is like the original negative that is best to keep untouched until the final export or other dependant processes. 
+
+~ Offline footage where all transcoded footage stays is located in /Offline -- This is like a work print that won't eat up computer or storage resources

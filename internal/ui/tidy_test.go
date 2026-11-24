@@ -22,14 +22,21 @@ func TestClassify(t *testing.T) {
 		{"loose/B002_C004.mov", catCamera},
 		{"Proxies/A001_C001_proxy.mp4", catProxy},
 		{"Offline/A001_C001.mp4", catProxy},
-		{"Exports/final/Film_master_16x9.mov", catOutput},
-		{"renders/v3.mov", catOutput},
+		{"Exports/final/Film_master_16x9.mov", catMaster},
+		{"Film_master_open-matte.mov", catMaster},
+		{"renders/v3.mov", catDraft},
+		{"Exports/social_9x16.mov", catDraft},
 		{"Sound/SC01_T01.wav", catAudio},
 		{"Music/track.mp3", catMusic},
 		{"stuff/poster.psd", catGraphics},
-		{"stills/IMG_0001.jpg", catStills},
-		{"Resolve/Film.drp", catProject},
+		{"GFX/lower_third.mov", catGfxExport},
+		{"stills/IMG_0001.jpg", catOutStill},
+		{"photos/IMG_0001.jpg", catStills},
+		{"stock/ocean.mov", catStock},
+		{"Resolve/Film.drp", catResolve},
+		{"edit/Film.prproj", catPremiere},
 		{"cut.fcpxml", catProject},
+		{"Film_script_v4.pdf", catScript},
 		{"callsheet.pdf", catDocs},
 		{"notes.txt", catDocs},
 		{"thing.bin", catOther},
@@ -38,23 +45,42 @@ func TestClassify(t *testing.T) {
 			t.Errorf("classify(%q) = %s, want %s", c.rel, got, c.want)
 		}
 	}
-	folders := []string{"01_RAW", "02_PROXY", "03_AUDIO", "04_PROJECT", "09_OUTPUT"}
-	if f := folderFor(catCamera, folders); f != "01_RAW" {
-		t.Errorf("camera -> %q", f)
+}
+
+// houseTemplate writes the shipped template's shape into a temp folder.
+func houseTemplate(t *testing.T) string {
+	t.Helper()
+	tpl := filepath.Join(t.TempDir(), "House.pht")
+	for _, f := range []string{"01_Original footage/Offline", "01_Original footage/Online", "02_Scratch disk", "03_Project files/DRP", "03_Project files/Premiere",
+		"04_Graphics Sources", "05_Graphics exports", "06_Audio sources", "07_Stock footage", "08_Production paperwork/Scripts", "09_OUTPUT/Drafts", "09_OUTPUT/Final", "09_OUTPUT/Stills"} {
+		os.MkdirAll(filepath.Join(tpl, "Files", filepath.FromSlash(f)), 0o755)
 	}
-	if f := folderFor(catDocs, folders); f != "" {
-		t.Errorf("docs with no folder -> %q", f)
+	return tpl
+}
+
+func TestFolderForHouseTemplate(t *testing.T) {
+	tv, err := templateView(houseTemplate(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for cat, want := range map[tidyCategory]string{
+		catCamera: "01_Original footage/Online", catProxy: "01_Original footage/Offline", catResolve: "03_Project files/DRP", catPremiere: "03_Project files/Premiere",
+		catProject: "03_Project files", catGraphics: "04_Graphics Sources", catGfxExport: "05_Graphics exports", catAudio: "06_Audio sources", catMusic: "06_Audio sources",
+		catStock: "07_Stock footage", catScript: "08_Production paperwork/Scripts", catDocs: "08_Production paperwork", catMaster: "09_OUTPUT/Final", catDraft: "09_OUTPUT/Drafts",
+		catOutStill: "09_OUTPUT/Stills", catStills: "", catOther: "",
+	} {
+		if got := folderFor(cat, tv); got != want {
+			t.Errorf("%s -> %q, want %q", cat, got, want)
+		}
 	}
 }
 
-// A loose project is planned into a template's folders and moved on
-// the drive; the library follows, and the log of moves is written.
+// A loose project is planned into the house template's folders and
+// moved on the drive; the library follows, and the log of moves is
+// written.
 func TestTidyThroughAPI(t *testing.T) {
 	s, ts, vols := setup(t)
-	tpl := filepath.Join(t.TempDir(), "House.pht", "Files")
-	for _, f := range []string{"01_RAW", "02_PROXY", "03_AUDIO", "04_PROJECT", "09_OUTPUT"} {
-		os.MkdirAll(filepath.Join(tpl, f), 0o755)
-	}
+	tpl := houseTemplate(t)
 	root := filepath.Join(vols, "RAID", "Short")
 	write := func(rel, body string) {
 		p := filepath.Join(root, filepath.FromSlash(rel))
@@ -63,10 +89,11 @@ func TestTidyThroughAPI(t *testing.T) {
 	}
 	write("Day1/A001/CLIPS/A001_C001.braw", "raw one")
 	write("Exports/final/Short_master.mov", "master")
+	write("Exports/social_9x16.mov", "social")
 	write("Sound/SC01.wav", "sound")
 	write("Short.drp", "project")
-	write("01_RAW/Day0/A000_C001.braw", "already there")
-	write("notes.txt", "no docs folder in the template")
+	write("01_Original footage/Online/Day0/A000_C001.braw", "already there")
+	write("photos/IMG_0001.jpg", "no folder for photos in the template")
 	job.AgentRunWith(context.Background(), s.db, job.NewReportTo(io.Discard), func(string, string) {}, nil)
 	var st struct{ Drives []DriveView }
 	stateSettled(t, s, ts, &st)
@@ -74,10 +101,10 @@ func TestTidyThroughAPI(t *testing.T) {
 	call(t, s, ts, "POST", "/api/projects", `{"name":"Short","target":2,"sources":[{"driveId":"`+st.Drives[0].ID+`","folder":"Short"}]}`, &p)
 	pid := strconv.FormatInt(p.ID, 10)
 	var plan tidyPlan
-	if code := call(t, s, ts, "POST", "/api/projects/"+pid+"/tidy/plan", `{"template":"`+filepath.Dir(tpl)+`"}`, &plan); code != 200 {
+	if code := call(t, s, ts, "POST", "/api/projects/"+pid+"/tidy/plan", `{"template":"`+tpl+`"}`, &plan); code != 200 {
 		t.Fatalf("plan: %d", code)
 	}
-	if plan.Files != 6 || plan.InPlace != 1 || plan.Unsorted != 1 || plan.Moving != 4 {
+	if plan.Files != 7 || plan.InPlace != 1 || plan.Unsorted != 1 || plan.Moving != 5 {
 		t.Fatalf("plan: files %d in place %d unsorted %d moving %d\n%+v", plan.Files, plan.InPlace, plan.Unsorted, plan.Moving, plan.Groups)
 	}
 	var moves []map[string]any
@@ -86,10 +113,9 @@ func TestTidyThroughAPI(t *testing.T) {
 			moves = append(moves, map[string]any{"driveId": g.DriveID, "source": g.Source, "top": g.Top, "category": g.Category, "dest": g.Dest})
 		}
 	}
-	raw, _ := json.Marshal(map[string]any{"template": filepath.Dir(tpl), "moves": moves})
-	body := string(raw)
+	raw, _ := json.Marshal(map[string]any{"template": tpl, "moves": moves})
 	var started struct{ Job int }
-	if code := call(t, s, ts, "POST", "/api/projects/"+pid+"/tidy/run", body, &started); code != 200 {
+	if code := call(t, s, ts, "POST", "/api/projects/"+pid+"/tidy/run", string(raw), &started); code != 200 {
 		t.Fatalf("run: %d", code)
 	}
 	jobs := waitJobs(t, s, ts)
@@ -98,7 +124,10 @@ func TestTidyThroughAPI(t *testing.T) {
 			t.Fatalf("tidy job %s: %q %v", j.State, j.Error, j.Lines)
 		}
 	}
-	for _, want := range []string{"01_RAW/Day1/A001/CLIPS/A001_C001.braw", "09_OUTPUT/final/Short_master.mov", "03_AUDIO/SC01.wav", "04_PROJECT/Short.drp", "01_RAW/Day0/A000_C001.braw", "notes.txt", "02_PROXY"} {
+	for _, want := range []string{
+		"01_Original footage/Online/Day1/A001/CLIPS/A001_C001.braw", "09_OUTPUT/Final/Short_master.mov", "09_OUTPUT/Drafts/social_9x16.mov",
+		"06_Audio sources/SC01.wav", "03_Project files/DRP/Short.drp", "01_Original footage/Online/Day0/A000_C001.braw", "photos/IMG_0001.jpg", "02_Scratch disk", "08_Production paperwork/Scripts",
+	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(want))); err != nil {
 			t.Errorf("after tidy: %s missing", want)
 		}
@@ -112,18 +141,37 @@ func TestTidyThroughAPI(t *testing.T) {
 	if len(logs) != 1 {
 		t.Fatalf("tidy log: %v", logs)
 	}
-	// The library knows the new paths without another scan being asked for.
 	files, _ := s.db.Files(st.Drives[0].ID)
 	seen := map[string]bool{}
 	for _, f := range files {
 		seen[f.Path] = true
 	}
-	if !seen["Short/09_OUTPUT/final/Short_master.mov"] || seen["Short/Exports/final/Short_master.mov"] {
+	if !seen["Short/09_OUTPUT/Final/Short_master.mov"] || seen["Short/Exports/final/Short_master.mov"] {
 		t.Fatalf("library after tidy: %v", seen)
 	}
-	// A second look finds everything in place.
-	call(t, s, ts, "POST", "/api/projects/"+pid+"/tidy/plan", `{"template":"`+filepath.Dir(tpl)+`"}`, &plan)
-	if plan.Moving != 0 || plan.InPlace != 5 {
-		t.Fatalf("second plan: moving %d in place %d", plan.Moving, plan.InPlace)
+	call(t, s, ts, "POST", "/api/projects/"+pid+"/tidy/plan", `{"template":"`+tpl+`"}`, &plan)
+	if plan.Moving != 0 || plan.InPlace != 6 {
+		t.Fatalf("second plan: moving %d in place %d\n%+v", plan.Moving, plan.InPlace, plan.Groups)
+	}
+}
+
+// The shipped template is written out beside the library and listed first.
+func TestBuiltinTemplate(t *testing.T) {
+	s, ts, _ := setup(t)
+	var data struct{ Templates []TemplateView }
+	call(t, s, ts, "GET", "/api/templates", "", &data)
+	if len(data.Templates) == 0 || data.Templates[0].Name != "Blue Sheep Films" {
+		t.Fatalf("templates: %+v", data.Templates)
+	}
+	tv := data.Templates[0]
+	want := map[string]bool{"01_Original footage/Online": true, "09_OUTPUT/Final": true, "03_Project files/DRP": true}
+	for _, f := range tv.Subfolders {
+		delete(want, f)
+	}
+	if len(want) != 0 || len(tv.Folders) != 9 {
+		t.Fatalf("shipped template: folders %v subfolders %v", tv.Folders, tv.Subfolders)
+	}
+	if _, err := os.Stat(filepath.Join(tv.Path, "Files", "01_Original footage", "Description.txt")); err != nil {
+		t.Fatalf("notes inside the template: %v", err)
 	}
 }

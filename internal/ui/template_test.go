@@ -26,11 +26,12 @@ func TestProjectFolderFromTemplate(t *testing.T) {
 		Today     string
 	}
 	call(t, s, ts, "GET", "/api/templates", "", &list)
-	if len(list.Templates) != 1 || list.Templates[0].Name != "Video Editing Template" || len(list.Templates[0].Folders) != 2 || list.Templates[0].Files != 2 || list.Settings.NextNumber != 1 || list.Settings.Pattern == "" {
+	// The shipped template comes first; the one in the Post Haste folder after it.
+	if len(list.Templates) != 2 || list.Templates[1].Name != "Video Editing Template" || len(list.Templates[1].Folders) != 2 || list.Templates[1].Files != 2 || list.Settings.NextNumber != 1 || list.Settings.Pattern == "" {
 		t.Fatalf("list: %+v", list)
 	}
 	dest := filepath.Join(vols, "RAID", "01_PROJECTS")
-	body := `{"template":"` + strings.ReplaceAll(list.Templates[0].Path, `\`, `\\`) + `","dest":"` + strings.ReplaceAll(dest, `\`, `\\`) + `","params":{"Project Number":"16","Client":"BS","Project Name":"ARIA","Date":"2026-10-14","Editor":"studioshepp"},"addProject":true,"target":2}`
+	body := `{"template":"` + strings.ReplaceAll(list.Templates[1].Path, `\`, `\\`) + `","dest":"` + strings.ReplaceAll(dest, `\`, `\\`) + `","params":{"Project Number":"16","Client":"BS","Project Name":"ARIA","Date":"2026-10-14","Editor":"studioshepp"},"addProject":true,"target":2}`
 	var made struct {
 		Job    int
 		Folder string

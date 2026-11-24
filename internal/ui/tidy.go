@@ -29,47 +29,65 @@ import (
 type tidyCategory string
 
 const (
-	catCamera   tidyCategory = "camera"
-	catProxy    tidyCategory = "proxy"
-	catAudio    tidyCategory = "audio"
-	catMusic    tidyCategory = "music"
-	catOutput   tidyCategory = "output"
-	catGraphics tidyCategory = "graphics"
-	catStills   tidyCategory = "stills"
-	catProject  tidyCategory = "project"
-	catDocs     tidyCategory = "docs"
-	catOther    tidyCategory = "other"
+	catCamera    tidyCategory = "camera"
+	catProxy     tidyCategory = "proxy"
+	catAudio     tidyCategory = "audio"
+	catMusic     tidyCategory = "music"
+	catMaster    tidyCategory = "master"
+	catDraft     tidyCategory = "draft"
+	catOutStill  tidyCategory = "outstill"
+	catGraphics  tidyCategory = "graphics"
+	catGfxExport tidyCategory = "gfxexport"
+	catStills    tidyCategory = "stills"
+	catStock     tidyCategory = "stock"
+	catResolve   tidyCategory = "resolve"
+	catPremiere  tidyCategory = "premiere"
+	catProject   tidyCategory = "project"
+	catScript    tidyCategory = "script"
+	catDocs      tidyCategory = "docs"
+	catOther     tidyCategory = "other"
 )
 
 var catLabels = map[tidyCategory]string{
-	catCamera: "Camera originals", catProxy: "Proxies", catAudio: "Audio", catMusic: "Music", catOutput: "Outputs and masters",
-	catGraphics: "Graphics", catStills: "Stills", catProject: "Edit project files", catDocs: "Documents", catOther: "Everything else",
+	catCamera: "Camera originals", catProxy: "Proxies and offline", catAudio: "Audio", catMusic: "Music", catMaster: "Masters",
+	catDraft: "Drafts and other exports", catOutStill: "Frame grabs and output stills", catGraphics: "Graphics sources", catGfxExport: "Graphics exports",
+	catStills: "Stills and photos", catStock: "Stock footage", catResolve: "Resolve projects", catPremiere: "Premiere projects", catProject: "Other edit project files",
+	catScript: "Scripts", catDocs: "Paperwork and documents", catOther: "Everything else",
 }
 
 // catWords are the words a template folder's name carries for each
-// category; the first folder that matches wins.
+// category, best first. A folder one level down is tried before a
+// top-level one, so Online beats Original footage for camera files.
 var catWords = map[tidyCategory][]string{
-	catCamera:   {"raw", "ocf", "camera", "footage", "original", "online", "source", "rushes"},
-	catProxy:    {"proxy", "proxies", "offline", "transcode"},
-	catAudio:    {"audio", "sound", "sfx"},
-	catMusic:    {"music", "score"},
-	catOutput:   {"output", "export", "deliver", "final", "master", "render"},
-	catGraphics: {"graphic", "gfx", "design", "artwork", "title", "motion", "vfx"},
-	catStills:   {"still", "photo", "image", "picture"},
-	catProject:  {"project", "edit", "resolve", "premiere", "timeline", "cut", "nle"},
-	catDocs:     {"doc", "paperwork", "admin", "script", "production", "notes", "release"},
+	catCamera:    {"online", "raw", "ocf", "camera", "rushes", "original", "footage", "source"},
+	catProxy:     {"offline", "proxy", "proxies", "transcode"},
+	catAudio:     {"audio", "sound", "sfx"},
+	catMusic:     {"music", "score", "audio", "sound"},
+	catMaster:    {"final", "master", "deliver", "output", "export"},
+	catDraft:     {"draft", "output", "export", "render", "deliver"},
+	catOutStill:  {"stills", "still", "output"},
+	catGraphics:  {"graphics source", "graphic source", "graphics", "graphic", "gfx", "design", "artwork", "title", "motion", "vfx"},
+	catGfxExport: {"graphics export", "graphic export", "graphics", "graphic", "gfx"},
+	catStills:    {"photo", "picture", "stills source", "image"},
+	catStock:     {"stock", "footage"},
+	catResolve:   {"drp", "resolve", "davinci", "project"},
+	catPremiere:  {"premiere", "prproj", "project"},
+	catProject:   {"project", "edit", "nle", "timeline", "cut"},
+	catScript:    {"script", "paperwork", "production"},
+	catDocs:      {"paperwork", "doc", "admin", "production", "notes", "release"},
 }
 
 var rawVideo = map[string]bool{".braw": true, ".r3d": true, ".ari": true, ".arx": true, ".crm": true, ".mxf": true, ".cine": true, ".dng": true}
-var projectExt = map[string]bool{".drp": true, ".prproj": true, ".fcpxml": true, ".fcpbundle": true, ".aep": true, ".xml": true, ".edl": true, ".ale": true, ".otio": true, ".motn": true, ".drb": true}
-var graphicExt = map[string]bool{".psd": true, ".psb": true, ".ai": true, ".afdesign": true, ".afphoto": true, ".sketch": true, ".fig": true, ".svg": true, ".mogrt": true}
+var projectExt = map[string]bool{".fcpxml": true, ".fcpbundle": true, ".aep": true, ".xml": true, ".edl": true, ".ale": true, ".otio": true, ".motn": true, ".drb": true, ".drt": true, ".dra": true}
+var graphicExt = map[string]bool{".psd": true, ".psb": true, ".ai": true, ".afdesign": true, ".afphoto": true, ".sketch": true, ".fig": true, ".svg": true, ".mogrt": true, ".c4d": true, ".blend": true}
+var scriptExt = map[string]bool{".fdx": true, ".fountain": true, ".celtx": true}
 var cameraDirs = map[string]bool{"CLIPS": true, "DCIM": true, "PRIVATE": true, "XDROOT": true, "BPAV": true, "M4ROOT": true, "AVCHD": true, "CONTENTS": true}
 
 // classify says what a file is from its name and the folders it sits in.
 func classify(rel string) tidyCategory {
-	lower := strings.ToLower(rel)
 	parts := strings.Split(rel, "/")
 	name := parts[len(parts)-1]
+	lname := strings.ToLower(name)
 	ext := strings.ToLower(path.Ext(name))
 	dirs := parts[:len(parts)-1]
 	inDir := func(words ...string) bool {
@@ -83,16 +101,36 @@ func classify(rel string) tidyCategory {
 		}
 		return false
 	}
-	if projectExt[ext] {
+	switch {
+	case ext == ".drp":
+		return catResolve
+	case ext == ".prproj":
+		return catPremiere
+	case projectExt[ext]:
 		return catProject
-	}
-	if graphicExt[ext] {
+	case scriptExt[ext] || (strings.Contains(lname, "script") && (ext == ".pdf" || ext == ".docx" || ext == ".doc" || ext == ".txt")):
+		return catScript
+	case graphicExt[ext]:
 		return catGraphics
 	}
+	gfxDir := inDir("graphic", "gfx", "title", "lower third", "motion", "vfx", "design")
+	outDir := inDir("output", "export", "deliver", "final", "render", "draft")
 	switch media.KindOf(name) {
 	case media.Video:
-		if strings.Contains(strings.ToLower(name), "master") || inDir(catWords[catOutput]...) {
-			return catOutput
+		if strings.Contains(lname, "master") {
+			return catMaster
+		}
+		if gfxDir {
+			return catGfxExport
+		}
+		if inDir("stock") {
+			return catStock
+		}
+		if outDir {
+			if inDir("final", "master", "deliver") {
+				return catMaster
+			}
+			return catDraft
 		}
 		if rawVideo[ext] {
 			return catCamera
@@ -100,23 +138,18 @@ func classify(rel string) tidyCategory {
 		if catalog.Proxyish(rel) {
 			return catProxy
 		}
-		for _, d := range dirs {
-			if cameraDirs[strings.ToUpper(d)] {
-				return catCamera
-			}
-		}
-		if inDir(catWords[catCamera]...) {
-			return catCamera
-		}
 		return catCamera
 	case media.Audio:
-		if inDir(catWords[catMusic]...) || strings.Contains(lower, "music") {
+		if inDir("music", "score") || strings.Contains(lname, "music") {
 			return catMusic
 		}
 		return catAudio
 	case media.Image:
-		if inDir(catWords[catGraphics]...) {
-			return catGraphics
+		if gfxDir {
+			return catGfxExport
+		}
+		if outDir || inDir("still", "grab", "frame") {
+			return catOutStill
 		}
 		return catStills
 	case media.Document:
@@ -125,11 +158,19 @@ func classify(rel string) tidyCategory {
 	return catOther
 }
 
-// folderFor picks the template folder for a category, or "" when the
-// template has none for it.
-func folderFor(cat tidyCategory, folders []string) string {
+// folderFor picks the template folder for a category: the first word
+// that names a folder one level down, else the first that names a
+// top-level folder, else "" when the template has none for it.
+func folderFor(cat tidyCategory, tv TemplateView) string {
 	for _, w := range catWords[cat] {
-		for _, f := range folders {
+		for _, f := range tv.Subfolders {
+			if strings.Contains(strings.ToLower(path.Base(f)), w) {
+				return f
+			}
+		}
+	}
+	for _, w := range catWords[cat] {
+		for _, f := range tv.Folders {
 			if strings.Contains(strings.ToLower(f), w) {
 				return f
 			}
@@ -138,9 +179,17 @@ func folderFor(cat tidyCategory, folders []string) string {
 	return ""
 }
 
+// allFolders is every folder the plan may send files to.
+func allFolders(tv TemplateView) []string {
+	out := append([]string{}, tv.Folders...)
+	out = append(out, tv.Subfolders...)
+	sort.Strings(out)
+	return out
+}
+
 // topMatches says whether a file's own top folder already means the
 // category, so it can be dropped when the file moves under the
-// template's folder (Exports/final/x.mov becomes 09_OUTPUT/final/x.mov).
+// template's folder (Exports/final/x.mov becomes 09_OUTPUT/Final/x.mov).
 func topMatches(top string, cat tidyCategory) bool {
 	lt := strings.ToLower(top)
 	for _, w := range catWords[cat] {
@@ -149,6 +198,11 @@ func topMatches(top string, cat tidyCategory) bool {
 		}
 	}
 	return false
+}
+
+// inPlace says whether a file already sits under its destination.
+func inPlace(rel, dest string) bool {
+	return dest != "" && strings.HasPrefix(rel, dest+"/")
 }
 
 // TidyGroup is one row of the plan: the files of one category from one
@@ -230,7 +284,7 @@ func (s *Server) tidyPlanFor(p *catalog.Project, template string) (*tidyPlan, er
 	if err != nil {
 		return nil, badRequest("%v", err)
 	}
-	plan := &tidyPlan{Template: template, Folders: tv.Folders, Groups: []TidyGroup{}, Offline: []string{}}
+	plan := &tidyPlan{Template: template, Folders: allFolders(tv), Groups: []TidyGroup{}, Offline: []string{}}
 	groups := map[string]*TidyGroup{}
 	for _, src := range p.Sources {
 		if src.Role == "backup" {
@@ -250,12 +304,12 @@ func (s *Server) tidyPlanFor(p *catalog.Project, template string) (*tidyPlan, er
 		}
 		for _, f := range files {
 			plan.Files++
-			dest := folderFor(f.cat, tv.Folders)
-			inPlace := dest != "" && f.top == dest
-			k := src.DriveID + "\x00" + src.Folder + "\x00" + f.top + "\x00" + string(f.cat)
+			dest := folderFor(f.cat, tv)
+			here := inPlace(f.rel, dest)
+			k := src.DriveID + "\x00" + src.Folder + "\x00" + f.top + "\x00" + string(f.cat) + "\x00" + fmt.Sprint(here)
 			g := groups[k]
 			if g == nil {
-				g = &TidyGroup{ID: fmt.Sprintf("%d", len(groups)+1), DriveID: src.DriveID, Drive: d.Title(), Source: src.Folder, Top: f.top, Category: f.cat, Label: catLabels[f.cat], Dest: dest, InPlace: inPlace}
+				g = &TidyGroup{ID: fmt.Sprintf("%d", len(groups)+1), DriveID: src.DriveID, Drive: d.Title(), Source: src.Folder, Top: f.top, Category: f.cat, Label: catLabels[f.cat], Dest: dest, InPlace: here}
 				groups[k] = g
 				plan.Groups = append(plan.Groups, *g)
 			}
@@ -341,7 +395,7 @@ func (s *Server) tidyRunHandler(w http.ResponseWriter, r *http.Request) (any, er
 			continue
 		}
 		ok := false
-		for _, f := range tv.Folders {
+		for _, f := range allFolders(tv) {
 			ok = ok || f == m.Dest
 		}
 		if !ok {
@@ -377,12 +431,17 @@ func (s *Server) tidyRunHandler(w http.ResponseWriter, r *http.Request) (any, er
 		root := filepath.Join(v.Mount, filepath.FromSlash(src.Folder))
 		for _, f := range files {
 			dest := want[src.DriveID+"\x00"+src.Folder+"\x00"+f.top+"\x00"+string(f.cat)]
-			if dest == "" {
+			if dest == "" || inPlace(f.rel, dest) {
 				continue
 			}
 			rest := f.rel
 			if f.top != "" && topMatches(f.top, f.cat) {
 				rest = strings.TrimPrefix(rest, f.top+"/")
+			}
+			// A folder named like its destination (Exports/final into
+			// 09_OUTPUT/Final) is not kept as an extra level.
+			if seg, tail, ok := strings.Cut(rest, "/"); ok && strings.EqualFold(seg, path.Base(dest)) {
+				rest = tail
 			}
 			relTo := dest + "/" + rest
 			if relTo == f.rel {
@@ -409,8 +468,8 @@ func (s *Server) tidyRunHandler(w http.ResponseWriter, r *http.Request) (any, er
 			roots[m.root] = true
 		}
 		for root := range roots {
-			for _, f := range tv.Folders {
-				os.MkdirAll(filepath.Join(root, f), 0o755)
+			for _, f := range allFolders(tv) {
+				os.MkdirAll(filepath.Join(root, filepath.FromSlash(f)), 0o755)
 			}
 		}
 		done := 0

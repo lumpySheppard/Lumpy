@@ -398,6 +398,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
             }
             resolve(id, true, in: from)
+        case "quicktime":
+            // Play a file in QuickTime Player: the same decoder as the
+            // app's player, without a web view between it and the screen.
+            if let path = body["path"] as? String {
+                let file = URL(fileURLWithPath: path)
+                let qt = URL(fileURLWithPath: "/System/Applications/QuickTime Player.app")
+                NSWorkspace.shared.open([file], withApplicationAt: qt, configuration: NSWorkspace.OpenConfiguration()) { _, err in
+                    if err != nil { NSWorkspace.shared.open(file) }
+                }
+            }
+            resolve(id, true, in: from)
         case "open":
             // A URL to hand to macOS: System Settings panes, mostly.
             if let s = body["url"] as? String, let url = URL(string: s) {

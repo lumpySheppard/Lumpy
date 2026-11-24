@@ -185,8 +185,12 @@ them do. Double-click a
 drive for its details, a project for its page. Drag to pan, ⌘ + scroll
 to zoom, drag a drive out of its island to take it out of the project
 (Lumpy asks first) or onto another project's island to add it there,
-drag a project header to move its whole island (Lumpy remembers),
-**Fit** to see everything, **Arrange** to put every island back.
+drag a drive within its island to put it in a different place (the
+others slide over, the way icons do on a phone's home screen, and the
+order is kept), drag an island by its header or its background to move
+it (it lands on the grid, and Lumpy remembers; the "Not in a project"
+island moves too), **Fit** to see everything, **Arrange** to put every
+island and every node back.
 
 ### Drive library
 
@@ -450,7 +454,11 @@ press (up to 8×), **J** shuttles backwards the same way, **,** and
 the speed, Home and End jump to either end, **M** mutes, **F** fills the
 screen, and the readout shows the clip's own timecode and the frame
 count. **←** and **→** go to the previous and next clip in the list,
-whether or not the current one plays. Playback itself is macOS's
+whether or not the current one plays. While a clip plays, the window
+draws nothing blurred behind it, so every frame goes to the screen
+(a frozen picture under a running timecode was the window's blur
+being redrawn for every frame). The clapper button in the transport
+opens the same file in QuickTime Player. Playback itself is macOS's
 (whatever QuickTime Player plays, Lumpy plays); RED, BRAW, ARRIRAW and
 Canon RAW have no player or frame, because decoding them needs each
 maker's own SDK, which is not something Lumpy can ship.
@@ -498,9 +506,12 @@ of each kind, with the template folder they would go to, which you can
 change or set to leave alone; files already under the right folder are
 counted and left. **Move** renames every file on its own drive (so it
 is instant and nothing is copied), keeping each file's folders beneath
-the new top folder and dropping a top folder that only meant the
-category (`Exports/final/x.mov` becomes `09_OUTPUT/final/x.mov`),
-creates the template's folders, removes the empty folders left behind,
+the new folder and dropping the folders that only meant the category
+(`Exports/final/x.mov` becomes `09_OUTPUT/Final/x.mov`; a template's
+subfolders count, so masters go to `09_OUTPUT/Final`, drafts to
+`09_OUTPUT/Drafts`, Resolve projects to `03_Project files/DRP`, scripts
+to `08_Production paperwork/Scripts`), creates the template's folders
+and subfolders, removes the empty folders left behind,
 writes `_Lumpy tidy <date>.json` in the project root with every old
 and new path, and brings the library up to date. Then **Relink in
 DaVinci Resolve** points every clip in the open Resolve project at its
@@ -542,8 +553,11 @@ are still never logged by themselves; the offload records them.
 ### New project folder
 
 **Projects → New project folder…** makes a job's folders from a
-template: the Post Haste templates on this Mac are listed (any `.pht`
-in Post Haste's Templates folder), or choose any folder. Fill in
+template: the **Blue Sheep Films** template ships inside Lumpy (nine
+numbered folders with their subfolders and notes; it is written out
+beside the library) and is listed first, then the Post Haste templates
+on this Mac (any `.pht` in Post Haste's Templates folder), or choose
+any folder. Fill in
 Project Number, Client, Project Name, Date and Editor; the folder is
 named by a pattern with those tokens (`[Project Number]_[Client]_
 [Project Name]_[Date]_[Editor]` by default, with a live preview) and

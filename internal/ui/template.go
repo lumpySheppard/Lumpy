@@ -2,8 +2,10 @@ package ui
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/user"
@@ -54,10 +56,61 @@ func (s *Server) templateSettings() TemplateSettings {
 
 // TemplateView is one template the sheet can pick.
 type TemplateView struct {
-	Name    string   `json:"name"`
-	Path    string   `json:"path"`
-	Folders []string `json:"folders"` // its top-level folders, for the preview
-	Files   int      `json:"files"`
+	Name       string   `json:"name"`
+	Path       string   `json:"path"`
+	Folders    []string `json:"folders"`    // its top-level folders, for the preview
+	Subfolders []string `json:"subfolders"` // one level down, as A/B, for Tidy up
+	Files      int      `json:"files"`
+}
+
+//go:embed builtin
+var builtinFS embed.FS
+
+// builtinTemplates writes the templates Lumpy ships with (the house
+// structure: a folders list, the notes inside it, and Post Haste's
+// settings file) into a templates folder beside the library, once, and
+// returns their paths. A .pht is a folder bundle, so it is written out
+// rather than read from inside the binary.
+func (s *Server) builtinTemplates() []string {
+	root := filepath.Join(filepath.Dir(s.lockPath), "templates")
+	var out []string
+	entries, err := builtinFS.ReadDir("builtin")
+	if err != nil {
+		return nil
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dst := filepath.Join(root, e.Name())
+		out = append(out, dst)
+		files := filepath.Join(dst, "Files")
+		if st, err := os.Stat(files); err == nil && st.IsDir() {
+			continue
+		}
+		if list, err := builtinFS.ReadFile("builtin/" + e.Name() + "/folders.txt"); err == nil {
+			for _, line := range strings.Split(string(list), "\n") {
+				if line = strings.TrimSpace(line); line != "" {
+					os.MkdirAll(filepath.Join(files, filepath.FromSlash(line)), 0o755)
+				}
+			}
+		}
+		fs.WalkDir(builtinFS, "builtin/"+e.Name(), func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || d.Name() == "folders.txt" {
+				return nil
+			}
+			rel, _ := filepath.Rel("builtin/"+e.Name(), p)
+			b, err := builtinFS.ReadFile(p)
+			if err != nil {
+				return nil
+			}
+			target := filepath.Join(dst, rel)
+			os.MkdirAll(filepath.Dir(target), 0o755)
+			os.WriteFile(target, b, 0o644)
+			return nil
+		})
+	}
+	return out
 }
 
 // postHasteDir is where Post Haste keeps its templates; LUMPY_TEMPLATES
@@ -89,6 +142,13 @@ func templateView(path string) (TemplateView, error) {
 		}
 		if e.IsDir() {
 			v.Folders = append(v.Folders, e.Name())
+			if subs, err := os.ReadDir(filepath.Join(files, e.Name())); err == nil {
+				for _, sub := range subs {
+					if sub.IsDir() && !strings.HasPrefix(sub.Name(), ".") {
+						v.Subfolders = append(v.Subfolders, e.Name()+"/"+sub.Name())
+					}
+				}
+			}
 		}
 	}
 	filepath.WalkDir(files, func(p string, d os.DirEntry, err error) error {
@@ -114,6 +174,11 @@ func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) (any, err
 		if v, err := templateView(path); err == nil {
 			out = append(out, v)
 		}
+	}
+	// The house template first, so it is the default until another is
+	// chosen.
+	for _, p := range s.builtinTemplates() {
+		add(p)
 	}
 	if dir := postHasteDir(); dir != "" {
 		if entries, err := os.ReadDir(dir); err == nil {
