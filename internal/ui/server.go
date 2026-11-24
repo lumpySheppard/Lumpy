@@ -229,6 +229,7 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/drives/{id}/verify", s.verify)
 	api("POST /api/drives/{id}/hash", s.hash)
 	api("POST /api/drives/{id}/rescan", s.rescan)
+	api("POST /api/drives/rescan", s.rescanAll)
 	api("POST /api/drives/{id}/cancel", s.cancelQueued)
 	api("POST /api/drives/{id}/metadata", s.probeDrive)
 	api("GET /api/drives/{id}/file", s.fileDetail)
@@ -716,6 +717,27 @@ func (s *Server) rescan(w http.ResponseWriter, r *http.Request) (any, error) {
 		return err
 	})
 	return map[string]any{"job": j.ID}, nil
+}
+
+// rescanAll queues a rescan of every plugged-in drive in the library,
+// one at a time, skipping drives that are never logged and drives with
+// a job running.
+func (s *Server) rescanAll(w http.ResponseWriter, r *http.Request) (any, error) {
+	n := 0
+	for _, v := range s.mounted() {
+		v := v
+		d, err := s.db.Drive(v.ID)
+		if err != nil || d.NeverLog || s.jobs.Busy(v.ID) {
+			continue
+		}
+		title := d.Title()
+		s.jobs.StartWhenFree("rescan", "Rescan "+title, "lumpy catalog "+shellQuote(v.Mount), []string{v.ID}, func(ctx context.Context, rep *job.Report) error {
+			_, err := job.CatalogDrive(ctx, s.db, v, rep)
+			return err
+		})
+		n++
+	}
+	return map[string]int{"queued": n}, nil
 }
 
 func (s *Server) cancelQueued(w http.ResponseWriter, r *http.Request) (any, error) {

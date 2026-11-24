@@ -3314,7 +3314,13 @@ $("#pop-close").onclick = () => toggleActivity(false);
 document.addEventListener("click", (e) => { if (!$("#activity-pop").hidden && !e.target.closest("#activity-pop, #activity-btn")) toggleActivity(false); });
 $("#settings").onclick = () => openSettings();
 $("#update-pill").onclick = () => openSettings("updates");
-$("#refresh").onclick = () => { loadState(); loadJobs(); };
+$("#refresh").onclick = async () => {
+  loadState(); loadJobs();
+  try {
+    const r = await api("/api/drives/rescan", { method: "POST" });
+    toast(r.queued ? `Rescanning ${r.queued} drive${r.queued === 1 ? "" : "s"}, one at a time; watch Activity` : "Nothing plugged in to rescan");
+  } catch (e) { toast(e.message, true); }
+};
 $(".search-icon").innerHTML = ICON.search;
 $("#export").innerHTML = ICON.export + "Export CSV…";
 async function downloadCSV(url, name, body) {

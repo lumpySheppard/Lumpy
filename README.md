@@ -352,7 +352,10 @@ library never holds the first paint. Drives plugged in at launch are
 marked seen; one whose last scan is more than a day old is rescanned
 as an ordinary job in Activity, one at a time, rather than every
 drive being walked silently before the app is usable, as earlier
-versions did.
+versions did. The ⟳ beside the page title rescans every plugged-in
+drive the same way, one at a time in Activity, whenever you want the
+library brought up to date by hand; a single drive has **Details →
+Rescan**.
 
 ### One job at a time per drive
 
