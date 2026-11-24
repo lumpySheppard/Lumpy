@@ -2609,11 +2609,8 @@ function mapModel() {
     nodes.push(dn); loose.drives.push(dn);
   }
   if (loose.drives.length) islands.push(loose);
-  // This Mac, with a dotted wire to every drive plugged in: drives only,
-  // never a project's node on a shared drive.
-  const mac = { id: "mac", type: "mac" };
-  nodes.push(mac);
-  for (const n of nodes) if (n.type === "drive" && n.d.connected) edges.push({ from: "mac", to: n.id, cls: "live", label: "" });
+  // This Mac; its wires to plugged-in drives are drawn by busPaths.
+  nodes.push({ id: "mac", type: "mac" });
   return { nodes, edges, islands };
 }
 
@@ -2622,34 +2619,86 @@ function mapModel() {
 // stones: each goes to the lowest spot it fits, so the map is a block
 // rather than a column. Dragged positions win; an island's frame
 // always wraps its members.
-const ISL = { pad: 18, gap: 14, row: 40, lane: 296 + 2 * 18, lanes: 5 };
+const ISL = { pad: 18, gap: 14, row: 40, lane: 296 + 2 * 18, lanes: 6, aisle: 72 };
 function mapLayout(m) {
   for (const n of m.nodes) [n.w, n.h] = NODE[n.type];
-  const box = $("#map"), lanes = Math.max(2, Math.min(ISL.lanes, Math.floor(((box ? box.clientWidth : 1400) / 0.72) / (ISL.lane + ISL.row))));
-  const sky = new Array(lanes).fill(40);
-  const X0 = 40 + NODE.mac[0] + 60;
+  const mac = m.nodes.find((n) => n.type === "mac");
+  const laneW = ISL.lane + ISL.row, box = $("#map") || $("#main");
+  // The Mac sits in the middle; islands pack into lanes either side of it.
+  const lanes = Math.max(2, Math.min(ISL.lanes, Math.floor((((box ? box.clientWidth : 1400) / 0.72) - NODE.mac[0] - 2 * ISL.aisle) / laneW)));
+  const sides = [{ lanes: Math.ceil(lanes / 2), sky: [] }, { lanes: Math.floor(lanes / 2), sky: [] }];
+  for (const sd of sides) sd.sky = new Array(sd.lanes).fill(40);
+  const leftEnd = 40 + sides[0].lanes * laneW - ISL.row; // right edge of the left side
+  const rightStart = leftEnd + ISL.aisle + NODE.mac[0] + ISL.aisle;
   for (const isl of m.islands) {
-    const n = isl.drives.length, cols = n <= 2 ? Math.max(1, n) : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
+    const n = isl.drives.length;
+    let cols = Math.min(n <= 2 ? Math.max(1, n) : n <= 4 ? 2 : 3, Math.max(...sides.map((sd) => sd.lanes)));
+    const rows = Math.ceil(n / cols);
     const gw = cols * NODE.drive[0] + (cols - 1) * ISL.gap;
     const w = ISL.pad * 2 + Math.max(isl.head ? NODE.project[0] : 0, gw);
     if (isl.head) isl.head.w = w - ISL.pad * 2;
     const hh = isl.head ? isl.head.h : 0, mh = isl.drives.length ? isl.drives[0].h : NODE.drive[1];
     const h = ISL.pad * 2 + (isl.head ? hh + ISL.gap : 26) + rows * mh + (rows - 1) * ISL.gap;
-    const span = Math.min(lanes, cols);
-    // The lowest place this many lanes wide; the leftmost among ties.
-    let best = 0, bestY = Infinity;
-    for (let l = 0; l + span <= lanes; l++) { const y = Math.max(...sky.slice(l, l + span)); if (y < bestY) { bestY = y; best = l; } }
-    const x = X0 + best * (ISL.lane + ISL.row), y = bestY;
-    for (let l = best; l < best + span; l++) sky[l] = y + h + ISL.row;
+    const span = cols;
+    // The lowest place this many lanes wide on either side; nearest the
+    // Mac among ties, and the left side before the right.
+    let best = null, bestY = Infinity;
+    sides.forEach((sd, si) => { for (let l = 0; l + span <= sd.lanes; l++) { const y = Math.max(...sd.sky.slice(l, l + span)); if (y < bestY) { bestY = y; best = { si, l }; } } });
+    if (!best) best = { si: 0, l: 0 };
+    const sd = sides[best.si], y = bestY;
+    for (let l = best.l; l < best.l + span && l < sd.lanes; l++) sd.sky[l] = y + h + ISL.row;
+    // Lane 0 is the one beside the Mac; islands hug it.
+    const x = best.si === 0 ? leftEnd - best.l * laneW - w : rightStart + best.l * laneW;
     let cy = y + ISL.pad;
     if (isl.head) { isl.head.x = x + ISL.pad; isl.head.y = cy; cy += hh + ISL.gap; }
     else cy += 26;
     isl.drives.forEach((dn, i) => { dn.x = x + ISL.pad + (i % cols) * (NODE.drive[0] + ISL.gap); dn.y = cy + Math.floor(i / cols) * (mh + ISL.gap); });
   }
-  const mac = m.nodes.find((n) => n.type === "mac");
-  if (mac) { mac.x = 40; mac.y = Math.max(40, (Math.max(...sky) - 40) / 2 - mac.h / 2); }
+  if (mac) { mac.x = leftEnd + ISL.aisle; mac.y = Math.max(40, (Math.max(...sides.flatMap((sd) => sd.sky)) - ISL.row - 40) / 2 + 40 - mac.h / 2); }
   for (const n of m.nodes) { const p = MAP.pos[n.id]; if (p) { n.x = p.x; n.y = p.y; } }
   for (const isl of m.islands) islandFrame(isl);
+  m.buses = busPaths(m);
+}
+// busPaths wires the Mac to every drive that is plugged in the way a
+// hub diagram does: one lead from the Mac's side to each island, then a
+// rail down the island's margin with a run along each row to the drives
+// in it, so no wire crosses another or passes over a node.
+function busPaths(m) {
+  const mac = m.nodes.find((n) => n.type === "mac");
+  if (!mac) return [];
+  const mcx = mac.x + mac.w / 2, r = (v) => Math.round(v * 10) / 10;
+  const out = [];
+  for (const isl of m.islands) {
+    const members = isl.head ? [isl.head, ...isl.drives] : isl.drives;
+    const live = members.filter((n) => n.type === "drive" && n.d.connected);
+    if (!live.length) continue;
+    const left = isl.x + isl.w / 2 < mcx;
+    const railX = left ? isl.x + isl.w - ISL.pad / 2 : isl.x + ISL.pad / 2;
+    const rows = new Map();
+    for (const n of live) { const k = Math.round(n.y); if (!rows.has(k)) rows.set(k, []); rows.get(k).push(n); }
+    const ys = [...rows.keys()].sort((a, b) => a - b);
+    const y0 = ys[0] - ISL.gap / 2, port = [left ? isl.x + isl.w : isl.x, y0];
+    // One branch per drive: in from the port, down the rail to its row,
+    // along the row to its column, into its top. Shared stretches overlap.
+    const branches = [];
+    for (const y of ys) for (const n of rows.get(y)) {
+      const runY = y - ISL.gap / 2, cx = n.x + n.w / 2;
+      branches.push({ id: n.id, d: `M${r(port[0])} ${r(y0)}H${r(railX)}V${r(runY)}H${r(cx)}V${r(n.y)}`, socket: [r(cx), r(n.y)] });
+    }
+    out.push({ isl, left, port, branches, ids: new Set(members.map((n) => n.id)) });
+  }
+  // Leads leave each side of the Mac in the order their islands sit, top
+  // to bottom, so they fan out without crossing.
+  for (const left of [true, false]) {
+    const side = out.filter((b) => b.left === left).sort((a, b) => a.port[1] - b.port[1] || a.port[0] - b.port[0]);
+    side.forEach((b, i) => {
+      const sx = left ? mac.x : mac.x + mac.w, sy = mac.y + (mac.h * (i + 1)) / (side.length + 1);
+      const k = Math.max(40, Math.abs(b.port[0] - sx) / 2), dir = left ? -1 : 1;
+      b.start = [r(sx), r(sy)];
+      b.lead = `M${r(sx)} ${r(sy)}C${r(sx + dir * k)} ${r(sy)},${r(b.port[0] - dir * k)} ${r(b.port[1])},${r(b.port[0])} ${r(b.port[1])}`;
+    });
+  }
+  return out;
 }
 // islandFrame is the box around an island's members, from wherever they
 // sit now.
@@ -2686,7 +2735,8 @@ function renderMap() {
   if (MAP.drag) { MAP.dirty = true; return; }
   const m = mapModel();
   mapLayout(m);
-  const W = Math.max(600, ...m.islands.map((i) => i.x + i.w)) + 80, H = Math.max(400, ...m.islands.map((i) => i.y + i.h)) + 80;
+  const macN = m.nodes.find((n) => n.type === "mac");
+  const W = Math.max(600, macN.x + macN.w, ...m.islands.map((i) => i.x + i.w)) + 80, H = Math.max(400, macN.y + macN.h, ...m.islands.map((i) => i.y + i.h)) + 80;
   const sel = MAP.sel, hot = new Set();
   if (sel) {
     hot.add(sel);
@@ -2712,6 +2762,9 @@ function renderMap() {
     return `<div class="e-lbl ${e.cls} ${hot.has(e.from) && hot.has(e.to) ? "hot" : ""}" style="left:${g.mx}px;top:${g.my}px">${esc(e.label)}</div>`;
   };
   const live = S.state.drives.filter((d) => d.connected);
+  const busHot = (b) => sel && (sel === "mac" || b.ids.has(sel)) ? "hot" : "";
+  const leadSVG = (b) => `<g class="edge-g live lead ${busHot(b)}"><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="3.5"/></g>`;
+  const treeSVG = (b) => b.branches.map((br) => `<g class="edge-g live tree ${sel && (sel === "mac" || hot.has(br.id)) ? "hot" : ""}"><path d="${br.d}"/><circle cx="${br.socket[0]}" cy="${br.socket[1]}" r="3.5"/></g>`).join("");
   const node = (n) => {
     const cls = `node ${n.type} ${n.id === sel ? "sel" : ""} ${hot.has(n.id) ? "hot" : ""}`;
     const box = `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px`;
@@ -2736,8 +2789,9 @@ function renderMap() {
   const island = (i) => `<div class="island ${i.p ? "" : i.d ? "shared" : "loose"} ${sel && (i.id === sel || i.drives.some((n) => n.id === sel)) ? "hot" : ""}" data-island="${i.id}" style="left:${i.x}px;top:${i.y}px;width:${i.w}px;height:${i.h}px;--pc:${i.color}">${i.head ? "" : `<span class="island-lbl">Not in a project · ${i.drives.length}</span>`}</div>`;
   main.innerHTML = `<div class="map ${sel ? "has-sel" : ""}" id="map">
     <div class="map-world" id="map-world" style="width:${W}px;height:${H}px">
-      <svg class="map-edges" width="${W}" height="${H}">${m.edges.map(edgeSVG).join("")}</svg>
+      <svg class="map-edges map-leads" width="${W}" height="${H}">${m.buses.map(leadSVG).join("")}</svg>
       ${m.islands.map(island).join("")}
+      <svg class="map-edges" width="${W}" height="${H}">${m.edges.map(edgeSVG).join("")}${m.buses.map(treeSVG).join("")}</svg>
       ${m.edges.map(edgeLabel).join("")}
       ${m.nodes.map(node).join("")}
     </div>
@@ -2889,7 +2943,9 @@ function wireMap(m) {
         const fe = world.querySelector(`[data-island="${CSS.escape(isl.id)}"]`);
         if (fe) { fe.style.left = isl.x + "px"; fe.style.top = isl.y + "px"; fe.style.width = isl.w + "px"; fe.style.height = isl.h + "px"; }
       }
-      world.querySelector(".map-edges").innerHTML = m.edges.map((e2) => { const g = edgeGeom(m.nodes.find((x) => x.id === e2.from), m.nodes.find((x) => x.id === e2.to)); return g ? `<g class="edge-g ${e2.cls}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>` : ""; }).join("");
+      const buses = busPaths(m);
+      world.querySelector(".map-leads").innerHTML = buses.map((b) => `<g class="edge-g live lead"><path d="${b.lead}"/><circle cx="${b.start[0]}" cy="${b.start[1]}" r="3.5"/></g>`).join("");
+      world.querySelector(".map-edges:not(.map-leads)").innerHTML = m.edges.map((e2) => { const g = edgeGeom(m.nodes.find((x) => x.id === e2.from), m.nodes.find((x) => x.id === e2.to)); return g ? `<g class="edge-g ${e2.cls}"><path d="${g.d}"/><circle cx="${g.x0}" cy="${g.y0}" r="3.5"/><circle cx="${g.x1}" cy="${g.y1}" r="3.5"/></g>` : ""; }).join("") + buses.flatMap((b) => b.branches.map((br) => `<g class="edge-g live tree"><path d="${br.d}"/><circle cx="${br.socket[0]}" cy="${br.socket[1]}" r="3.5"/></g>`)).join("");
       world.querySelectorAll(".e-lbl").forEach((el) => el.remove());
     } else { MAP.x = d.x + dx; MAP.y = d.y + dy; applyMap(); }
   };

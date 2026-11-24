@@ -166,15 +166,19 @@ the drive island. Being inside an island is what says what belongs
 where, so there is no wire per drive; each node carries its own line
 instead: green verified, yellow partly, red not at all, grey unproven,
 a **backup** tag on backup drives, and a green dot for plugged in.
-Drives in no project share a grey island at the end. Click a node and
-its island lights up, with a card that opens the project or the
-drive's details; double-click a drive for its details, a project for
-its page. Drag to pan, ⌘ + scroll to zoom, drag a drive to move it,
+Drives in no project share a grey island. **This Mac** sits in the
+middle with the islands packed either side of it, and a dotted green
+lead runs from the Mac to each island that has a drive plugged in,
+then along the island's margin to every plugged-in drive, the way a
+hub diagram does, so the leads never cross one another or pass over a
+node. Click a node and its island lights up, with a card that opens
+the project or the drive's details; click a plugged-in drive and its
+own lead lights; click the Mac and all of them do. Double-click a
+drive for its details, a project for its page. Drag to pan, ⌘ + scroll
+to zoom, drag a drive out of its island to take it out of the project
+(Lumpy asks first) or onto another project's island to add it there,
 drag a project header to move its whole island (Lumpy remembers),
-**Fit** to see everything, **Arrange** to put every island back. Drag
-a wire from a drive's edge onto a project header (or the other way) to
-add the drive to it, choosing the folder; drop it on the project that
-already holds the drive to take it out.
+**Fit** to see everything, **Arrange** to put every island back.
 
 ### Drive library
 
