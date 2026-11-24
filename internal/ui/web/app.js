@@ -3558,7 +3558,16 @@ async function renderSpace1() {
     const pic = t.querySelector(".sp-pic");
     if (pic) pic.onclick = () => { if (c && c.dir) { SP.at = rel; spaceLoad(); } else if (c && spPreviewable(c.name)) spacePeek(rel, d); };
   }
-  for (const el of document.querySelectorAll("[data-sp-pick]")) el.onchange = () => { if (el.checked) SP.sel.add(el.dataset.spPick); else SP.sel.delete(el.dataset.spPick); renderSpace(); };
+  // A tick with shift held ticks (or clears) everything from the last
+  // tick to this one, in the order shown.
+  for (const el of document.querySelectorAll("[data-sp-pick]")) el.onchange = () => {
+    const picks = [...document.querySelectorAll("[data-sp-pick]")].map((x) => x.dataset.spPick);
+    const a = picks.indexOf(SP.lastPick), z = picks.indexOf(el.dataset.spPick);
+    const range = SP.shift && a >= 0 && z >= 0 ? picks.slice(Math.min(a, z), Math.max(a, z) + 1) : [el.dataset.spPick];
+    for (const rel of range) { if (el.checked) SP.sel.add(rel); else SP.sel.delete(rel); }
+    SP.lastPick = el.dataset.spPick;
+    renderSpace();
+  };
   for (const row of document.querySelectorAll("[data-sp-row]")) { row.onmouseenter = () => spHover(row.dataset.spRow); row.onmouseleave = () => spHover(null); row.ondblclick = () => { const c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === row.dataset.spRow); if (c && c.dir) { SP.at = row.dataset.spRow; spaceLoad(); } }; }
   if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
   for (const b of document.querySelectorAll("[data-spv]")) b.onclick = () => { SP.view = b.dataset.spv; if (SP.view === "dupes" && !SP.dupes) spaceDupesLoad(); if (SP.view === "old" && !SP.old) spaceOldLoad(); renderSpace(); };
@@ -3706,6 +3715,8 @@ async function spaceTick() {
   if (place && !place.busy) { SP.busy = false; spaceLoad(); }
   else { const el = $("#sp-prog"); if (el && place) el.textContent = `${bytes(place.measured)} so far · see Activity for the folder it's reading`; }
 }
+// Whether shift was down for the click that is about to tick a box.
+document.addEventListener("pointerdown", (e) => { SP.shift = e.shiftKey; }, true);
 function spHover(rel) {
   SP.hover = rel;
   for (const el of document.querySelectorAll("[data-sp-row]")) el.classList.toggle("hot", el.dataset.spRow === rel);

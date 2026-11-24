@@ -652,7 +652,8 @@ a **List / Thumbnails** switch above its list: as thumbnails, every
 file shows itself (DPX, JPEG, PNG, TIFF, raws and a frame of each
 clip), with its tick box, name and size under it, so what to keep
 and what to clear is a glance rather than a name. Click a thumbnail
-for the full preview, with ← → through the folder.
+for the full preview, with ← → through the folder. In either view a
+tick with shift held ticks everything from the last tick to that one.
 
 Beside **Folders**, two more views of the same measurement.
 **Duplicates** finds the same file twice: every file of 1 MB or more
