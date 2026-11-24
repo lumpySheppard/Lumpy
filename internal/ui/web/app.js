@@ -279,7 +279,8 @@ function healthState(d) {
 function healthBadge(d) {
   const st = healthState(d);
   if (st === "bad") return `<span class="badge bad" title="${esc(d.health.warnings.join(" · "))}">${ICON.warn}Drive failing</span>`;
-  if (st === "warn") return `<span class="badge warn" title="${esc(d.health.warnings.join(" · "))}">${ICON.warn}${esc(d.health.warnings[0])}</span>`;
+  // The badge carries the finding; the advice after the colon stays in the tooltip.
+  if (st === "warn") return `<span class="badge warn" title="${esc(d.health.warnings.join(" · "))}">${ICON.warn}${esc(d.health.warnings[0].split(":")[0])}${d.health.warnings.length > 1 ? ` +${d.health.warnings.length - 1}` : ""}</span>`;
   return "";
 }
 function hoursText(h) {
