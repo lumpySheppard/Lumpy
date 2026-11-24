@@ -65,8 +65,8 @@ func TestStillsThroughAPI(t *testing.T) {
 		t.Fatalf("grab: %d", code)
 	}
 	want := filepath.Join(root, "09_OUTPUT", "Stills", "A001_C002_01.00.01.23.png")
-	if st1.File != want || st1.Width != 64 || st1.Height != 36 {
-		t.Fatalf("still: %+v", st1)
+	if !samePath(st1.File, want) || st1.Width != 64 || st1.Height != 36 {
+		t.Fatalf("still: %+v, want %s", st1, want)
 	}
 	if _, err := os.Stat(want); err != nil {
 		t.Fatal(err)
@@ -145,9 +145,21 @@ func TestStillsOutsideProject(t *testing.T) {
 	if res.StatusCode != 200 || decodeJSON(data, &out) != nil {
 		t.Fatalf("grab: %d %s", res.StatusCode, data)
 	}
-	if want := filepath.Join(home, "Pictures", "Lumpy Stills", "LOOSE", "clip_f000012.png"); out.File != want {
+	if want := filepath.Join(home, "Pictures", "Lumpy Stills", "LOOSE", "clip_f000012.png"); !samePath(out.File, want) {
 		t.Fatalf("file: %s, want %s", out.File, want)
 	}
 }
 
 func decodeJSON(data []byte, out any) error { return json.Unmarshal(data, out) }
+
+// samePath compares two paths with symlinks resolved: on macOS the
+// temp dir is /var/folders, which is really /private/var/folders, and
+// a mount's path comes back resolved.
+func samePath(a, b string) bool {
+	ra, err1 := filepath.EvalSymlinks(a)
+	rb, err2 := filepath.EvalSymlinks(b)
+	if err1 != nil || err2 != nil {
+		return a == b
+	}
+	return ra == rb
+}
