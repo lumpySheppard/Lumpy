@@ -722,6 +722,15 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 3px; paddi
 .preview { margin-top: 14px; border-radius: 16px; overflow: hidden; background: #000; border: 1px solid var(--line); display: grid; place-items: center; min-height: 120px; }
 .preview video { width: 100%; max-height: 380px; display: block; background: #000; }
 .preview .player { width: 100%; outline: 0; }
+/* The app's own player sits over this slot; the page keeps the space. */
+.preview .native-slot { width: 100%; aspect-ratio: 16 / 9; max-height: 380px; background: #000; display: block; }
+.sheet.wide .preview .native-slot { max-height: 70vh; }
+/* F fills the window with the player; Esc brings it back. */
+.player.fill { position: fixed; inset: 0; z-index: 60; background: #000; display: flex; flex-direction: column; border-radius: 0; }
+.player.fill .native-slot, .player.fill video { flex: 1; min-height: 0; max-height: none !important; aspect-ratio: auto; width: 100%; }
+.player.fill .transport { flex: none; }
+.player.fill .stills { flex: none; }
+.transport .icon-btn.on { background: var(--bg-2); border-color: var(--line); }
 table.list.tidy td small { font-weight: 400; color: var(--muted); display: block; }
 table.list.tidy tr.dim { opacity: .55; }
 table.list.tidy .select select { min-width: 150px; }
@@ -753,10 +762,10 @@ table.list.tidy .select select { min-width: 150px; }
 .preview .player video { cursor: pointer; transform: translateZ(0); will-change: transform; }
 /* While a clip plays, nothing blurs: a backdrop filter is re-rendered
    with every video frame and that is what stutters the picture. */
-:root:has(#player video) .scrim, :root:has(#player video) .sheet, :root:has(#player video) .popover, :root:has(#player video) .map-card,
-:root:has(#player video) .card, :root:has(#player video) .job, :root:has(#player video) .toast { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-:root:has(#player video) .scrim { background: rgba(0,0,0,.7); }
-:root:has(#player video) .sheet { animation: none; }
+:root:has(#player video, #player .native-slot) .scrim, :root:has(#player video, #player .native-slot) .sheet, :root:has(#player video, #player .native-slot) .popover, :root:has(#player video, #player .native-slot) .map-card,
+:root:has(#player video, #player .native-slot) .card, :root:has(#player video, #player .native-slot) .job, :root:has(#player video, #player .native-slot) .toast { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+:root:has(#player video, #player .native-slot) .scrim { background: rgba(0,0,0,.7); }
+:root:has(#player video, #player .native-slot) .sheet { animation: none; }
 .transport { display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: var(--panel); border-top: 1px solid var(--line); }
 .transport .icon-btn { width: 28px; height: 26px; color: var(--text); }
 .transport .icon-btn.play { width: 34px; }

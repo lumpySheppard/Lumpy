@@ -14,8 +14,8 @@ for arch in arm64 amd64; do
 done
 lipo -create -output "$APP/Contents/Resources/lumpy" "$OUT/build/lumpy-arm64" "$OUT/build/lumpy-amd64"
 
-swiftc -O -target arm64-apple-macos12 -o "$OUT/build/Lumpy-arm64" macos/main.swift
-swiftc -O -target x86_64-apple-macos12 -o "$OUT/build/Lumpy-x86_64" macos/main.swift
+swiftc -O -target arm64-apple-macos12 -o "$OUT/build/Lumpy-arm64" macos/main.swift macos/player.swift
+swiftc -O -target x86_64-apple-macos12 -o "$OUT/build/Lumpy-x86_64" macos/main.swift macos/player.swift
 lipo -create -output "$APP/Contents/MacOS/Lumpy" "$OUT/build/Lumpy-arm64" "$OUT/build/Lumpy-x86_64"
 
 sed "s/VERSION/$VERSION/g" macos/Info.plist > "$APP/Contents/Info.plist"

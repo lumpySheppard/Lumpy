@@ -200,7 +200,7 @@ func (s *Server) streamFile(w http.ResponseWriter, r *http.Request) (any, error)
 	if ct := contentType(p); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Cache-Control", "private, max-age=0")
 	http.ServeFile(w, r, full)
 	return nil, nil
 }

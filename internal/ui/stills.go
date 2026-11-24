@@ -126,8 +126,20 @@ func (s *Server) grabStill(w http.ResponseWriter, r *http.Request) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, stillsLimit+1))
-	if err != nil {
+	var body []byte
+	if from := r.URL.Query().Get("from"); from != "" {
+		// The app rendered the frame itself (player.swift) into its
+		// temp folder; it is taken from there.
+		clean := filepath.Clean(from)
+		if !strings.Contains(clean, string(filepath.Separator)+"lumpy-stills"+string(filepath.Separator)) || !strings.HasSuffix(clean, ".png") {
+			return nil, badRequest("bad still file")
+		}
+		body, err = os.ReadFile(clean)
+		if err != nil {
+			return nil, badRequest("reading the frame: %v", err)
+		}
+		defer os.Remove(clean)
+	} else if body, err = io.ReadAll(io.LimitReader(r.Body, stillsLimit+1)); err != nil {
 		return nil, badRequest("reading the frame: %v", err)
 	}
 	if len(body) == 0 || len(body) > stillsLimit {

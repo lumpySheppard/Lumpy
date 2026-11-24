@@ -169,8 +169,8 @@ async function loadState() {
       renderCounts();
       // The page is left alone while its master print is in use:
       // playing, parked on a frame, or with its stills open.
-      const v = document.querySelector("#main #player video");
-      const inUse = v && (!v.paused || v.currentTime > 0 || !document.querySelector("#main #pl-stills").hidden);
+      const pl = document.querySelector("#main #player");
+      const inUse = pl && pl.dataset.busy === "1";
       if (S.project) { if (!inUse) loadProject(S.project, true); } else loadProjects();
     }
     else if (!first && S.tab === "map") { renderCounts(); loadProjects(); }
@@ -648,6 +648,7 @@ function renderCounts() {
 
 function render() {
   if (!S.state) return;
+  closePlayers();
   renderCounts();
   renderToolbar();
   const main = $("#main");
@@ -770,6 +771,7 @@ function renderConnected() {
 // ---------- details ----------
 function openSheet(html, small) {
   const sh = $("#sheet");
+  closePlayers();
   sh.className = "sheet" + (small ? " small" : "");
   // Classic windows carry the window's name in the title bar and a red
   // close button at its left; the modern × steps aside there.
@@ -782,6 +784,7 @@ function openSheet(html, small) {
   $("#scrim").hidden = false;
 }
 function closeSheet() {
+  closePlayers();
   $("#sheet").hidden = true;
   $("#scrim").hidden = true;
   S.detail = null;
@@ -1074,6 +1077,7 @@ async function loadProject(id, refresh) {
 
 function renderProjectPage() {
   const main = $("#main");
+  closePlayers();
   const data = S.projectData;
   if (!data || data.project.id !== S.project) {
     main.innerHTML = loadingGlyph("Reading the project…");
@@ -2434,97 +2438,202 @@ async function openFile(driveId, path, back) {
 function playerHTML(stream, m, file, clip) {
   const rate = (m && m.frameRate) || 0;
   return `<div class="player" id="player" tabindex="0" data-local="${esc(file || "")}" data-clip-drive="${esc(clip ? clip.driveId : "")}" data-clip-path="${esc(clip ? clip.path : "")}">
-    <video preload="auto" playsinline src="${stream}"></video>
+    ${native && file ? `<div class="native-slot" style="aspect-ratio:${m && m.width && m.height ? `${m.width} / ${m.height}` : "16 / 9"}"></div>` : `<video preload="auto" playsinline src="${stream}"></video>`}
     <div class="transport">
       <button class="icon-btn" data-pl="prev" title="Previous clip (←)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
       <button class="icon-btn" data-pl="rev" title="Reverse (J)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 6v12L2 12zM22 6v12l-9-6z"/></svg></button>
-      <button class="icon-btn play" data-pl="play" title="Play / pause (space, K)">${ICON.play}</button>
+      <button class="icon-btn play" data-pl="play" title="Play / pause (space, K) · - and = step a frame">${ICON.play}</button>
       <button class="icon-btn" data-pl="fwd" title="Forward, faster each press (L)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 6v12l9-6zM2 6v12l9-6z"/></svg></button>
       <button class="icon-btn" data-pl="next" title="Next clip (→)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
       <span class="tc" id="pl-tc" title="Timecode · frame">${rate && m.timecode ? esc(m.timecode) : "00:00:00:00"}</span>
       <input type="range" class="scrub" id="pl-scrub" min="0" max="1000" value="0" step="1">
       <span class="tc dur" id="pl-dur">${m && m.durationMs ? esc(dur(m.durationMs)) : "—"}</span>
-      <span class="speed" id="pl-speed" title="Speed (- and =)">1×</span>
+      <span class="speed" id="pl-speed" title="Speed ([ and ])">1×</span>
       <button class="icon-btn" data-pl="mute" title="Mute (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6"/></svg></button>
       ${clip ? `<button class="icon-btn" data-pl="grab" title="Grab a still of this frame, full size">${ICON.camera}</button><button class="btn small stills-btn" data-pl="stills" title="Stills grabbed from this clip" hidden>Stills <b>0</b></button>` : ""}
       ${native && file ? `<button class="icon-btn" data-pl="qt" title="Open in QuickTime Player">${ICON.clapper}</button>` : ""}
       <button class="icon-btn" data-pl="full" title="Fill the screen (F)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     </div><div class="stills" id="pl-stills" hidden></div></div>`;
 }
+// A player backend: the page's own <video>, or the app's AVPlayer laid
+// over the page (player.swift). The transport drives either through
+// the same few calls, and both tick it with the clip's clock.
+function htmlBackend(v, muted) {
+  v.muted = muted;
+  const B = { native: false, canReverse: false, get time() { return v.currentTime; }, get duration() { return v.duration || 0; }, get rate() { return v.paused ? 0 : v.playbackRate; } };
+  B.play = (rate) => { v.playbackRate = Math.abs(rate) || 1; const p = v.play(); if (p && p.catch) p.catch(() => {}); };
+  B.pause = () => v.pause();
+  B.seek = (t) => { v.currentTime = Math.max(0, Math.min(B.duration || t, t)); };
+  B.step = (n, fps) => { v.pause(); B.seek(v.currentTime + n / fps); };
+  B.mute = (on) => { v.muted = on; };
+  B.fullscreen = (box) => { if (box.requestFullscreen) box.requestFullscreen(); };
+  B.close = () => {};
+  B.grab = async () => {
+    // A clip that has only just opened may not have decoded a frame yet.
+    if (!v.videoWidth) await new Promise((ok) => { const t = setTimeout(ok, 3000); v.addEventListener("loadeddata", () => { clearTimeout(t); ok(); }, { once: true }); });
+    if (!v.videoWidth) return { error: "no frame to grab yet" };
+    const c = document.createElement("canvas");
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/png"));
+    return blob ? { blob, width: c.width, height: c.height } : { error: "could not read the frame" };
+  };
+  // Every presented frame ticks the transport where the browser offers
+  // that; timeupdate alone is four times a second and looks jumpy.
+  const emit = () => { if (B.ontick) B.ontick(); };
+  if (v.requestVideoFrameCallback) { const loop = () => { emit(); if (v.isConnected) v.requestVideoFrameCallback(loop); }; v.requestVideoFrameCallback(loop); }
+  v.ontimeupdate = emit; v.onplay = emit; v.onpause = emit; v.onseeked = emit; v.onended = emit;
+  v.onloadedmetadata = () => { if (B.onready) B.onready({ duration: v.duration, fps: 0, width: v.videoWidth, height: v.videoHeight }); emit(); };
+  v.onclick = () => { if (B.onclick) B.onclick(1); };
+  v.ondblclick = () => { if (B.onclick) B.onclick(2); };
+  return B;
+}
+let playerSeq = 0;
+function nativeBackend(box, slot, muted) {
+  const pid = ++playerSeq;
+  const B = { native: true, canReverse: false, time: 0, duration: 0, rate: 0, pid, closed: false };
+  let shown = true, lastRect = "";
+  const rectOf = () => { const r = slot.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  const sendRect = () => {
+    if (B.closed) return;
+    const r = rectOf(), k = [r.x, r.y, r.w, r.h].map((n) => Math.round(n * 2) / 2).join();
+    if (k !== lastRect) { lastRect = k; nativeCall("player.rect", { pid, rect: r }); }
+  };
+  window.lumpyPlayer = {
+    pid,
+    tick(id, t, rate) { if (id !== pid) return; B.time = t; B.rate = rate; if (B.ontick) B.ontick(); },
+    ready(id, dur, fps, w, h, canRev) {
+      if (id !== pid) return;
+      B.duration = dur; B.canReverse = !!canRev;
+      if (w && h) slot.style.aspectRatio = `${w} / ${h}`;
+      sendRect();
+      if (B.onready) B.onready({ duration: dur, fps, width: w, height: h });
+    },
+    ended(id) { if (id !== pid) return; B.rate = 0; if (B.ontick) B.ontick(); },
+    failed(id, why) { if (id !== pid) return; toast("Can't play this clip: " + why, true); },
+    click(id, n) { if (id !== pid) return; if (B.onclick) B.onclick(n); },
+  };
+  nativeCall("player.open", { pid, path: box.dataset.local, rect: rectOf(), muted: !!muted });
+  const ro = new ResizeObserver(sendRect);
+  ro.observe(slot);
+  window.addEventListener("resize", sendRect);
+  document.addEventListener("scroll", sendRect, true);
+  // Every so often: gone from the page, close; under a sheet, hide.
+  const timer = setInterval(() => {
+    if (!slot.isConnected) { B.close(); return; }
+    const sheet = $("#sheet"), covered = !sheet.hidden && !sheet.contains(slot);
+    if (covered === shown) { shown = !covered; nativeCall("player.show", { pid, on: shown }); }
+    sendRect();
+  }, 200);
+  B.play = (rate) => nativeCall("player.play", { rate });
+  B.pause = () => nativeCall("player.pause");
+  B.seek = (t, fast) => nativeCall("player.seek", { t: Math.max(0, Math.min(B.duration || t, t)), fast: !!fast });
+  B.step = (n) => nativeCall("player.step", { n });
+  B.mute = (on) => nativeCall("player.mute", { on });
+  B.fullscreen = (box) => { box.classList.toggle("fill"); sendRect(); };
+  B.grab = () => nativeCall("player.grab");
+  B.close = () => {
+    if (B.closed) return;
+    B.closed = true;
+    clearInterval(timer); ro.disconnect();
+    window.removeEventListener("resize", sendRect); document.removeEventListener("scroll", sendRect, true);
+    if (window.lumpyPlayer && window.lumpyPlayer.pid === pid) window.lumpyPlayer = null;
+    nativeCall("player.close", { pid });
+  };
+  return B;
+}
+// closePlayers shuts any player the page is about to throw away, so
+// the app's own player view never outlives its spot on the page.
+function closePlayers() {
+  for (const el of document.querySelectorAll("#player")) if (el.player) el.player.close();
+}
 function wirePlayer(m) {
-  const box = $("#player"), v = box && box.querySelector("video");
-  if (!v) return;
-  const rate = (m && m.frameRate) || 25, startFrames = m && m.timecode ? tcFrames(m.timecode, rate) : 0;
+  const box = $("#player"), v = box && box.querySelector("video"), slot = box && box.querySelector(".native-slot");
+  if (!v && !slot) return;
+  let rate = (m && m.frameRate) || 25;
+  const startFrames = m && m.timecode ? tcFrames(m.timecode, rate) : 0;
+  const B = slot ? nativeBackend(box, slot, !!S.playerMuted) : htmlBackend(v, !!S.playerMuted);
+  box.player = B;
   const scrub = $("#pl-scrub"), tc = $("#pl-tc"), speedEl = $("#pl-speed"), playBtn = box.querySelector("[data-pl=play]");
-  let speed = 1, rev = null; // rev: the timer stepping backwards
+  let speed = 1, dir = 1, rev = null; // rev: the timer stepping backwards where the backend can't
   const stopRev = () => { if (rev) { cancelAnimationFrame(rev); rev = null; } };
+  const playing = () => B.rate !== 0 || !!rev;
   // Only what changed is written: the player ticks many times a second
   // and every write here is a repaint beside the video.
   let lastTc = "", lastScrub = -1, lastPlaying = null;
   const show = () => {
-    const f = Math.round(v.currentTime * rate);
-    const t = tcString(startFrames + f, rate) + ` · ${f}`;
-    if (t !== lastTc) { tc.textContent = t; lastTc = t; }
-    if (v.duration) { const sv = Math.round((v.currentTime / v.duration) * 1000); if (sv !== lastScrub) { scrub.value = sv; lastScrub = sv; } }
-    const playing = !(v.paused && !rev);
-    if (playing !== lastPlaying) { playBtn.innerHTML = playing ? `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>` : ICON.play; lastPlaying = playing; }
+    const t = B.time || 0, f = Math.round(t * rate);
+    const s = tcString(startFrames + f, rate) + ` · ${f}`;
+    if (s !== lastTc) { tc.textContent = s; lastTc = s; }
+    if (B.duration) { const sv = Math.round((t / B.duration) * 1000); if (sv !== lastScrub) { scrub.value = sv; lastScrub = sv; } }
+    const on = playing();
+    if (on !== lastPlaying) { playBtn.innerHTML = on ? `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>` : ICON.play; lastPlaying = on; }
+    box.dataset.busy = on || t > 0 || !$("#pl-stills").hidden ? "1" : "";
   };
-  const setSpeed = (x) => { speed = Math.max(0.25, Math.min(8, x)); v.playbackRate = speed; speedEl.textContent = (speed % 1 ? speed.toFixed(2).replace(/0+$/, "") : speed) + "×"; };
-  const play = () => { stopRev(); const p = v.play(); if (p && p.catch) p.catch(() => {}); };
-  const pause = () => { stopRev(); v.pause(); setSpeed(1); show(); };
-  const step = (n) => { pause(); v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + n / rate)); };
+  const speedText = () => { speedEl.textContent = (dir < 0 ? "-" : "") + (speed % 1 ? speed.toFixed(2).replace(/0+$/, "") : speed) + "×"; };
+  const play = (d) => { stopRev(); dir = d; speedText(); B.play(d * speed); };
+  const pause = () => { stopRev(); B.pause(); speed = 1; dir = 1; speedText(); show(); };
+  const step = (n) => { stopRev(); speed = 1; dir = 1; speedText(); B.step(n, rate); };
   const reverse = () => {
-    // Browsers don't play backwards; step frames on a clock instead.
-    v.pause();
-    if (rev) { speed = Math.min(8, speed * 2); } else { speed = 1; }
-    speedEl.textContent = "-" + speed + "×";
+    if (B.canReverse) { speed = dir < 0 && playing() ? Math.min(8, speed * 2) : 1; play(-1); return; }
+    // No reverse decode here: step frames back on a clock instead.
+    B.pause();
+    speed = rev ? Math.min(8, speed * 2) : 1; dir = -1; speedText();
     stopRev();
     let last = performance.now();
-    const tick = (now) => { v.currentTime = Math.max(0, v.currentTime - ((now - last) / 1000) * speed); last = now; show(); if (v.currentTime <= 0) { stopRev(); setSpeed(1); } else rev = requestAnimationFrame(tick); };
+    const tick = (now) => { B.seek(Math.max(0, B.time - ((now - last) / 1000) * speed)); last = now; show(); if (B.time <= 0) { stopRev(); speed = 1; dir = 1; speedText(); } else rev = requestAnimationFrame(tick); };
     rev = requestAnimationFrame(tick);
   };
-  const forward = () => { if (!v.paused && !rev) setSpeed(speed * 2); else { setSpeed(1); play(); } };
+  const forward = () => { speed = dir > 0 && playing() ? Math.min(8, speed * 2) : 1; play(1); };
+  const setSpeed = (x) => { speed = Math.max(0.25, Math.min(8, x)); speedText(); if (playing() && !rev) B.play(dir * speed); };
   const nav = fileNav;
-  v.ontimeupdate = show; v.onplay = show; v.onpause = show; v.onloadedmetadata = () => { show(); if (!m || !m.durationMs) $("#pl-dur").textContent = dur(v.duration * 1000); };
-  scrub.oninput = () => { if (v.duration) { stopRev(); v.currentTime = (scrub.value / 1000) * v.duration; show(); } };
-  box.querySelector("[data-pl=play]").onclick = () => (v.paused && !rev ? play() : pause());
+  B.ontick = show;
+  B.onready = (info) => { if (info.fps && !(m && m.frameRate)) rate = info.fps; if (!m || !m.durationMs) $("#pl-dur").textContent = dur((info.duration || 0) * 1000); show(); };
+  B.onclick = (n) => { if (n >= 2) box.querySelector("[data-pl=full]").click(); else if (playing()) pause(); else play(1); };
+  scrub.oninput = () => { if (B.duration) { stopRev(); B.seek((scrub.value / 1000) * B.duration, true); } };
+  scrub.onchange = () => { if (B.duration) B.seek((scrub.value / 1000) * B.duration); };
+  box.querySelector("[data-pl=play]").onclick = () => (playing() ? pause() : play(1));
   box.querySelector("[data-pl=rev]").onclick = reverse;
   box.querySelector("[data-pl=fwd]").onclick = forward;
   box.querySelector("[data-pl=prev]").onclick = () => nav(-1);
   box.querySelector("[data-pl=next]").onclick = () => nav(1);
-  box.querySelector("[data-pl=mute]").onclick = () => { v.muted = !v.muted; };
+  const muteBtn = box.querySelector("[data-pl=mute]");
+  muteBtn.classList.toggle("on", !!S.playerMuted);
+  const mute = () => { S.playerMuted = !S.playerMuted; B.mute(S.playerMuted); muteBtn.classList.toggle("on", S.playerMuted); };
+  muteBtn.onclick = mute;
   const qt = box.querySelector("[data-pl=qt]"); if (qt) qt.onclick = () => { pause(); nativeCall("quicktime", { path: box.dataset.local }); };
-  wireStills(box, v, () => { pause(); return { tc: tcString(startFrames + Math.round(v.currentTime * rate), rate), frame: Math.round(v.currentTime * rate) }; });
-  box.querySelector("[data-pl=full]").onclick = () => { if (v.requestFullscreen) v.requestFullscreen(); else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen(); };
-  v.onclick = () => (v.paused && !rev ? play() : pause());
-  v.ondblclick = () => box.querySelector("[data-pl=full]").click();
+  wireStills(box, B, () => { pause(); const f = Math.round((B.time || 0) * rate); return { tc: tcString(startFrames + f, rate), frame: f }; });
+  box.querySelector("[data-pl=full]").onclick = () => B.fullscreen(box);
   const keys = (e) => {
-    if ($("#sheet").hidden || !$("#player")) { document.removeEventListener("keydown", keys); return; }
+    if (!box.isConnected) { document.removeEventListener("keydown", keys); return; }
+    if (!$("#sheet").hidden && !$("#sheet").contains(box)) return; // a sheet is open over the page's player
     if (e.target.matches("input:not([type=range]), textarea, select")) return;
     const k = e.key.toLowerCase();
-    if (k === " ") { e.preventDefault(); v.paused && !rev ? play() : pause(); }
+    if (k === " ") { e.preventDefault(); playing() ? pause() : play(1); }
     else if (k === "k") pause();
     else if (k === "l") forward();
     else if (k === "j") reverse();
-    else if (k === ",") step(e.shiftKey ? -10 : -1);
-    else if (k === ".") step(e.shiftKey ? 10 : 1);
-    else if (k === "home") { pause(); v.currentTime = 0; }
-    else if (k === "end") { pause(); v.currentTime = v.duration || 0; }
-    else if (k === "-" || k === "_") setSpeed(speed / 2);
-    else if (k === "=" || k === "+") setSpeed(speed * 2);
-    else if (k === "m") v.muted = !v.muted;
-    else if (k === "f") box.querySelector("[data-pl=full]").click();
+    else if (k === "," || k === "-" || k === "_") step(e.shiftKey ? -10 : -1);
+    else if (k === "." || k === "=" || k === "+") step(e.shiftKey ? 10 : 1);
+    else if (k === "home") { pause(); B.seek(0); }
+    else if (k === "end") { pause(); B.seek(B.duration || 0); }
+    else if (k === "[") setSpeed(speed / 2);
+    else if (k === "]") setSpeed(speed * 2);
+    else if (k === "m") mute();
+    else if (k === "f") B.fullscreen(box);
+    else if (k === "escape" && box.classList.contains("fill")) B.fullscreen(box);
     else return;
     e.stopPropagation();
   };
   document.addEventListener("keydown", keys);
+  speedText();
   show();
 }
 
 // wireStills is the camera in the transport: grab the frame on screen
 // at the clip's own size as a PNG, send it to Lumpy to file, and keep
 // the clip's grabs in a drop-down with Show in Finder on each.
-function wireStills(box, v, atFrame) {
+function wireStills(box, B, atFrame) {
   const grab = box.querySelector("[data-pl=grab]"), btn = box.querySelector("[data-pl=stills]"), list = box.querySelector("#pl-stills");
   if (!grab || !btn) return;
   const driveId = box.dataset.clipDrive, path = box.dataset.clipPath;
@@ -2548,17 +2657,17 @@ function wireStills(box, v, atFrame) {
   const load = async () => { try { stills = await api(`/api/drives/${encodeURIComponent(driveId)}/stills?${q}`); } catch { stills = []; } draw(); };
   btn.onclick = () => { list.hidden = !list.hidden; };
   grab.onclick = async () => {
-    // A clip that has only just opened may not have decoded a frame yet.
-    if (!v.videoWidth) await new Promise((ok) => { const t = setTimeout(ok, 3000); v.addEventListener("loadeddata", () => { clearTimeout(t); ok(); }, { once: true }); });
-    if (!v.videoWidth) { toast("No frame to grab yet", true); return; }
     const at = atFrame();
     grab.disabled = true;
     try {
-      const c = document.createElement("canvas");
-      c.width = v.videoWidth; c.height = v.videoHeight;
-      c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
-      const blob = await new Promise((ok, no) => c.toBlob((b) => (b ? ok(b) : no(new Error("could not read the frame"))), "image/png"));
-      const res = await fetch(`/api/drives/${encodeURIComponent(driveId)}/still?${q}&tc=${encodeURIComponent(at.tc)}&frame=${at.frame}`, { method: "POST", headers: { "X-Lumpy-Token": token, "Content-Type": "image/png" }, body: blob });
+      const g = await B.grab();
+      if (!g || g.error) throw new Error((g && g.error) || "no frame");
+      const url = `/api/drives/${encodeURIComponent(driveId)}/still?${q}&tc=${encodeURIComponent(at.tc)}&frame=${at.frame}`;
+      // The app renders the frame itself into a temp file and the engine
+      // files it; the page's own player hands over the PNG it drew.
+      const res = g.file
+        ? await fetch(url + `&from=${encodeURIComponent(g.file)}`, { method: "POST", headers: { "X-Lumpy-Token": token } })
+        : await fetch(url, { method: "POST", headers: { "X-Lumpy-Token": token, "Content-Type": "image/png" }, body: g.blob });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error((data && data.error) || res.statusText);
       stills.unshift(data);

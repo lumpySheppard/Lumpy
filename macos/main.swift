@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     let engineInput = Pipe()
     var quitting = false
     var engineURL: URL?
+    /// The clip player over the page (player.swift).
+    var nativePlayer: NativePlayer?
 
     // The menu bar item and its panel: running transfers, plugged-in
     // drives and a few numbers, from any app.
@@ -398,6 +400,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
             }
             resolve(id, true, in: from)
+        case "player.open":
+            if nativePlayer == nil { nativePlayer = NativePlayer(web: web) }
+            resolve(id, nativePlayer!.open(body), in: from)
+        case "player.close":
+            if let np = nativePlayer, np.owns(body) { np.close() }
+            resolve(id, true, in: from)
+        case "player.rect":
+            if let np = nativePlayer, np.owns(body) { np.move(body) }
+            resolve(id, true, in: from)
+        case "player.play":
+            nativePlayer?.play(rate: (body["rate"] as? Double) ?? 1)
+            resolve(id, true, in: from)
+        case "player.pause":
+            nativePlayer?.pause()
+            resolve(id, true, in: from)
+        case "player.seek":
+            nativePlayer?.seek(to: (body["t"] as? Double) ?? 0, fast: (body["fast"] as? Bool) ?? false)
+            resolve(id, true, in: from)
+        case "player.step":
+            nativePlayer?.step(by: (body["n"] as? Int) ?? 1)
+            resolve(id, true, in: from)
+        case "player.mute":
+            nativePlayer?.setMuted((body["on"] as? Bool) ?? false)
+            resolve(id, true, in: from)
+        case "player.show":
+            if let np = nativePlayer, np.owns(body) { np.show((body["on"] as? Bool) ?? true) }
+            resolve(id, true, in: from)
+        case "player.grab":
+            if let np = nativePlayer { np.grab { [weak self] out in self?.resolve(id, out, in: from) } }
+            else { resolve(id, ["error": "no player"], in: from) }
         case "quicktime":
             // Play a file in QuickTime Player: the same decoder as the
             // app's player, without a web view between it and the screen.

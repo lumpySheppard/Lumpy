@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -101,6 +102,26 @@ func TestStillsThroughAPI(t *testing.T) {
 	call(t, s, ts, "GET", "/api/drives/"+st.Drives[0].ID+"/stills?path=Film/01_Original%20footage/Online/A001_C002.mov", "", &list)
 	if len(list) != 1 {
 		t.Fatalf("after delete: %+v", list)
+	}
+	// A frame the app rendered itself: taken from its temp folder,
+	// which is emptied of it.
+	tmp := filepath.Join(t.TempDir(), "lumpy-stills")
+	os.MkdirAll(tmp, 0o755)
+	os.WriteFile(filepath.Join(tmp, "grab-1.png"), buf.Bytes(), 0o644)
+	req, _ = http.NewRequest("POST", ts.URL+"/api/drives/"+st.Drives[0].ID+"/still?path=Film/01_Original%20footage/Online/A001_C002.mov&tc=01:00:02:00&from="+url.QueryEscape(filepath.Join(tmp, "grab-1.png")), nil)
+	req.Header.Set("X-Lumpy-Token", s.token)
+	res, _ = http.DefaultClient.Do(req)
+	data, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	var native catalog.Still
+	if res.StatusCode != 200 || decodeJSON(data, &native) != nil || native.Width != 64 {
+		t.Fatalf("from: %d %s", res.StatusCode, data)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "grab-1.png")); err == nil {
+		t.Fatal("temp grab not removed")
+	}
+	if _, err := os.Stat(filepath.Join(root, "09_OUTPUT", "Stills", "A001_C002_01.00.02.00.png")); err != nil {
+		t.Fatal(err)
 	}
 	// Not a PNG: refused.
 	req, _ = http.NewRequest("POST", ts.URL+"/api/drives/"+st.Drives[0].ID+"/still?path=Film/01_Original%20footage/Online/A001_C002.mov", bytes.NewReader([]byte("nope")))
