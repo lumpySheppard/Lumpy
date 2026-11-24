@@ -736,10 +736,13 @@ function renderConnected() {
 function openSheet(html, small) {
   const sh = $("#sheet");
   sh.className = "sheet" + (small ? " small" : "");
-  // Classic windows carry the window's name in the title bar.
-  sh.innerHTML = html;
+  // Classic windows carry the window's name in the title bar and a red
+  // close button at its left; the modern × steps aside there.
+  sh.innerHTML = `<button class="win-close" title="Close" aria-label="Close"></button>` + html;
   const h = sh.querySelector("h2, .sheet-head b");
   if (h) sh.insertAdjacentHTML("afterbegin", `<span class="win-title">${esc(h.textContent.trim())}</span>`);
+  for (const b of sh.querySelectorAll(".sheet-head .icon-btn")) if ((b.id.endsWith("close") || b.title === "Close") && b.title !== "Back") b.classList.add("x-close");
+  sh.querySelector(".win-close").onclick = () => { const x = sh.querySelector(".sheet-head .x-close"); if (x) x.click(); else if (S.file) closeFile(); else { sh.hidden = true; $("#scrim").hidden = true; } };
   sh.hidden = false;
   $("#scrim").hidden = false;
 }
@@ -3307,6 +3310,7 @@ $("#sort-dir").onclick = () => { S.desc = !S.desc; localSet("desc", S.desc ? "1"
 $("#refresh").innerHTML = ICON.refresh;
 paintChrome();
 $("#activity-btn").onclick = () => toggleActivity();
+$("#pop-close").onclick = () => toggleActivity(false);
 document.addEventListener("click", (e) => { if (!$("#activity-pop").hidden && !e.target.closest("#activity-pop, #activity-btn")) toggleActivity(false); });
 $("#settings").onclick = () => openSettings();
 $("#update-pill").onclick = () => openSettings("updates");
