@@ -34,7 +34,8 @@ jobs:
         run: |
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
           grep -q "var version = \"$VERSION\"" cmd/lumpy/main.go || { echo "cmd/lumpy/main.go says a different version"; exit 1; }
-          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq '.[0].databaseId')
+          # Listed by commit alone: GitHub's status filter sometimes misses a run that is green.
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --json databaseId,conclusion --jq '[.[] | select(.conclusion == "success")][0].databaseId')
           test -n "$RUN_ID" || { echo "CI has not finished green for $GITHUB_SHA yet; wait for it, then run this again"; exit 1; }
           echo "Using CI run $RUN_ID"
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n Lumpy-macOS -D app
