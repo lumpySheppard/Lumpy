@@ -36,6 +36,10 @@ type Volume struct {
 	Capture bool
 	// Disk is the whole disk the volume lives on (disk4), for SMART.
 	Disk string
+	// LegacyID is the id Lumpy gave this volume before it could tell it
+	// by its partition (name and size); the library carries an entry
+	// under it over to ID.
+	LegacyID string `json:"-"`
 }
 
 // cameraDirs are the folders a camera puts at the root of a card.

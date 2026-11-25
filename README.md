@@ -194,6 +194,18 @@ island and every node back.
 
 ### Drive library
 
+A drive is known by its volume UUID (APFS, HFS+), so renaming it in
+the Finder changes nothing in Lumpy; the new name shows after the next
+look. A format with no volume UUID (exFAT, FAT32) is known by its
+partition's GUID instead, which also survives a rename, and a drive
+Lumpy once knew by its name and size is carried over to that the next
+time it is seen. Only a card on an MBR disk is still known by name
+and size; renaming one makes a new drive. Should a drive come back as
+a stranger anyway, its details offer **Renamed?** against any logged
+drive of the same size and format that is not plugged in: **Carry its
+log over** moves the old entry's files, checksums, projects and
+history to the new one.
+
 Every drive is a card with a picture of what it is (a hard drive, an
 SSD, a camera card or a RAID enclosure, from what macOS says about it;
 change it under **Details → Labels → Picture on the card**), its light on

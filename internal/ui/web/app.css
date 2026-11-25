@@ -182,6 +182,7 @@ details.notes pre { white-space: pre-wrap; font: 12px/1.5 inherit; color: var(--
 /* Space as thumbnails: a tile per item, the picture up top. */
 .sp-head .sp-mode { margin-left: auto; align-self: center; }
 .sp-row, .sp-tile { user-select: none; -webkit-user-select: none; }
+.adopt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0; line-height: 1.35; }
 .sp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .sp-tile { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
 .sp-tile:hover, .sp-tile.hot { border-color: var(--line-2); background: var(--bg-2); }

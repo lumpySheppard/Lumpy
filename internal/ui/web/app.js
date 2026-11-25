@@ -820,7 +820,8 @@ async function openDetail(id, refresh, focusLabels) {
         <div class="box"><dl class="kv">
           <dt>Name</dt><dd>${esc(d.name)}</dd>
           <dt>Path</dt><dd>${esc(d.mount || d.lastMount)} ${d.connected && native ? `<button class="btn small" id="reveal">${ICON.reveal}Show in Finder</button>` : ""}</dd>
-          <dt>Volume UUID</dt><dd class="mono">${esc(d.id)}</dd>
+          <dt>${d.id.startsWith("part:") ? "Partition GUID" : d.id.startsWith("name:") ? "Known by" : "Volume UUID"}</dt><dd class="mono">${esc(d.id.startsWith("name:") ? "its name and size (this format has no UUID; renaming it makes a new drive)" : d.id.replace(/^part:/, ""))}</dd>
+          ${(data.lookalikes || []).length ? `<dt>Renamed?</dt><dd>${data.lookalikes.map((x) => `<div class="adopt-row">If this is <b>${esc(x.title)}</b> under a new name (${x.files.toLocaleString()} files logged, ${x.hashed.toLocaleString()} checksummed, last seen ${when(x.lastSeen)}) <button class="btn small" data-adopt="${esc(x.id)}" data-adopt-title="${esc(x.title)}">Carry its log over</button></div>`).join("")}</dd>` : ""}
           <dt>Format</dt><dd>${esc(d.fstype || "—")}</dd>
           <dt>First seen</dt><dd>${when(d.firstSeen)}</dd>
           <dt>Last seen</dt><dd>${d.connected ? "Plugged in now" : when(d.lastSeen)}</dd>
@@ -950,6 +951,12 @@ function wireDetail(d) {
   act("#cancel-check", "cancel", "Queued check cancelled");
   const rv = $("#reveal");
   if (rv) rv.onclick = () => nativeCall("reveal", { path: d.mount });
+  for (const b of document.querySelectorAll("[data-adopt]")) b.onclick = async () => {
+    if (!confirm(`Carry ${b.dataset.adoptTitle}'s log over to ${d.title}? Its files, checksums, projects and history become this drive's, and the old entry goes. Only do this if it really is the same drive, renamed.`)) return;
+    b.disabled = true;
+    try { await api(`/api/drives/${encodeURIComponent(d.id)}/adopt`, { method: "POST", body: { from: b.dataset.adopt } }); toast(`${b.dataset.adoptTitle}'s log is now ${d.title}'s`); await loadState(); openDetail(d.id, true); }
+    catch (e) { toast(e.message, true); b.disabled = false; }
+  };
   const ej = $("#eject");
   if (ej) ej.onclick = () => { ej.disabled = true; ejectDrive(d.id); };
   const cc = $("#card-check"); if (cc) cc.onclick = () => openCard(d.id);

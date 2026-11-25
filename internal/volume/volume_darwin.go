@@ -80,10 +80,17 @@ func identifyWithDiskutil(mount string) (*Volume, error) {
 	} else {
 		v.Size = capacity(mount)
 	}
+	// The volume's UUID where the file system has one (APFS, HFS+); the
+	// partition's GUID where it does not (exFAT on a GPT disk), which
+	// survives a rename too; the name and size only for an MBR card.
+	legacy := "name:" + v.Name + ":" + itoa(v.Size)
 	if id := plistValue(p, "VolumeUUID"); id != "" {
 		v.ID = strings.ToUpper(id)
+	} else if pid := plistValue(p, "DiskUUID"); pid != "" {
+		v.ID = "part:" + strings.ToUpper(pid)
+		v.LegacyID = legacy
 	} else {
-		v.ID = "name:" + v.Name + ":" + itoa(v.Size)
+		v.ID = legacy
 	}
 	v.SolidState = plistBool(p, "SolidState")
 	v.Bus = plistValue(p, "BusProtocol")

@@ -229,6 +229,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	api("GET /api/state", s.state)
 	api("GET /api/drives/{id}", s.driveDetail)
+	api("POST /api/drives/{id}/adopt", s.adoptDrive)
 	api("PATCH /api/drives/{id}", s.setLabels)
 	api("DELETE /api/drives/{id}", s.forget)
 	api("GET /api/drives/{id}/list", s.list)
@@ -621,13 +622,80 @@ func (s *Server) driveDetail(w http.ResponseWriter, r *http.Request) (any, error
 		hist = []smart.Reading{}
 	}
 	return map[string]any{
-		"drive":    s.view(d, s.extras(ds)[d.ID]),
-		"folders":  folders,
-		"events":   evs,
-		"backups":  backups,
-		"projects": memberships[d.ID],
-		"health":   hist,
+		"drive":      s.view(d, s.extras(ds)[d.ID]),
+		"folders":    folders,
+		"events":     evs,
+		"backups":    backups,
+		"projects":   memberships[d.ID],
+		"health":     hist,
+		"lookalikes": s.lookalikes(d, ds),
 	}, nil
+}
+
+// A lookalike is a logged drive not plugged in that is this drive's
+// size and format, offered while this drive has no checksums of its
+// own yet: the same drive under an earlier name, as often as not.
+type lookalike struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	LastSeen int64  `json:"lastSeen"`
+	Files    int    `json:"files"`
+	Hashed   int    `json:"hashed"`
+}
+
+func (s *Server) lookalikes(d *catalog.Drive, ds []*catalog.Drive) []lookalike {
+	out := []lookalike{}
+	if s.mountOf(d.ID) == nil || d.Size == 0 || d.Hashed > 0 {
+		return out
+	}
+	for _, o := range ds {
+		if o.ID == d.ID || s.mountOf(o.ID) != nil || o.Hashed == 0 {
+			continue
+		}
+		if o.FSType != "" && d.FSType != "" && !strings.EqualFold(o.FSType, d.FSType) {
+			continue
+		}
+		diff := o.Size - d.Size
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff*50 > d.Size { // within 2%
+			continue
+		}
+		out = append(out, lookalike{ID: o.ID, Title: o.Title(), LastSeen: o.LastSeen.Unix(), Files: o.Files, Hashed: o.Hashed})
+	}
+	return out
+}
+
+// adoptDrive is POST /api/drives/{id}/adopt {from}: this plugged-in
+// drive is that logged drive under a new name; its log comes over.
+func (s *Server) adoptDrive(w http.ResponseWriter, r *http.Request) (any, error) {
+	d, err := s.drive(r)
+	if err != nil {
+		return nil, err
+	}
+	var body struct {
+		From string `json:"from"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, badRequest("bad request: %v", err)
+	}
+	if body.From == d.ID {
+		return nil, badRequest("that is this drive")
+	}
+	if s.mountOf(body.From) != nil {
+		return nil, badRequest("that drive is plugged in too, so it is not this one")
+	}
+	old, err := s.db.Drive(body.From)
+	if err != nil {
+		return nil, httpError{http.StatusNotFound, "no such drive"}
+	}
+	if err := s.db.Rekey(old.ID, d.ID); err != nil {
+		return nil, err
+	}
+	s.db.Log(d.ID, "rename", fmt.Sprintf("Was %s; its log carried over", old.Title()), 0)
+	s.invalidate()
+	return map[string]any{"ok": true}, nil
 }
 
 // eject unmounts a plugged-in drive so it can be unplugged, unless a

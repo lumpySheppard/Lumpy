@@ -376,6 +376,13 @@ func scanDrive(row interface{ Scan(...any) error }) (*Drive, error) {
 // SaveDrive records that v is mounted now, adding it to the library if new
 // and updating its name and mount point if they changed.
 func (db *DB) SaveDrive(v *volume.Volume) error {
+	// A drive Lumpy used to know by name and size, now told by its
+	// partition, keeps its log under the new id.
+	if v.LegacyID != "" && v.LegacyID != v.ID && db.HasDrive(v.LegacyID) && !db.HasDrive(v.ID) {
+		if err := db.Rekey(v.LegacyID, v.ID); err != nil {
+			return err
+		}
+	}
 	now := time.Now().Unix()
 	_, err := db.sql.Exec(`INSERT INTO drives (id, name, size, free, fstype, first_seen, last_seen, last_mount, solid_state, bus)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
