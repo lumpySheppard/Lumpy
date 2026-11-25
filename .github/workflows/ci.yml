@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push on the same branch cancels the runs still queued for the
+# older ones: GitHub's macOS runners queue for a long time, and only the
+# latest build is wanted.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  # One macOS job does everything that needs a Mac: the tests on macOS,
+  # Lumpy.app, the bare binary, and the smoke test of the engine. One
+  # job instead of three means one place in the macOS runner queue.
+  app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race ./...
+      - name: Build Lumpy.app
+        run: macos/build-app.sh
+      - name: Check the bundle
+        run: |
+          codesign --verify --verbose dist/Lumpy.app
+          dist/Lumpy.app/Contents/Resources/lumpy version
+          plutil -lint dist/Lumpy.app/Contents/Info.plist
+      - name: Smoke-test the engine the app starts
+        run: |
+          export LUMPY_HOME="$RUNNER_TEMP/lumpy-home"
+          (sleep 5; echo) | dist/Lumpy.app/Contents/Resources/lumpy ui --app > ui.out &
+          sleep 2
+          URL=$(sed -n 's/^LUMPY_URL //p' ui.out)
+          test -n "$URL"
+          BASE=${URL%%/#*}; TOKEN=${URL##*#t=}
+          curl -fsS "$BASE/" | grep -q '<title>Lumpy</title>'
+          curl -fsS -H "X-Lumpy-Token: $TOKEN" "$BASE/api/state" | grep -q '"drives"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/state")" = 403
+      - run: ditto -c -k --keepParent dist/Lumpy.app Lumpy-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lumpy-macOS
+          path: Lumpy-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lumpy-macos-universal
+          path: dist/Lumpy.app/Contents/Resources/lumpy

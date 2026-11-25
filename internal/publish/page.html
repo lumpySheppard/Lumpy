@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{.Title}}</title>
+<style>
+:root { color-scheme: dark; --bg: #000; --panel: #0d0d10; --line: rgba(255,255,255,.1); --line-2: rgba(255,255,255,.18); --text: #ededf0; --text-2: #b8b8c0; --muted: #80808a; --accent: #b36cff; --ok: #3ddc84; --warn: #ffcc4d; --bad: #ff5c5c; --mono: ui-monospace, "SF Mono", Menlo, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }
+header h1 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+header h1 i { width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg, var(--accent), #6d28d9); display: inline-block; }
+header .when { color: var(--muted); font-size: 13px; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); margin: 28px 0 10px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+.card h3 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.card .sub { color: var(--muted); font-size: 12.5px; word-break: break-word; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; flex: none; }
+.dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.bar .track { flex: 1; height: 7px; background: var(--line-2); border-radius: 99px; overflow: hidden; display: flex; }
+.bar .track i { display: block; height: 100%; }
+.bar .full { background: var(--ok); } .bar .partial { background: var(--warn); }
+.bar .unknown { background: repeating-linear-gradient(90deg, #4a4a52 0 4px, #333339 4px 8px); }
+.bar .likely { background: repeating-linear-gradient(90deg, #d9ad3f 0 4px, #7a6224 4px 8px); }
+.bar .lbl { font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.bar.s-full .lbl { color: var(--ok); font-weight: 600; } .bar.s-partial .lbl, .bar.s-likely .lbl { color: var(--warn); }
+.bar.s-none .lbl { color: var(--bad); font-weight: 600; } .bar.s-unknown .lbl, .bar.s-empty .lbl { color: var(--muted); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin-top: 10px; font-size: 13px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-word; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 550; padding: 2px 8px; border-radius: 99px; background: var(--line); color: var(--text-2); white-space: nowrap; }
+.badge.ok { background: rgba(61,220,132,.14); color: var(--ok); } .badge.warn { background: rgba(255,204,77,.14); color: var(--warn); }
+.badge.bad { background: rgba(255,92,92,.16); color: var(--bad); } .badge.live { background: rgba(61,220,132,.14); color: var(--ok); }
+.steps { margin: 10px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--text-2); }
+.steps li { padding: 6px 0; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.steps b { color: var(--text); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.name > span:not(.dot) { white-space: nowrap; }
+#drives td:first-child { min-width: 200px; }
+.name small { color: var(--muted); font-weight: 400; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.search { display: flex; gap: 8px; margin: 6px 0 12px; }
+.search input { flex: 1; background: var(--panel); border: 1px solid var(--line-2); border-radius: 9px; padding: 9px 12px; color: var(--text); font: inherit; outline: none; }
+.search input:focus { border-color: var(--accent); }
+.hint { color: var(--muted); font-size: 12.5px; }
+.empty { color: var(--muted); padding: 20px 0; }
+.wrap { overflow-x: auto; }
+footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+@media (max-width: 640px) { main { padding: 16px 14px 40px; } td, th { padding: 6px; } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1><i></i><span id="title">{{.Title}}</span></h1><span class="when" id="when">Updated {{.Generated}}</span></header>
+
+  <h2>Find a file</h2>
+  <div class="search"><input id="q" type="search" placeholder="Type part of a file or folder name…" autocomplete="off"></div>
+  <div id="hits" class="hint"></div>
+
+  <h2>Projects</h2>
+  <div class="cards" id="projects"></div>
+
+  <h2>Drives</h2>
+  <div class="wrap"><table id="drives"><thead><tr><th>Drive</th><th>Where</th><th>Client · project</th><th class="num">Free</th><th class="num">Files</th><th>Backup</th><th>Last check</th><th>Contact</th></tr></thead><tbody></tbody></table></div>
+
+  <footer id="foot"></footer>
+</main>
+<script id="data" type="application/json">{{.Data}}</script>
+<script>
+const D = JSON.parse(document.getElementById("data").textContent);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const $ = (s) => document.querySelector(s);
+function bytes(n) { if (!n) return "0 B"; const u = ["B", "KB", "MB", "GB", "TB", "PB"]; let i = 0; while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; } return (i < 2 ? Math.round(n) : n.toFixed(n < 10 ? 2 : 1)) + " " + u[i]; }
+function when(t) { if (!t || t.startsWith("0001")) return "—"; const d = new Date(t); return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) + " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); }
+const LABEL = { full: "Verified backup", likely: "Probably backed up · unproven", none: "No backup", unknown: "No checksums yet", empty: "Empty" };
+const COLORS = { purple: "#a855f7", blue: "#3b82f6", green: "#34c759", yellow: "#f5b400", orange: "#f08a24", red: "#ff453a", pink: "#ec4899", teal: "#14b8a6", gray: "#8e8e93" };
+function bar(backed, total, unknown, state, likely = 0) {
+  const t = total || 1;
+  const label = state === "partial" ? `${bytes(backed)} of ${bytes(total)} backed up${likely ? ` · ${bytes(likely)} probably` : ""}${unknown ? ` · ${bytes(unknown)} unproven` : ""}` : LABEL[state];
+  return `<div class="bar s-${state}"><div class="track">${backed > 0 ? `<i class="${state === "full" ? "full" : "partial"}" style="width:${(backed / t * 100).toFixed(2)}%"></i>` : ""}${likely > 0 ? `<i class="likely" style="width:${(likely / t * 100).toFixed(2)}%"></i>` : ""}${unknown > 0 ? `<i class="unknown" style="width:${(unknown / t * 100).toFixed(2)}%"></i>` : ""}</div><span class="lbl">${esc(label)}</span></div>`;
+}
+const generated = new Date(D.generated);
+$("#when").textContent = `Updated ${when(D.generated)} from ${D.host}`;
+document.title = D.title;
+
+$("#projects").innerHTML = D.projects.length ? D.projects.map((p) => {
+  const h = p.health, bad = h.soleBytes + h.shortBytes;
+  const likely = h.likelyBytes || 0;
+  const state = !h.bytes ? "empty" : h.backedBytes >= h.bytes ? "full" : likely && h.backedBytes + likely >= h.bytes ? "likely" : h.unknownBytes >= h.bytes ? "unknown" : h.backedBytes <= 0 && !likely ? "none" : "partial";
+  return `<div class="card"><h3><span class="dot" style="background:${COLORS[p.color] || "var(--accent)"}"></span>${esc(p.name)} <span class="hint" style="font-weight:400">${p.target} copies wanted</span></h3>
+    ${bar(h.backedBytes, h.bytes, h.unknownBytes, state, likely)}
+    <dl class="kv"><dt>Backed up</dt><dd>${h.bytes ? Math.round(h.backedBytes / h.bytes * 100) : 0}% · ${h.backed.toLocaleString()} files</dd>
+      ${h.soleBytes ? `<dt>Sole copies</dt><dd style="color:var(--bad)">${bytes(h.soleBytes)} · ${h.sole.toLocaleString()} files</dd>` : ""}
+      ${h.unknownBytes ? `<dt>No checksum</dt><dd>${bytes(h.unknownBytes)} · ${h.unknown.toLocaleString()} files</dd>` : ""}
+      ${h.damaged ? `<dt>Damaged</dt><dd style="color:var(--bad)">${h.damaged} copies${h.lost ? `, ${h.lost} with no good copy left` : ""}</dd>` : ""}
+      <dt>Folders</dt><dd>${p.sources.map((s) => `<span class="dot ${s.connected ? "on" : ""}"></span> ${esc(s.drive)}${s.folder ? ` › <span class="mono">${esc(s.folder)}</span>` : ""}`).join("<br>") || "—"}</dd></dl>
+    ${p.steps.length || p.unplaced ? `<ul class="steps">${p.steps.map((s) => `<li>Copy <b>${bytes(s.bytes)}</b> (${s.files.toLocaleString()} files) from <b>${esc(s.from)}</b> to <b>${esc(s.to)}</b> ${s.ready ? '<span class="badge ok">both plugged in</span>' : '<span class="badge">plug both in</span>'}</li>`).join("")}${p.unplaced ? `<li><span class="badge bad">no room</span> ${bytes(p.unplaced)} has nowhere to go</li>` : ""}</ul>` : h.bytes && state === "full" ? `<ul class="steps"><li><span class="badge ok">Nothing to do</span> every file is on ${p.target} drives</li></ul>` : ""}
+  </div>`;
+}).join("") : `<div class="empty">No projects yet.</div>`;
+
+$("#drives tbody").innerHTML = D.drives.map((d) => `<tr><td><div class="name"><span class="dot ${d.connected ? "on" : ""}"></span>${esc(d.title)}${d.title !== d.name ? ` <small>${esc(d.name)}</small>` : ""}</div>${d.folders && d.folders.length ? `<div class="hint mono" style="margin-top:3px">${esc(d.folders.join(" · "))}</div>` : ""}</td>
+  <td>${d.connected ? `<span class="badge live">Plugged in to ${esc(D.host)}</span>` : `Last seen ${when(d.lastSeen)}`}</td>
+  <td>${esc([d.client, d.project].filter(Boolean).join(" · "))}${d.projects && d.projects.length ? `<div class="hint">in ${esc(d.projects.join(", "))}</div>` : ""}</td>
+  <td class="num">${bytes(d.free)}<div class="hint">of ${bytes(d.size)}</div></td><td class="num">${d.files.toLocaleString()}<div class="hint">${bytes(d.bytes)}</div></td>
+  <td style="min-width:200px">${bar(d.backedBytes, d.bytes, d.unknownBytes, d.backup, d.likelyBytes || 0)}${d.damaged ? `<div class="badge bad" style="margin-top:4px">${d.damaged} damaged</div>` : ""}</td>
+  <td>${d.lastCheck && !d.lastCheck.startsWith("0001") ? `<span class="badge ${d.lastCheckOk ? "ok" : "bad"}">${d.lastCheckOk ? "OK" : "Failed"}</span> <span class="hint">${when(d.lastCheck)}</span>` : '<span class="hint">Never</span>'}${d.checkQueued ? '<div class="hint">check queued</div>' : ""}</td>
+  <td class="hint">${esc(d.contact)}</td></tr>`).join("") || `<tr><td colspan="8" class="empty">No drives logged yet.</td></tr>`;
+
+const files = D.files || [];
+const hits = $("#hits");
+hits.textContent = files.length ? `${D.fileCount.toLocaleString()} files on ${D.drives.length} drives. Search to see which drives hold one.` : D.fileCount ? "The file index isn't included in this page." : "No files logged yet.";
+$("#q").oninput = (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  if (!q) { hits.textContent = files.length ? `${D.fileCount.toLocaleString()} files on ${D.drives.length} drives.` : ""; return; }
+  if (!files.length) return;
+  const out = [];
+  for (const f of files) { if (f[1].toLowerCase().includes(q)) { out.push(f); if (out.length >= 200) break; } }
+  hits.innerHTML = out.length ? `<div class="wrap"><table><thead><tr><th>File</th><th>Drive</th><th class="num">Size</th><th>Copies elsewhere</th></tr></thead><tbody>${out.map((f) => { const d = D.drives[f[0]]; return `<tr><td class="mono">${esc(f[1])}</td><td><div class="name"><span class="dot ${d.connected ? "on" : ""}"></span>${esc(d.title)}</div></td><td class="num">${bytes(f[2])}</td><td>${f[3] < 0 ? '<span class="hint">no checksum</span>' : f[3] === 0 ? '<span class="badge bad">none</span>' : `<span class="badge ok">${f[3]}</span>`}</td></tr>`; }).join("")}</tbody></table>${out.length >= 200 ? '<p class="hint">First 200 matches.</p>' : ""}</div>` : `<span class="hint">Nothing matches “${esc(q)}”.</span>`;
+};
+$("#foot").textContent = `Published by Lumpy ${D.version} on ${D.host}. Figures are from the drive library on that Mac; drives not plugged in are as last seen.`;
+</script>
+</body>
+</html>
