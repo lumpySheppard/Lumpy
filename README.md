@@ -602,6 +602,24 @@ video with the same name, with or without a `_proxy`, `_prx`, `S03` or
 `_1` suffix, is anywhere in the Offline folder; RED clips count once,
 not per chunk.
 
+**Make proxies via Resolve** renders the ones that are missing. Lumpy
+cannot decode RAW itself (Canon RAW, BRAW, R3D and ARRIRAW each need
+the maker's own SDK), but DaVinci Resolve decodes them all and its
+scripting API renders, so Lumpy uses Resolve as the transcoder: it
+makes a throwaway project in Resolve, imports each original, gives it
+a timeline at its own size and frame rate, renders **ProRes 422
+Proxy** at half size (or quarter, or full) named like the original
+into the Offline folder, and deletes the project when the job is
+done. Resolve is opened if it is not running; its external scripting
+must be set to Local (Preferences › System › General), and python3
+must be on the Mac (Xcode's command line tools). The same render is a
+tick box on the Offload page and in a project's card rules: the
+proxies are made once the card has verified, into the Offline folder
+beside the destination's Online folder (`Online/2026-11-25/A001`
+becomes `Offline/2026-11-25/A001`), or a Proxies folder beside the
+copy where there is no Online folder; the next card's offload is not
+kept waiting by the render. Activity shows each clip as it renders.
+
 ### Archive: what the edit didn't use
 
 When the cut is locked, open the project and, under **Archive**, choose

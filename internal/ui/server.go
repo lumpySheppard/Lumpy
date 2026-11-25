@@ -243,6 +243,7 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/drives/{id}/stream", s.streamFile)
 	api("GET /api/drives/{id}/thumb", s.thumb)
 	api("GET /api/drives/{id}/proxies", s.driveProxies)
+	api("POST /api/proxies", s.makeProxies)
 	api("POST /api/drives/{id}/still", s.grabStill)
 	api("GET /api/drives/{id}/stills", s.clipStills)
 	api("GET /api/stills/{id}/file", s.stillFile)
@@ -904,10 +905,11 @@ func (s *Server) browse(w http.ResponseWriter, r *http.Request) (any, error) {
 
 func (s *Server) offload(w http.ResponseWriter, r *http.Request) (any, error) {
 	var body struct {
-		Source      string   `json:"source"`
-		Dests       []string `json:"dests"`
-		Name        string   `json:"name"`
-		SourceCheck *bool    `json:"sourceCheck"` // default true
+		Source      string     `json:"source"`
+		Dests       []string   `json:"dests"`
+		Name        string     `json:"name"`
+		SourceCheck *bool      `json:"sourceCheck"` // default true
+		Proxies     *proxyWant `json:"proxies"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, badRequest("bad request: %v", err)
@@ -917,6 +919,12 @@ func (s *Server) offload(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	skip := body.SourceCheck != nil && !*body.SourceCheck
 	j := s.startOffload(body.Source, body.Dests, body.Name, skip)
+	if body.Proxies != nil && body.Proxies.On {
+		j.mu.Lock()
+		j.Params["proxies"] = body.Proxies
+		j.mu.Unlock()
+		s.proxiesAfterOffload(j, body.Source, body.Dests[0], body.Name, body.Proxies.Scale)
+	}
 	return map[string]any{"job": j.ID}, nil
 }
 

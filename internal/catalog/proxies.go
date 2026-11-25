@@ -62,6 +62,11 @@ func clipStem(name string) string {
 func isOnline(base string) bool  { return onlineRe.MatchString(base) }
 func isOffline(base string) bool { return offlineRe.MatchString(base) }
 
+// IsOnline and IsOffline say whether a folder name is an Online
+// (camera originals) or Offline (proxies) folder.
+func IsOnline(base string) bool  { return isOnline(base) }
+func IsOffline(base string) bool { return isOffline(base) }
+
 // ProxyPairs finds Online/Offline folder pairs on a drive, under folder
 // ("" for the whole drive).
 func (db *DB) ProxyPairs(driveID, folder string) ([]ProxyPair, error) {
@@ -102,18 +107,22 @@ func proxyPairsFrom(files []File, folder string) []ProxyPair {
 			d = path.Dir(d)
 		}
 	}
+	// An Online folder with no Offline beside it yet (a fresh project,
+	// or an Offline folder still empty) is a pair with no proxies.
 	var pairs []ProxyPair
 	for d := range dirs {
 		if !isOnline(path.Base(d)) {
 			continue
 		}
 		parent := path.Dir(d)
+		pair := ProxyPair{Online: d}
 		for o := range dirs {
 			if path.Dir(o) == parent && o != d && isOffline(path.Base(o)) {
-				pairs = append(pairs, ProxyPair{Online: d, Offline: o})
+				pair.Offline = o
 				break
 			}
 		}
+		pairs = append(pairs, pair)
 	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i].Online < pairs[j].Online })
 	return pairs
@@ -133,6 +142,9 @@ func (db *DB) Proxies(driveID string, pair ProxyPair) (*ProxyReport, error) {
 func proxiesFrom(files []File, pair ProxyPair) *ProxyReport {
 	rep := &ProxyReport{ProxyPair: pair, Clips: []ProxyClip{}}
 	on, off := pair.Online+"/", pair.Offline+"/"
+	if pair.Offline == "" {
+		off = "\x00" // no Offline folder yet: nothing matches
+	}
 	// Proxies by stem, exact and with the suffix stripped.
 	proxies := map[string]string{}
 	stripped := map[string]string{}

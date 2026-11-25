@@ -76,6 +76,10 @@ type CardRules struct {
 	Auto  bool       `json:"auto"`  // offload without asking
 	Match string     `json:"match"` // card name pattern; "" is every card
 	Dests []CardDest `json:"dests"`
+	// Proxies has DaVinci Resolve render ProRes 422 Proxy proxies of
+	// the card once it has verified, at ProxyScale (half, quarter, full).
+	Proxies    bool   `json:"proxies,omitempty"`
+	ProxyScale string `json:"proxyScale,omitempty"`
 }
 
 // CardDest is one place a card is offloaded to: a drive and a folder

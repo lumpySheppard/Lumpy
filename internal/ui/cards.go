@@ -74,7 +74,10 @@ func (s *Server) watchCards() {
 			o := s.makeOffer(v, p)
 			if o.Auto && len(o.Missing) == 0 && len(o.Dests) > 0 {
 				makeDests(o.Dests)
-				s.startOffload(o.Mount, o.Dests, "", false)
+				j := s.startOffload(o.Mount, o.Dests, "", false)
+				if p.Cards.Proxies {
+					s.proxiesAfterOffload(j, o.Mount, o.Dests[0], "", p.Cards.ProxyScale)
+				}
 				agent.Notify("Offloading "+v.Name, fmt.Sprintf("To %s, as %s's card rule says.", strings.Join(destNames(o.Dests), " and "), p.Name))
 				continue
 			}
@@ -191,6 +194,9 @@ func (s *Server) offerGo(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	makeDests(o.Dests)
 	j := s.startOffload(o.Mount, o.Dests, "", false)
+	if p, err := s.db.Project(o.ProjectID); err == nil && p.Cards != nil && p.Cards.Proxies {
+		s.proxiesAfterOffload(j, o.Mount, o.Dests[0], "", p.Cards.ProxyScale)
+	}
 	return map[string]any{"job": j.ID}, nil
 }
 

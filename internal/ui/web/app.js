@@ -141,7 +141,7 @@ const S = {
   projects: null, // the list with health, fetched on the Projects tab
   selecting: false,
   selected: new Set(),
-  offload: { source: "", dests: [""], name: "", sourceCheck: true },
+  offload: { source: "", dests: [""], name: "", sourceCheck: true, proxies: localGet("offload.proxies", "0") === "1", proxyScale: localGet("offload.proxyScale", "half") },
   media: { project: "", drive: "", kind: "", format: "", codec: "", rate: "", qc: "", q: "" },
   mediaSort: localGet("mediaSort", "name"),
   mediaDesc: localGet("mediaDesc", "0") === "1",
@@ -1285,6 +1285,7 @@ function cardsSection(p) {
     <div class="field" style="margin-top:8px"><label>Which cards <span class="hint">· a name pattern, comma-separated, or blank for every card</span></label><input class="path-input" id="cd-match" value="${esc(c.match || "")}" placeholder="A*, B*"></div>
     <div class="field" style="margin-top:8px"><label>Offload to</label>${(c.dests || []).map(row).join("")}<button class="btn small" id="cd-add" style="margin-top:4px">${ICON.plus}Another destination</button></div>
     <label class="switch row" style="margin-top:8px"><span>Offload without asking<small>When every destination drive is plugged in; otherwise Lumpy asks.</small></span><input type="checkbox" id="cd-auto" ${c.auto ? "checked" : ""}></label>
+    <label class="switch row" style="margin-top:8px"><span>Make proxies with DaVinci Resolve once verified<small>ProRes 422 Proxy into the Offline folder beside the destination's Online folder. Resolve is opened if need be; its project is deleted after.</small></span><span style="display:flex;gap:8px;align-items:center"><label class="select"><select class="plain" id="cd-scale">${[["half", "Half size"], ["quarter", "Quarter size"], ["full", "Full size"]].map(([v, l]) => `<option value="${v}" ${c.proxyScale || "half" === v ? "selected" : ""}>${l}</option>`).join("")}</select></label><input type="checkbox" id="cd-proxies" ${c.proxies ? "checked" : ""}></span></label>
     <div class="go-row" style="margin-top:10px"><button class="btn primary" id="cd-save">Save card rules</button><span class="note">${c.watch && (c.dests || []).length ? `Watching for ${c.match ? esc(c.match) : "any card"} → ${(c.dests || []).map((d) => driveTitle(d.driveId) + "/" + d.folder).join(", ")}` : "Not watching"}</span></div>
   </section>`;
 }
@@ -1293,6 +1294,7 @@ function wireCards(p) {
   if (!c.dests) c.dests = [];
   const read = () => {
     c.watch = $("#cd-watch").checked; c.auto = $("#cd-auto").checked; c.match = $("#cd-match").value.trim();
+    c.proxies = $("#cd-proxies").checked; c.proxyScale = $("#cd-scale").value;
     c.dests = [...document.querySelectorAll(".card-dest")].map((r) => ({ driveId: r.querySelector("[data-cd-drive]").value, folder: r.querySelector("[data-cd-folder]").value.trim() }));
   };
   const redraw = () => { p.cards = c; const sec = document.querySelector(".panel.cards"); sec.outerHTML = cardsSection(p); wireCards(p); };
@@ -1519,19 +1521,42 @@ function proxyPairCard(x, i) {
   const d = driveOf(x.driveId);
   const done = x.total > 0 && !missing;
   return `<div class="step-card" style="margin-bottom:10px">
-    <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span><b>${esc(driveTitle(x.driveId))}</b><span class="px-path" title="${esc(x.online)}">${esc(x.online)}</span>
-      <div class="right">${done ? `<span class="badge ok">${ICON.check}All proxied</span>` : x.total ? `<button class="btn small" data-copy-missing="${i}" title="Copy the names of the originals without a proxy, to hand to whoever makes them">${ICON.copy}Copy list</button>` : ""}</div></div>
+    <div class="step-head"><span class="dot ${d && d.connected ? "live" : ""}" style="background:${d && d.connected ? "var(--ok)" : "var(--muted)"}"></span><b>${esc(driveTitle(x.driveId))}</b><span class="px-path" title="${esc(x.online)}${x.offline ? " → " + esc(x.offline) : " · no Offline folder yet"}">${esc(x.online)}${x.offline ? "" : ` <span class="hint">· no Offline folder yet</span>`}</span>
+      <div class="right">${done ? `<span class="badge ok">${ICON.check}All proxied</span>` : x.total ? `${d && d.connected ? `<button class="btn small primary" data-make-proxies="${i}" title="Have DaVinci Resolve render ProRes 422 Proxy proxies of the originals that have none, into the Offline folder">${ICON.film}Make ${missing.toLocaleString()} prox${missing === 1 ? "y" : "ies"} via Resolve…</button>` : ""}<button class="btn small" data-copy-missing="${i}" title="Copy the names of the originals without a proxy, to hand to whoever makes them">${ICON.copy}Copy list</button>` : ""}</div></div>
     <div class="bbar ${done ? "s-full" : "s-partial"}"><div class="track">${x.proxied ? `<i class="${done ? "fill-full" : "fill-prog"}" style="width:${pct.toFixed(2)}%"></i>` : ""}</div><span class="lbl">${done ? ICON.check : ""}${x.total ? `${x.proxied.toLocaleString()} of ${x.total.toLocaleString()} originals have a proxy` : "No video in the Online folder"}</span></div>
     <div class="cap">${missing ? `<span style="color:var(--warn)">${missing.toLocaleString()} still to make · ${bytes(x.missingBytes)}</span>` : ""}${x.extra ? `<span class="sep">•</span><span class="hint">${x.extra.toLocaleString()} prox${x.extra === 1 ? "y" : "ies"} with no original</span>` : ""}<span class="sep">•</span><span class="hint">Offline: <span class="mono">${esc(x.offline)}</span></span></div>
     ${missing ? `<details class="notes"><summary>${missing.toLocaleString()} without a proxy${x.truncated ? ` (first ${x.missing.length} shown)` : ""}</summary><div class="chips" style="margin-top:6px">${x.missing.map((c) => `<span class="chip" title="${esc(c.path)}">${esc(c.name)}<small>${bytes(c.bytes)}${c.files > 1 ? ` · ${c.files} parts` : ""}</small></span>`).join("")}</div></details>` : ""}
   </div>`;
 }
 function wireProxies(pairs) {
+  for (const el of document.querySelectorAll("[data-make-proxies]")) el.onclick = () => makeProxiesDialog(pairs[+el.dataset.makeProxies]);
   for (const el of document.querySelectorAll("[data-copy-missing]")) el.onclick = async () => {
     const x = pairs[+el.dataset.copyMissing];
     const text = x.missing.map((c) => c.name).join("\n") + "\n";
     try { await navigator.clipboard.writeText(text); toast(`Copied ${x.missing.length} clip name${x.missing.length === 1 ? "" : "s"}`); }
     catch { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); toast(`Copied ${x.missing.length} clip name${x.missing.length === 1 ? "" : "s"}`); }
+  };
+}
+// makeProxiesDialog asks the size and hands the Online folder's
+// unproxied originals to Resolve as a job.
+function makeProxiesDialog(x) {
+  const missing = x.total - x.proxied;
+  const offline = x.offline || (x.online.split("/").slice(0, -1).join("/") + "/Offline");
+  openSheet(`<div class="sheet-head"><h2>Make ${missing.toLocaleString()} prox${missing === 1 ? "y" : "ies"} via DaVinci Resolve</h2><div class="actions"><button class="icon-btn" id="mp-close">${ICON.x}</button></div></div>
+    <div class="sheet-body" style="padding-top:12px">
+      <p class="hint">Resolve decodes the camera's RAW where Lumpy can't. Lumpy makes a throwaway project in it, renders each original as <b>ProRes 422 Proxy</b> named like the original into <code>${esc(driveTitle(x.driveId))}/${esc(offline)}</code>, and deletes the project when it is done. Resolve is opened if it isn't running; its external scripting must be set to Local (Preferences › System › General).</p>
+      <div class="field"><label>Size</label><label class="select"><select class="plain" id="mp-scale">${[["half", "Half size"], ["quarter", "Quarter size"], ["full", "Full size"]].map(([v, l]) => `<option value="${v}" ${localGet("offload.proxyScale", "half") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+    </div>
+    <div class="sheet-foot"><button class="btn" id="mp-cancel">Cancel</button><button class="btn primary" id="mp-go">${ICON.film}Render ${missing.toLocaleString()} via Resolve</button></div>`, true);
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  $("#mp-close").onclick = $("#mp-cancel").onclick = close;
+  $("#mp-go").onclick = async () => {
+    $("#mp-go").disabled = true;
+    try {
+      const r = await api("/api/proxies", { method: "POST", body: { driveId: x.driveId, online: x.online, scale: $("#mp-scale").value } });
+      localSet("offload.proxyScale", $("#mp-scale").value);
+      close(); toast(`Rendering ${r.count} prox${r.count === 1 ? "y" : "ies"} via Resolve; see Activity`); loadJobs();
+    } catch (e) { toast(e.message, true); $("#mp-go").disabled = false; }
   };
 }
 // loadProxies fills the drive sheet's Proxies section, if the drive has
@@ -1885,6 +1910,7 @@ function renderOffload() {
         <div class="chips">${chips("dest")}</div></div></div>
       <div class="step"><span class="step-n">3</span><div><h3>Folder name in each destination</h3>
         <div class="path-row"><input class="path-input" id="oname" value="${esc(o.name)}" placeholder="${esc(name || "Same as the source")}"></div>
+        <label class="check-row"><input type="checkbox" id="off-proxies" ${o.proxies ? "checked" : ""}><span>Make proxies with DaVinci Resolve once verified<span class="note">ProRes 422 Proxy, named like the originals, into the Offline folder beside the destination's Online folder (or a Proxies folder beside the copy). Resolve is opened if it isn't running; the project it uses is deleted after.</span></span><label class="select" style="margin-left:8px"><select class="plain" id="off-scale">${[["half", "Half size"], ["quarter", "Quarter size"], ["full", "Full size"]].map(([v, l]) => `<option value="${v}" ${o.proxyScale === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></label>
         <label class="check-row"><input type="checkbox" id="source-check" ${o.sourceCheck ? "checked" : ""}><span>Read the card a second time while verifying<span class="note">Catches a faulty card or reader. Recommended; it runs alongside the copy checks.</span></span></label>
         <div class="go-row"><button class="btn primary" id="start-offload">${ICON.copy}Start offload</button>
           <span class="note" id="offload-note">${o.source && o.dests.some(Boolean) ? `Copies to ${o.dests.filter(Boolean).map((d) => esc(d.replace(/\/+$/, "") + "/" + (name || ""))).join(", ")}` : ""}</span></div></div></div>
@@ -1906,6 +1932,8 @@ function wireOffload() {
   $("#src").onchange = (e) => { o.source = e.target.value.trim(); rerender(); };
   $("#oname").onchange = (e) => { o.name = e.target.value.trim(); rerender(); };
   $("#source-check").onchange = (e) => { o.sourceCheck = e.target.checked; };
+  $("#off-proxies").onchange = (e) => { o.proxies = e.target.checked; localSet("offload.proxies", o.proxies ? "1" : "0"); };
+  $("#off-scale").onchange = (e) => { o.proxyScale = e.target.value; localSet("offload.proxyScale", o.proxyScale); };
   for (const el of document.querySelectorAll("[data-dest]")) el.onchange = () => { o.dests[+el.dataset.dest] = el.value.trim(); rerender(); };
   for (const el of document.querySelectorAll("[data-rmdest]")) el.onclick = () => { o.dests.splice(+el.dataset.rmdest, 1); rerender(); };
   $("#add-dest").onclick = () => { o.dests.push(""); rerender(); };
@@ -1930,7 +1958,7 @@ function wireOffload() {
     const dests = o.dests.filter(Boolean);
     if (!o.source || !dests.length) return toast("Choose a source and at least one destination", true);
     try {
-      await api("/api/offload", { method: "POST", body: { source: o.source, dests, name: o.name, sourceCheck: o.sourceCheck } });
+      await api("/api/offload", { method: "POST", body: { source: o.source, dests, name: o.name, sourceCheck: o.sourceCheck, proxies: { on: !!o.proxies, scale: o.proxyScale } } });
       toast("Offload started");
       o.name = "";
       await loadJobs();
@@ -2035,7 +2063,7 @@ function updateJob(el, j) {
     else if (b) b.onclick = () => {
       // Same source, same destinations: a disconnected card or a
       // cancelled run is picked up where it stopped.
-      S.offload = { source: j.params.source || "", dests: (j.params.dests || []).slice(), name: j.params.name || "", sourceCheck: j.params.sourceCheck !== false };
+      S.offload = { source: j.params.source || "", dests: (j.params.dests || []).slice(), name: j.params.name || "", sourceCheck: j.params.sourceCheck !== false, proxies: !!(j.params.proxies && j.params.proxies.on), proxyScale: (j.params.proxies && j.params.proxies.scale) || localGet("offload.proxyScale", "half") };
       toggleActivity(false);
       S.tab = "offload"; S.project = null; localSet("tab", S.tab); render();
       toast("Offload form filled in from that job. Check it and press Start offload.");
