@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # By hand, for a commit GitHub would not run it for on its own (one
+  # that only changes a workflow file).
+  workflow_dispatch:
 
 # A newer push on the same branch cancels the runs still queued for the
 # older ones: GitHub's macOS runners queue for a long time, and only the
