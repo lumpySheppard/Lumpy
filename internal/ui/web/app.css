@@ -753,6 +753,20 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 3px; paddi
 .player.fill .stills { flex: none; }
 .transport .icon-btn.on { background: var(--bg-2); border-color: var(--line); }
 table.list.tidy td small { font-weight: 400; color: var(--muted); display: block; }
+/* Consolidate: the day-by-drive grid. */
+.cs-sum { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 14px; }
+.cs-scroll { overflow: auto; max-width: 100%; }
+.cs-grid th.cs-dh { white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.cs-grid th.cs-dh .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.cs-grid td small, .cs-drives td small { display: block; font-weight: 400; }
+.cs-cell { text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 56px; }
+.cs-cell.full { color: var(--ok); } .cs-cell.part { color: var(--warn); }
+.cs-cell b { display: inline-block; margin-left: 4px; font-size: 10px; padding: 0 4px; border-radius: 4px; background: var(--accent); color: #fff; }
+.cs-cell.clear { color: var(--muted); text-decoration: line-through; }
+.cs-role { display: inline-block; font-size: 10px; padding: 0 4px; border-radius: 4px; background: var(--accent); color: #fff; margin-right: 2px; }
+.cs-role.m { background: var(--blue, var(--power)); }
+.cs-grid .vd { margin-left: 6px; }
+:root[data-style="classic"] .cs-cell b, :root[data-style="classic"] .cs-role { border-radius: 0; background: var(--ink); }
 table.list.tidy tr.dim { opacity: .55; }
 table.list.tidy .select select { min-width: 150px; }
 .card-dest { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }

@@ -519,6 +519,28 @@ at the raws without a copy. It needs `python3` on the Mac (Xcode's
 command line tools provide one). Activity shows each clip relinked, and
 which were skipped because their drive isn't plugged in.
 
+### Consolidate
+
+A feature that grew across many drives before there was a standard (a
+day here, its mirror there, a third copy of half of it somewhere else,
+a day with no copy at all) is planned into a clean shape from the
+project page: **Consolidate…**. Lumpy matches every file by content
+across every drive in the project, so a shooting day is one row
+however its folders are named (`DAY 10` on one drive and `Day Ten
+backup` on another are the same day, and the row says so), and marks
+each day **sole copy**, **partial** or **backed up**. Each day gets a
+**primary** (the drive that already holds the most of it, keeping
+days together) and each primary drive one **mirror**: the drive that
+already holds the most of that primary's days and has room for the
+rest, preferring a drive that is nobody's primary, so the shape stays
+one pair per drive rather than a web. The grid shows every day on
+every drive; the table under it shows each drive before and after,
+with what copies in, what clears out and the free space left; then
+the copies to make, sole copies first, and the copies that become
+redundant once a day's primary and mirror are both verified. When no
+drive has room to mirror a primary, the plan says how much to buy.
+Nothing moves from the plan yet; it is the plan to look at.
+
 ### Tidy up
 
 A project that didn't follow the house structure (a quick edit, a
