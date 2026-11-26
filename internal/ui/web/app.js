@@ -1220,51 +1220,103 @@ function renderProjectPage() {
 // pick the template, look at the plan as groups, adjust where each
 // goes, move, then relink in Resolve.
 // consolidateDialog is the plan for a project spread across drives:
-// every shooting day (matched by content, however its folders are
-// named) on one primary drive and one mirror, what to copy to get
-// there, and what becomes redundant once both copies verify.
+// the shooting days in order (matched by content, however their
+// folders are named), cut into consecutive ranges, each on one
+// primary drive and one mirror; what to copy to get there, and what
+// becomes redundant once both copies verify. A day's folder can be
+// renamed on every drive at once, and the pairs are the user's to
+// change.
 async function consolidateDialog(p) {
-  openSheet(`<div class="sheet-head"><div><h2>Consolidate ${esc(p.name)}</h2><div class="sub">One primary and one mirror per shooting day</div></div><div class="actions"><button class="icon-btn" id="cs-close">${ICON.x}</button></div></div><div class="sheet-body">${loadingGlyph("Reading every copy of every file…")}</div>`);
+  openSheet(`<div class="sheet-head"><div><h2>Consolidate ${esc(p.name)}</h2><div class="sub">The days in order, one primary and one mirror per range</div></div><div class="actions"><button class="icon-btn" id="cs-close">${ICON.x}</button></div></div><div class="sheet-body" id="cs-body">${loadingGlyph("Reading every copy of every file…")}</div>`);
   $("#sheet").classList.add("wide");
   $("#cs-close").onclick = closeSheet;
-  let plan;
-  try { plan = await api(`/api/projects/${p.id}/consolidate`); } catch (e) { closeSheet(); return toast(e.message, true); }
-  if ($("#sheet").hidden) return;
-  const dn = (id) => { const d = plan.drives.find((x) => x.id === id); return d ? d.title : driveTitle(id); };
-  const drives = plan.drives;
-  const pct = (f) => f >= 0.999 ? "●" : f > 0 ? Math.round(f * 100) + "%" : "";
-  const cell = (st, d) => {
-    const f = st.copies[d.id] || 0, role = st.primary === d.id ? "P" : st.mirror === d.id ? "M" : "";
-    const cls = f >= 0.999 ? "full" : f > 0 ? "part" : "none";
-    const after = role ? "keep" : f > 0 ? "clear" : "";
-    return `<td class="cs-cell ${cls} ${after}" title="${esc(st.name)} on ${esc(d.title)}: ${f ? Math.round(f * 100) + "% here" : "nothing here"}${role === "P" ? " · primary" : role === "M" ? " · mirror" : f > 0 ? " · redundant once both copies verify" : ""}">${pct(f)}${role ? `<b>${role}</b>` : ""}</td>`;
+  let plan, layout = null, editing = null;
+  const load = async () => {
+    try { plan = layout ? await api(`/api/projects/${p.id}/consolidate`, { method: "POST", body: layout }) : await api(`/api/projects/${p.id}/consolidate`); }
+    catch (e) { closeSheet(); toast(e.message, true); return false; }
+    return !$("#sheet").hidden;
   };
-  const tags = (st) => st.status === "sole" ? `<span class="vd critical">sole copy</span>` : st.status === "partial" ? `<span class="vd check">partial</span>` : `<span class="vd safe">backed up</span>`;
-  const totalCopy = plan.transfers.reduce((a, t) => a + t.bytes, 0);
-  const totalClear = plan.sets.reduce((a, st) => a + st.clears.reduce((b, c) => b + c.bytes, 0), 0);
-  const pairs = Object.entries(plan.pairs);
-  $("#sheet .sheet-body").innerHTML = `
-    <p class="hint">Each row is a shooting day or card, matched by file content across every drive in the project, whatever its folder is called. <b>P</b> is where it stays, <b>M</b> is its one mirror. Nothing is copied or cleared from here yet: this is the plan to look at.</p>
-    <div class="cs-sum">
-      <span class="pill">Days:<b>${plan.sets.length}</b></span>
-      <span class="pill" style="${plan.soleBytes ? "color:var(--bad)" : ""}">Sole copies:<b>${bytes(plan.soleBytes)}</b></span>
-      <span class="pill" style="${plan.partialBytes ? "color:var(--warn)" : ""}">Partly mirrored:<b>${bytes(plan.partialBytes)}</b></span>
-      <span class="pill">To copy:<b>${bytes(totalCopy)}</b></span>
-      <span class="pill">Redundant after:<b>${bytes(totalClear)}</b></span>
-      ${plan.buy ? `<span class="pill" style="color:var(--bad)">No room to mirror:<b>${bytes(plan.buy)}</b> · buy a drive</span>` : ""}
-    </div>
-    ${plan.offline.length ? `<p class="hint">${plan.offline.length} drive${plan.offline.length === 1 ? "" : "s"} in this project ${plan.offline.length === 1 ? "is" : "are"} not in the library and ${plan.offline.length === 1 ? "is" : "are"} left out.</p>` : ""}
-    <div class="sec"><div class="sec-title">${ICON.film}Days across drives</div>
-    <div class="cs-scroll"><table class="list cs-grid"><thead><tr><th>Day</th><th class="num">Size</th>${drives.map((d) => `<th class="cs-dh" title="${esc(d.title)}"><span class="dot" style="background:${d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(d.title)}</th>`).join("")}</tr></thead>
-      <tbody>${plan.sets.map((st) => `<tr><td><b>${esc(st.name)}</b>${st.aliases.length ? `<small class="hint">also ${st.aliases.map(esc).join(", ")}</small>` : ""} ${tags(st)}</td><td class="num">${bytes(st.bytes)}<small class="hint">${st.files.toLocaleString()} files</small></td>${drives.map((d) => cell(st, d)).join("")}</tr>`).join("")}</tbody></table></div></div>
-    <div class="sec"><div class="sec-title">${ICON.drive}Each drive, before and after</div>
-    <table class="list cs-drives"><thead><tr><th>Drive</th><th>Holds</th><th class="num">Of this project</th><th class="num">Free now</th><th class="num">Copy in</th><th class="num">Clear out</th><th class="num">Free after</th></tr></thead>
-      <tbody>${drives.map((d) => `<tr><td><b>${esc(d.title)}</b><small class="hint">${bytes(d.size)}${d.connected ? " · plugged in" : ""}</small></td><td>${d.primaryOf.length ? `<span class="cs-role">P</span> ${d.primaryOf.map(esc).join(", ")}` : ""}${d.primaryOf.length && d.mirrorOf.length ? "<br>" : ""}${d.mirrorOf.length ? `<span class="cs-role m">M</span> ${d.mirrorOf.map(esc).join(", ")}` : ""}${!d.primaryOf.length && !d.mirrorOf.length ? `<span class="hint">redundant copies only</span>` : ""}</td><td class="num">${bytes(d.nowBytes)}</td><td class="num">${bytes(d.free)}</td><td class="num">${d.copyIn ? "+" + bytes(d.copyIn) : ""}</td><td class="num">${d.clearOut ? "−" + bytes(d.clearOut) : ""}</td><td class="num" style="${d.freeAfter < 0 ? "color:var(--bad)" : ""}">${bytes(Math.max(0, d.freeAfter))}</td></tr>`).join("")}</tbody></table></div>
-    ${pairs.length ? `<div class="sec"><div class="sec-title">${ICON.link}Pairs</div><div class="box">${pairs.map(([a, b]) => `<div><b>${esc(dn(a))}</b> <span class="hint">mirrored on</span> <b>${esc(dn(b))}</b></div>`).join("")}</div></div>` : ""}
-    <div class="sec"><div class="sec-title">${ICON.copy}Copies to make <span class="hint" style="font-weight:400">· sole copies first, as Lumpy offloads with verification</span></div>
-    ${plan.transfers.length ? `<table class="list"><thead><tr><th>Day</th><th>From</th><th>To</th><th class="num">Files</th><th class="num">Size</th></tr></thead><tbody>${plan.transfers.map((t) => `<tr><td><b>${esc(t.set)}</b></td><td>${esc(dn(t.from))}</td><td>${esc(dn(t.to))}</td><td class="num">${t.files.toLocaleString()}</td><td class="num">${bytes(t.bytes)}</td></tr>`).join("")}</tbody></table>` : `<p class="hint">Nothing to copy: every day already has its mirror.</p>`}</div>
-    <div class="sec"><div class="sec-title">${ICON.trash}Redundant once both copies verify</div>
-    ${totalClear ? `<table class="list"><thead><tr><th>Day</th><th>On</th><th class="num">Size</th></tr></thead><tbody>${plan.sets.flatMap((st) => st.clears.map((c) => `<tr><td><b>${esc(st.name)}</b></td><td>${esc(dn(c.driveId))}</td><td class="num">${bytes(c.bytes)}</td></tr>`)).join("")}</tbody></table><p class="hint">These are the third and partial copies. They stay until the day's primary and mirror are both verified, and go through the Trash when you say so.</p>` : `<p class="hint">No redundant copies.</p>`}</div>`;
+  if (!(await load())) return;
+  const day = (t) => t ? new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+  const draw = () => {
+    const body = $("#cs-body");
+    if (!body) return;
+    const dn = (id) => { const d = plan.drives.find((x) => x.id === id); return d ? d.title : id ? driveTitle(id) : "—"; };
+    const drives = plan.drives;
+    const allDrives = (S.state.drives || []).filter((d) => !d.noBackups).sort((a, b) => a.title.localeCompare(b.title));
+    const pct = (f) => f >= 0.999 ? "●" : f > 0 ? Math.round(f * 100) + "%" : "";
+    const cell = (st, d) => {
+      const f = st.copies[d.id] || 0, role = st.primary === d.id ? "P" : st.mirror === d.id ? "M" : "";
+      const cls = f >= 0.999 ? "full" : f > 0 ? "part" : "none";
+      const after = role ? "keep" : f > 0 ? "clear" : "";
+      return `<td class="cs-cell ${cls} ${after}" title="${esc(st.name)} on ${esc(d.title)}: ${f ? Math.round(f * 100) + "% here" : "nothing here"}${role === "P" ? " · primary" : role === "M" ? " · mirror" : f > 0 ? " · redundant once both copies verify" : ""}">${pct(f)}${role ? `<b>${role}</b>` : ""}</td>`;
+    };
+    const tags = (st) => st.status === "sole" ? `<span class="vd critical">sole copy</span>` : st.status === "partial" ? `<span class="vd check">partial</span>` : `<span class="vd safe">backed up</span>`;
+    const totalCopy = plan.transfers.reduce((a, t) => a + t.bytes, 0);
+    const totalClear = plan.sets.reduce((a, st) => a + st.clears.reduce((b, c) => b + c.bytes, 0), 0);
+    const sel = (cur, i, kind) => `<label class="select"><select class="plain" data-cs-pair="${i}" data-cs-kind="${kind}"><option value="">—</option>${allDrives.map((d) => `<option value="${esc(d.id)}" ${d.id === cur ? "selected" : ""}>${esc(d.title)}${d.connected ? "" : " (away)"}</option>`).join("")}</select></label>`;
+    const thru = (cur, i) => `<label class="select"><select class="plain" data-cs-pair="${i}" data-cs-kind="through">${plan.sets.map((st) => `<option value="${esc(st.name)}" ${st.name === cur ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>`;
+    const nameCell = (st) => editing === st.name
+      ? `<span class="cs-edit"><input class="path-input" data-cs-name="${esc(st.name)}" value="${esc(st.name)}" placeholder="reel43"><button class="btn small primary" data-cs-save="${esc(st.name)}">Rename on every drive</button><button class="btn small" data-cs-cancel>Cancel</button></span>`
+      : `<b>${esc(st.name)}</b><button class="icon-btn cs-pen" data-cs-rename="${esc(st.name)}" title="Rename this day's folder on every drive that holds it">${ICON.pencil || ICON.edit || "✎"}</button>${st.aliases.length ? `<small class="hint">also ${st.aliases.map(esc).join(", ")}</small>` : ""} ${tags(st)}`;
+    let rows = "", lastPair = null;
+    for (const st of plan.sets) {
+      if (st.pair !== lastPair) {
+        lastPair = st.pair;
+        const pr = plan.pairs[st.pair];
+        rows += `<tr class="cs-band"><td colspan="${3 + drives.length}">${pr ? `Pair ${st.pair + 1} · <b>${esc(dn(pr.primary))}</b> mirrored on <b>${esc(dn(pr.mirror))}</b> · ${esc(pr.first)}${pr.last !== pr.first ? ` to ${esc(pr.last)}` : ""} · ${bytes(pr.bytes)}${!pr.mirror ? ` <span class="vd critical">no drive has room to mirror this</span>` : ""}` : `<span class="vd critical">After the last pair: not placed</span>`}</td></tr>`;
+      }
+      rows += `<tr><td class="cs-name">${nameCell(st)}</td><td class="num cs-when">${day(st.first)}${st.last && day(st.last) !== day(st.first) ? `<small class="hint">to ${day(st.last)}</small>` : ""}</td><td class="num">${bytes(st.bytes)}<small class="hint">${st.files.toLocaleString()} files</small></td>${drives.map((d) => cell(st, d)).join("")}</tr>`;
+    }
+    body.innerHTML = `
+      <p class="hint">Each row is a shooting day or card, matched by file content across every drive in the project, whatever its folder is called; the pencil renames a day's folder on every drive that holds it, so the names fall into order (reel01, reel02…). The days run in order through the pairs: each pair is one primary drive and its one mirror, holding a consecutive range. <b>P</b> is where a day stays, <b>M</b> its mirror. Nothing is copied or cleared from here yet.</p>
+      <div class="cs-sum">
+        <span class="pill">Days:<b>${plan.sets.length}</b></span>
+        <span class="pill" style="${plan.soleBytes ? "color:var(--bad)" : ""}">Sole copies:<b>${bytes(plan.soleBytes)}</b></span>
+        <span class="pill" style="${plan.partialBytes ? "color:var(--warn)" : ""}">Partly mirrored:<b>${bytes(plan.partialBytes)}</b></span>
+        <span class="pill">To copy:<b>${bytes(totalCopy)}</b></span>
+        <span class="pill">Redundant after:<b>${bytes(totalClear)}</b></span>
+        ${plan.buy ? `<span class="pill" style="color:var(--bad)">No room to mirror:<b>${bytes(plan.buy)}</b> · buy a drive</span>` : ""}
+      </div>
+      ${plan.offline.length ? `<p class="hint">${plan.offline.length} drive${plan.offline.length === 1 ? "" : "s"} in this project ${plan.offline.length === 1 ? "is" : "are"} not in the library and ${plan.offline.length === 1 ? "is" : "are"} left out.</p>` : ""}
+      <div class="sec"><div class="sec-title">${ICON.drive}Pairs <span class="hint" style="font-weight:400">· ${plan.proposed ? "Lumpy's proposal; change any of it" : "yours"}</span></div>
+        <div class="box cs-pairs">${plan.pairs.map((pr, i) => `<div class="cs-pair"><span class="cs-role">${i + 1}</span>${sel(pr.primary, i, "primary")}<span class="hint">mirrored on</span>${sel(pr.mirror, i, "mirror")}<span class="hint">through</span>${i === plan.pairs.length - 1 ? `<span class="hint">the rest</span>` : thru(pr.through, i)}<button class="icon-btn" data-cs-drop="${i}" title="Remove this pair">${ICON.x}</button></div>`).join("")}
+          <div class="go-row"><button class="btn small" id="cs-add">${ICON.plus}Another pair</button><button class="btn small primary" id="cs-apply">Recalculate</button>${!plan.proposed ? `<button class="btn small" id="cs-reset">Back to Lumpy's proposal</button>` : ""}</div></div></div>
+      <div class="sec"><div class="sec-title">${ICON.film}Days across drives</div>
+      <div class="cs-scroll"><table class="list cs-grid"><thead><tr><th>Day</th><th class="num">Shot</th><th class="num">Size</th>${drives.map((d) => `<th class="cs-dh" title="${esc(d.title)}"><span class="dot" style="background:${d.connected ? "var(--ok)" : "var(--muted)"}"></span>${esc(d.title)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></div>
+      <div class="sec"><div class="sec-title">${ICON.drive}Each drive, before and after</div>
+      <table class="list cs-drives"><thead><tr><th>Drive</th><th>Holds</th><th class="num">Of this project</th><th class="num">Free now</th><th class="num">Copy in</th><th class="num">Clear out</th><th class="num">Free after</th></tr></thead>
+        <tbody>${drives.map((d) => `<tr><td><b>${esc(d.title)}</b><small class="hint">${bytes(d.size)}${d.connected ? " · plugged in" : ""}</small></td><td>${d.primaryOf.length ? `<span class="cs-role">P</span> ${d.primaryOf.length > 3 ? `${esc(d.primaryOf[0])} to ${esc(d.primaryOf[d.primaryOf.length - 1])} (${d.primaryOf.length})` : d.primaryOf.map(esc).join(", ")}` : ""}${d.primaryOf.length && d.mirrorOf.length ? "<br>" : ""}${d.mirrorOf.length ? `<span class="cs-role m">M</span> ${d.mirrorOf.length > 3 ? `${esc(d.mirrorOf[0])} to ${esc(d.mirrorOf[d.mirrorOf.length - 1])} (${d.mirrorOf.length})` : d.mirrorOf.map(esc).join(", ")}` : ""}${!d.primaryOf.length && !d.mirrorOf.length ? `<span class="hint">redundant copies only</span>` : ""}</td><td class="num">${bytes(d.nowBytes)}</td><td class="num">${bytes(d.free)}</td><td class="num">${d.copyIn ? "+" + bytes(d.copyIn) : ""}</td><td class="num">${d.clearOut ? "−" + bytes(d.clearOut) : ""}</td><td class="num" style="${d.freeAfter < 0 ? "color:var(--bad)" : ""}">${bytes(Math.max(0, d.freeAfter))}</td></tr>`).join("")}</tbody></table></div>
+      <div class="sec"><div class="sec-title">${ICON.copy}Copies to make <span class="hint" style="font-weight:400">· sole copies first, as Lumpy offloads with verification</span></div>
+      ${plan.transfers.length ? `<table class="list"><thead><tr><th>Day</th><th>From</th><th>To</th><th class="num">Files</th><th class="num">Size</th></tr></thead><tbody>${plan.transfers.map((t) => `<tr><td><b>${esc(t.set)}</b></td><td>${esc(dn(t.from))}</td><td>${esc(dn(t.to))}</td><td class="num">${t.files.toLocaleString()}</td><td class="num">${bytes(t.bytes)}</td></tr>`).join("")}</tbody></table>` : `<p class="hint">Nothing to copy: every day is on its primary and its mirror.</p>`}</div>
+      <div class="sec"><div class="sec-title">${ICON.trash}Redundant once both copies verify</div>
+      ${totalClear ? `<table class="list"><thead><tr><th>Day</th><th>On</th><th class="num">Size</th></tr></thead><tbody>${plan.sets.flatMap((st) => st.clears.map((c) => `<tr><td><b>${esc(st.name)}</b></td><td>${esc(dn(c.driveId))}</td><td class="num">${bytes(c.bytes)}</td></tr>`)).join("")}</tbody></table><p class="hint">These are the third and partial copies. They stay until the day's primary and mirror are both verified, and go through the Trash when you say so.</p>` : `<p class="hint">No redundant copies.</p>`}</div>`;
+    const readPairs = () => plan.pairs.map((pr, i) => ({ primary: (body.querySelector(`[data-cs-pair="${i}"][data-cs-kind=primary]`) || {}).value || "", mirror: (body.querySelector(`[data-cs-pair="${i}"][data-cs-kind=mirror]`) || {}).value || "", through: (body.querySelector(`[data-cs-pair="${i}"][data-cs-kind=through]`) || {}).value || "" }));
+    const recalc = async (pairs) => { layout = { pairs }; if (await load()) draw(); };
+    $("#cs-apply").onclick = () => recalc(readPairs());
+    $("#cs-add").onclick = () => { const ps = readPairs(); const last = ps[ps.length - 1]; if (last && !last.through) last.through = plan.pairs[ps.length - 1].last || ""; ps.push({ primary: "", mirror: "", through: "" }); recalc(ps); };
+    for (const b of body.querySelectorAll("[data-cs-drop]")) b.onclick = () => { const ps = readPairs(); ps.splice(+b.dataset.csDrop, 1); if (ps.length) recalc(ps); else { layout = null; load().then((ok) => ok && draw()); } };
+    const reset = $("#cs-reset"); if (reset) reset.onclick = () => { layout = null; load().then((ok) => ok && draw()); };
+    for (const b of body.querySelectorAll("[data-cs-rename]")) b.onclick = () => { editing = b.dataset.csRename; draw(); const inp = body.querySelector("[data-cs-name]"); if (inp) { inp.focus(); inp.select(); } };
+    for (const b of body.querySelectorAll("[data-cs-cancel]")) b.onclick = () => { editing = null; draw(); };
+    for (const b of body.querySelectorAll("[data-cs-save]")) b.onclick = async () => {
+      const from = b.dataset.csSave, to = (body.querySelector("[data-cs-name]") || {}).value.trim();
+      if (!to || to === from) { editing = null; draw(); return; }
+      const st = plan.sets.find((x) => x.name === from);
+      b.disabled = true;
+      try {
+        let renamed = [];
+        for (const name of [from, ...(st ? st.aliases : [])]) { const r = await api(`/api/projects/${p.id}/consolidate/rename`, { method: "POST", body: { from: name, to } }); renamed = renamed.concat(r.renamed || []); for (const sk of r.skipped || []) toast(sk, true); }
+        toast(`${from} is now ${to} on ${renamed.join(", ") || "no drive"}`);
+        editing = null;
+        // The renamed drives rescan; the plan is read once they have.
+        for (let i = 0; i < 240; i++) { const js = await api("/api/jobs").catch(() => []); if (!js.some((j) => j.kind === "rescan" && (j.state === "running" || j.state === "queued"))) break; await new Promise((r) => setTimeout(r, 500)); }
+        if (await load()) draw();
+      } catch (e) { toast(e.message, true); b.disabled = false; }
+    };
+    const inp = body.querySelector("[data-cs-name]"); if (inp) inp.onkeydown = (e) => { if (e.key === "Enter") body.querySelector("[data-cs-save]").click(); else if (e.key === "Escape") { editing = null; draw(); } };
+  };
+  draw();
 }
 async function tidyDialog(p) {
   let data;

@@ -255,6 +255,8 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/drives/{id}/erase", s.eraseCard)
 	api("GET /api/report/day", s.dayReport)
 	api("GET /api/projects/{id}/consolidate", s.consolidatePlan)
+	api("POST /api/projects/{id}/consolidate", s.consolidatePlan)
+	api("POST /api/projects/{id}/consolidate/rename", s.consolidateRename)
 	api("POST /api/projects/{id}/tidy/plan", s.tidyPlanHandler)
 	api("POST /api/projects/{id}/tidy/run", s.tidyRunHandler)
 	api("POST /api/projects/{id}/tidy/relink", s.tidyRelinkHandler)

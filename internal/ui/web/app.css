@@ -766,6 +766,13 @@ table.list.tidy td small { font-weight: 400; color: var(--muted); display: block
 .cs-role { display: inline-block; font-size: 10px; padding: 0 4px; border-radius: 4px; background: var(--accent); color: #fff; margin-right: 2px; }
 .cs-role.m { background: var(--blue, var(--power)); }
 .cs-grid .vd { margin-left: 6px; }
+.cs-band td { background: var(--bg-2); font-size: 12px; color: var(--text-2); padding: 6px 10px; }
+.cs-name { min-width: 220px; } .cs-name .cs-pen { display: inline-grid; width: 22px; height: 20px; vertical-align: middle; margin-left: 2px; opacity: .5; } .cs-name:hover .cs-pen { opacity: 1; } .cs-name .cs-pen svg { width: 12px; height: 12px; }
+.cs-edit { display: flex; gap: 6px; align-items: center; } .cs-edit .path-input { width: 160px; }
+.cs-when { white-space: nowrap; font-size: 12px; } .cs-when small { display: block; }
+.cs-pairs .cs-pair { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0; }
+.cs-pairs .go-row { margin-top: 8px; }
+:root[data-style="classic"] .cs-band td { background: var(--paper-t2); }
 :root[data-style="classic"] .cs-cell b, :root[data-style="classic"] .cs-role { border-radius: 0; background: var(--ink); }
 table.list.tidy tr.dim { opacity: .55; }
 table.list.tidy .select select { min-width: 150px; }

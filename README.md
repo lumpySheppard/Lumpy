@@ -527,19 +527,27 @@ a day with no copy at all) is planned into a clean shape from the
 project page: **Consolidate…**. Lumpy matches every file by content
 across every drive in the project, so a shooting day is one row
 however its folders are named (`DAY 10` on one drive and `Day Ten
-backup` on another are the same day, and the row says so), and marks
-each day **sole copy**, **partial** or **backed up**. Each day gets a
-**primary** (the drive that already holds the most of it, keeping
-days together) and each primary drive one **mirror**: the drive that
-already holds the most of that primary's days and has room for the
-rest, preferring a drive that is nobody's primary, so the shape stays
-one pair per drive rather than a web. The grid shows every day on
-every drive; the table under it shows each drive before and after,
-with what copies in, what clears out and the free space left; then
-the copies to make, sole copies first, and the copies that become
-redundant once a day's primary and mirror are both verified. When no
-drive has room to mirror a primary, the plan says how much to buy.
-Nothing moves from the plan yet; it is the plan to look at.
+backup` on another are the same day, and the row says so), with the
+dates it was shot, and marks each day **sole copy**, **partial** or
+**backed up**. The pencil on a day renames its folder on every drive
+that holds it at once, so the names fall into order (reel01, reel02…
+across the lot). The days then run in order through **pairs**: each
+pair is one primary drive and its one mirror, holding a consecutive
+range (Drive1 and Drive1b hold reel01 to reel18, Drive2 and Drive2b
+the next run), so the shape is one pair per range rather than a web.
+Lumpy proposes the pairs (each range on the drive already holding the
+most of its first day, as long as it has room for the rest; the
+mirror the drive holding the most of the range with room for the
+rest, preferring one with no other part in the plan) and every pair
+is yours to change: the drives, and the day each range runs through.
+The grid shows every day on every drive with **P** and **M**; under
+it each drive before and after, with what copies in, what clears out
+and the free space left; then the copies to make (onto both the
+primary and the mirror, from whichever drive has a whole copy), sole
+copies first, and the copies that become redundant once a day's
+primary and mirror are both verified. When no drive has room to
+mirror a range, the plan says how much to buy. Nothing moves from the
+plan yet; it is the plan to look at.
 
 ### Tidy up
 
