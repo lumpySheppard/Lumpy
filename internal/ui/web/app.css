@@ -1323,3 +1323,11 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .job-stats b { color: var(--accent); }
 :root[data-style="classic"] .job.st-ok .job-stats b { color: var(--ok); }
 :root[data-style="classic"] .pop-head b { color: var(--accent); }
+
+/* Space-only mode (Lumpy for iPad): the Space tab is the whole app. */
+:root.space-only .tabs, :root.space-only .topbar-right .agent-pill, :root.space-only #activity-btn, :root.space-only #update-pill, :root.space-only #toolbar { display: none !important; }
+:root.space-only .topbar { padding-top: max(10px, env(safe-area-inset-top)); }
+:root.space-only .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+:root.space-only .sp-body { grid-template-columns: 1fr; }
+:root.space-only .sp-chart { max-width: 420px; margin: 0 auto; }
+@media (max-width: 900px) { :root.space-only .page-bar { flex-wrap: wrap; } }

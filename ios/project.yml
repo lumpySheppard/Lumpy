@@ -1,0 +1,40 @@
+# Lumpy for iPad. XcodeGen turns this into Lumpy.xcodeproj:
+#   ios/build.sh
+# then open ios/Lumpy.xcodeproj in Xcode, set your team under Signing,
+# and run it on the iPad.
+name: Lumpy
+options:
+  bundleIdPrefix: com.lumpy
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  Lumpy:
+    type: application
+    platform: iOS
+    sources:
+      - path: Lumpy
+    dependencies:
+      - framework: Mobile.xcframework
+        embed: true
+    info:
+      path: Lumpy/Info.plist
+      properties:
+        CFBundleDisplayName: Lumpy
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        # The library lives in Documents, which the Files app may show.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        MARKETING_VERSION: "0.7.32"
+        TARGETED_DEVICE_FAMILY: "2"
+        SWIFT_VERSION: "5.9"
+        PRODUCT_BUNDLE_IDENTIFIER: com.lumpy.ipad
+        CODE_SIGN_STYLE: Automatic

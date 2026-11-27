@@ -1,6 +1,9 @@
 package space
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 // Suspect is a place on a Mac that fills up with things nobody needs:
 // caches apps rebuild, renders that can be made again, backups of
@@ -47,27 +50,62 @@ var Suspects = []Suspect{
 	{Name: "Final Cut libraries", Rel: "Movies", Note: "FCP libraries and render files live in .fcpbundle packages here; delete render files from inside Final Cut.", Risk: "keep"},
 }
 
+// Anywhere are folders known by name wherever they sit: what DaVinci
+// Resolve makes beside a project, on a Mac or inside Resolve for iPad's
+// own folder.
+var Anywhere = []Suspect{
+	{Name: "Resolve render cache", Rel: "CacheClip", Note: "DaVinci Resolve's render cache; Resolve makes it again (Playback › Delete Render Cache).", Risk: "safe"},
+	{Name: "Resolve optimised media", Rel: "OptimizedMedia", Note: "Resolve's optimised media; made again on demand (Playback › Delete Optimized Media).", Risk: "safe"},
+	{Name: "Resolve proxies", Rel: "ProxyMedia", Note: "Proxies Resolve generated; made again from the originals.", Risk: "check"},
+	{Name: "Resolve gallery stills", Rel: ".gallery", Note: "Grabbed stills and their PowerGrades. Keep if you use them.", Risk: "check"},
+	{Name: "Resolve project backups", Rel: "Project Backups", Note: "Timed backups of every project; the recent ones are worth keeping.", Risk: "check"},
+}
+
 // FindSuspects sizes the usual places from a measurement whose root
-// is the home folder or holds it (the whole disk). Places with
-// nothing in them are left out.
+// is the home folder or holds it (the whole disk), and the folders
+// known by name wherever they sit. Places with nothing in them are
+// left out.
 func FindSuspects(tree *Node, root, home string) []Suspect {
-	rel, err := filepath.Rel(root, home)
-	if err != nil {
-		return nil
-	}
 	var out []Suspect
-	for _, s := range Suspects {
-		p := filepath.ToSlash(filepath.Join(rel, s.Rel))
-		if rel == "." {
-			p = s.Rel
+	if rel, err := filepath.Rel(root, home); err == nil && !strings.HasPrefix(rel, "..") {
+		for _, s := range Suspects {
+			p := filepath.ToSlash(filepath.Join(rel, s.Rel))
+			if rel == "." {
+				p = s.Rel
+			}
+			n := tree.At(p)
+			if n == nil || n.Bytes == 0 {
+				continue
+			}
+			s.Rel = p
+			s.Bytes, s.Files = n.Bytes, n.Files
+			out = append(out, s)
 		}
-		n := tree.At(p)
-		if n == nil || n.Bytes == 0 {
-			continue
-		}
-		s.Rel = p
-		s.Bytes, s.Files = n.Bytes, n.Files
-		out = append(out, s)
 	}
+	var walk func(n *Node, p string, depth int)
+	walk = func(n *Node, p string, depth int) {
+		for _, c := range n.Children {
+			if !c.Dir {
+				continue
+			}
+			cp := c.Name
+			if p != "" {
+				cp = p + "/" + c.Name
+			}
+			hit := false
+			for _, s := range Anywhere {
+				if strings.EqualFold(c.Name, s.Rel) && c.Bytes > 0 {
+					s.Rel = cp
+					s.Bytes, s.Files = c.Bytes, c.Files
+					out = append(out, s)
+					hit = true
+				}
+			}
+			if !hit && depth < 6 {
+				walk(c, cp, depth+1)
+			}
+		}
+	}
+	walk(tree, "", 0)
 	return out
 }

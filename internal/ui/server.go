@@ -44,6 +44,9 @@ type Server struct {
 	// App is set when Lumpy.app runs the engine: the app posts the
 	// notifications itself.
 	App bool
+	// Mobile is Lumpy for iPad: no drives, no agent, the Space tab over
+	// the folders the app was granted.
+	Mobile bool
 
 	pub     publisher
 	pubDone chan struct{}
@@ -106,6 +109,10 @@ func (s *Server) Listen(port int) (string, *http.Server, net.Listener, error) {
 	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	return "http://" + s.addr + "/#t=" + s.token, srv, ln, nil
 }
+
+// WatchMobile is Watch for the iPad: nothing to watch for, since the
+// app has no drives; it holds until the app stops.
+func (s *Server) WatchMobile(ctx context.Context) { <-ctx.Done() }
 
 // Watch logs newly mounted drives while the app is open, the same way the
 // launchd agent does, so the agent is optional while the app runs. It
@@ -293,6 +300,8 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/projects/{id}/transfer", s.runTransfer)
 	api("GET /api/projects/{id}/proxies", s.projectProxies)
 	api("GET /api/space/places", s.spacePlaces)
+	api("POST /api/space/places", s.spaceAddPlace)
+	api("DELETE /api/space/places", s.spaceDropPlace)
 	api("POST /api/space/scan", s.spaceStart)
 	api("GET /api/space", s.spaceTree)
 	api("POST /api/space/trash", s.spaceTrash)

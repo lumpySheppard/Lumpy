@@ -802,6 +802,36 @@ destination. The exit status is 0 when everything matched, 1 when any file
 failed or isn't backed up enough, 2 for a usage or setup error, and 130 when interrupted, so Lumpy can
 be scripted.
 
+## Lumpy for iPad
+
+The Space tab on an iPad, for the folders the Files app can grant: On
+My iPad, a drive on the USB-C port, iCloud Drive, and the folders
+other apps show there, DaVinci Resolve for iPad's among them (its
+imported media, render cache, optimised media, proxies and project
+backups all live in one folder, and Lumpy names the cache folders
+wherever they sit). iOS lets no app measure the whole iPad or look
+inside other apps, so this is the part that can be done; the rest is
+Settings › General › iPad Storage.
+
+The app is the same engine (Go, bound into a framework with gomobile)
+and the same page, in Space-only mode, inside a small SwiftUI shell
+(`ios/`). **Add folder…** opens the Files picker; the folder is kept
+as a security-scoped bookmark and granted again on each launch;
+**Measure** draws the rings; ticking and **Delete** removes files for
+good, since the iPad has no Trash to put them back from. Build it on a
+Mac with Xcode, Go, gomobile and XcodeGen:
+
+```
+go install golang.org/x/mobile/cmd/gomobile@latest && gomobile init
+brew install xcodegen
+ios/build.sh
+open ios/Lumpy.xcodeproj
+```
+
+In Xcode choose your team under Signing & Capabilities and run on the
+iPad. With a free Apple ID the app must be run from Xcode again every
+7 days; a paid developer account lifts that and allows TestFlight.
+
 ## Updating
 
 Lumpy checks GitHub Releases twice a day while it is open and shows an

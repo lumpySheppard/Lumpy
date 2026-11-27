@@ -4,6 +4,9 @@
 const token = new URLSearchParams(location.hash.slice(1)).get("t") || sessionStorageGet("lumpy-token") || "";
 sessionStorageSet("lumpy-token", token);
 const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.lumpy;
+// Space-only mode: Lumpy for iPad shows the Space tab and nothing else.
+const spaceOnly = new URLSearchParams(location.hash.slice(1)).get("mode") === "space";
+if (spaceOnly) document.documentElement.classList.add("space-only");
 if (native || new URLSearchParams(location.search).has("native")) document.documentElement.classList.add("native");
 
 function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
@@ -125,7 +128,7 @@ function nativeCall(action, args = {}) {
 
 // ---------- state ----------
 const S = {
-  tab: localGet("tab", "map") === "activity" ? "logged" : localGet("tab", "map"),
+  tab: spaceOnly ? "space" : localGet("tab", "map") === "activity" ? "logged" : localGet("tab", "map"),
   view: localGet("view", "grid"),
   mediaView: localGet("mediaView", "table"),
   sort: localGet("sort", "seen"),
@@ -3644,10 +3647,12 @@ async function renderSpace1() {
   main.innerHTML = `<div class="space">
     <div class="page-bar"><div class="toolbar-title">${ICON.pie}Space</div>
       <label class="select"><select id="sp-place">${SP.places.map((p) => `<option value="${esc(p.path)}" ${p.path === SP.root ? "selected" : ""}>${esc(p.name)}${p.size ? ` · ${bytes(p.size - p.free)} of ${bytes(p.size)} used` : ""}</option>`).join("")}</select></label>
-      <button class="btn ${d ? "" : "primary"}" id="sp-scan" ${SP.busy ? "disabled" : ""}>${SP.busy ? "Measuring…" : d ? ICON.refresh + "Measure again" : ICON.play + "Measure"}</button>
+      ${spaceOnly && native ? `<button class="btn" id="sp-add" title="Grant Lumpy a folder from the Files app: On My iPad, a plugged-in drive, iCloud Drive, or a folder another app shows there">${ICON.plus}Add folder…</button>` : ""}
+      ${SP.places.length ? `<button class="btn ${d ? "" : "primary"}" id="sp-scan" ${SP.busy ? "disabled" : ""}>${SP.busy ? "Measuring…" : d ? ICON.refresh + "Measure again" : ICON.play + "Measure"}</button>` : ""}
       ${place.size ? `<span class="pills"><span class="pill">Used:<b>${bytes(place.size - place.free)}</b></span><span class="pill">Free:<b>${bytes(place.free)}</b></span>${d ? `<span class="pill" title="What the measurement found; the rest is hidden system files, snapshots and purgeable space">Measured:<b>${bytes(d.total)}</b></span>` : ""}</span>` : ""}
-      <div class="right">${SP.sel.size ? `<button class="btn danger" id="sp-trash">${ICON.trash}Move ${SP.sel.size} to the Trash…</button>` : ""}</div>
+      <div class="right">${SP.sel.size ? `<button class="btn danger" id="sp-trash">${ICON.trash}${spaceOnly ? `Delete ${SP.sel.size}…` : `Move ${SP.sel.size} to the Trash…`}</button>` : ""}</div>
     </div>
+    ${spaceOnly && !SP.places.length ? `<div class="empty">${ICON.pie}<h2>Add a folder to measure</h2><p>Lumpy for iPad measures the folders you grant it from the Files app: On My iPad, a drive on the USB-C port, iCloud Drive, or a folder another app shows there, such as DaVinci Resolve's. Tap <b>Add folder…</b>, choose one, and then <b>Measure</b>.</p></div>` : ""}
     ${SP.busy ? `<div class="empty">${loadingGlyph("")}<h2>Measuring ${esc(place.name || SP.root)}</h2><p id="sp-prog">${bytes(SP.data && SP.data.bytes || 0)} so far · see Activity for the folder it's reading</p></div>`
     : !d ? `<div class="empty">${ICON.pie}<h2>What's taking the room?</h2><p>Lumpy measures every folder on ${esc(place.name || "the disk")} and draws it as rings: the bigger the slice, the more it holds. Click a slice to look inside, hover for its size, tick the things to go and move them to the Trash in one go. Nothing is touched until you say so.</p><p><button class="btn primary" id="sp-scan2">${ICON.play}Measure ${esc(place.name || "")}</button></p></div>`
     : `<div class="sp-body">
@@ -3658,7 +3663,7 @@ async function renderSpace1() {
           <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
           <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span>
             ${(d.node.children || []).some((c) => !c.dir && !c.rest && spPreviewable(c.name)) ? `<div class="seg sp-mode" id="sp-mode" title="Show the pictures and clips here as thumbnails"><button data-spm="list" class="${SP.thumbs ? "" : "on"}">List</button><button data-spm="thumbs" class="${SP.thumbs ? "on" : ""}">Thumbnails</button></div>` : ""}</div>
-          ${!SP.at && place.size ? spaceCoverage(d, place) : ""}
+          ${!SP.at && place.size && !spaceOnly ? spaceCoverage(d, place) : ""}
           ${(d.suspects || []).length ? `<details class="sp-sus" ${SP.susOpen ? "open" : ""}><summary><b>Usual suspects</b><span class="hint">· ${bytes(d.suspects.reduce((t, x) => t + (x.risk === "keep" ? 0 : x.bytes), 0))} in caches, renders and leftovers that can go</span></summary>
             <div class="sp-list" style="margin-top:6px">${d.suspects.map((x) => `<div class="sp-row sus ${x.risk}" data-sp-row="${esc(x.rel)}" title="${esc(x.note)}">
               ${x.risk === "keep" ? '<span class="pickcell"></span>' : `<input type="checkbox" class="pick" data-sp-pick="${esc(x.rel)}" ${SP.sel.has(x.rel) ? "checked" : ""}>`}
@@ -3680,8 +3685,15 @@ async function renderSpace1() {
   for (const b of document.querySelectorAll("[data-sp-root]")) b.onclick = () => { SP.root = b.dataset.spRoot; localSet("space.root", SP.root); SP.at = ""; SP.sel.clear(); SP.data = null; SP.dupes = null; SP.old = null; SP.places = null; renderSpace().then(() => { const pl = (SP.places || []).find((x) => x.path === SP.root); if (pl && !pl.done && !pl.busy) $("#sp-scan") && $("#sp-scan").click(); }); };
   for (const b of document.querySelectorAll("[data-sp-fda]")) b.onclick = () => nativeCall("open", { url: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" });
   const scan = async () => { try { await api("/api/space/scan", { method: "POST", body: { path: SP.root } }); SP.busy = true; renderSpace(); loadJobs(); } catch (e) { toast(e.message, true); } };
-  $("#sp-scan").onclick = scan;
+  if ($("#sp-scan")) $("#sp-scan").onclick = scan;
   if ($("#sp-scan2")) $("#sp-scan2").onclick = scan;
+  if ($("#sp-add")) $("#sp-add").onclick = async () => {
+    const path = await nativeCall("pickFolder", {});
+    if (!path) return;
+    SP.places = null; SP.root = path; localSet("space.root", path); SP.data = null;
+    await renderSpace();
+    if ($("#sp-scan")) $("#sp-scan").click();
+  };
   for (const b of document.querySelectorAll("[data-sp-go]")) b.onclick = () => { SP.at = b.dataset.spGo; spaceLoad(); };
   for (const b of document.querySelectorAll("[data-sp-open]")) b.onclick = () => { SP.at = b.dataset.spOpen; spaceLoad(); };
   for (const b of document.querySelectorAll("[data-sp-reveal]")) b.onclick = () => nativeCall("reveal", { path: SP.root.replace(/\/$/, "") + "/" + b.dataset.spReveal });
@@ -3931,9 +3943,9 @@ async function spaceTrash(d) {
       <div class="sheet-body">
         <p class="hint" style="margin:0 0 10px">Lumpy looked at each item: where it sits, when it last changed, whether an app has it open, whether it belongs to a project, and whether the library holds a copy. ${crit ? `<b>${crit} critical item${crit === 1 ? " is" : "s are"} unticked</b>; tick ${crit === 1 ? "it" : "them"} only if you're sure.` : "Nothing here looks critical."}</p>
         <div class="checks vd-list">${checks.map((c) => `<label class="vd-row ${c.level}"><input type="checkbox" data-vd="${esc(c.rel)}" ${on.has(c.rel) ? "checked" : ""}><span class="vd-main"><span class="vd-name">${esc(c.rel.split("/").pop())}<small class="hint mono">${esc(c.rel.includes("/") ? c.rel.slice(0, c.rel.lastIndexOf("/")) : "")}</small></span><span class="vd-why">${c.reasons.map(esc).join(" · ")}</span></span><span class="vd ${c.level}">${VD_LABEL[c.level] || c.level}</span><span class="sp-size">${bytes(c.bytes)}</span></label>`).join("")}</div>
-        <p class="hint" style="margin:10px 0 0">${bytes(total)} goes to the Trash through the Finder, so it can be put back. The space is freed when you empty the Trash.</p>
+        <p class="hint" style="margin:10px 0 0">${spaceOnly ? `${bytes(total)} is deleted for good: there is no Trash to put it back from on the iPad.` : `${bytes(total)} goes to the Trash through the Finder, so it can be put back. The space is freed when you empty the Trash.`}</p>
       </div>
-      <div class="sheet-foot"><button class="btn" id="st-cancel">Keep everything</button><button class="btn danger-fill" id="st-ok" ${chosen.length ? "" : "disabled"}>${ICON.trash}Move ${chosen.length} to the Trash</button></div>`);
+      <div class="sheet-foot"><button class="btn" id="st-cancel">Keep everything</button><button class="btn danger-fill" id="st-ok" ${chosen.length ? "" : "disabled"}>${ICON.trash}${spaceOnly ? `Delete ${chosen.length}` : `Move ${chosen.length} to the Trash`}</button></div>`);
     $("#st-close").onclick = $("#st-cancel").onclick = close;
     for (const el of document.querySelectorAll("[data-vd]")) el.onchange = () => { if (el.checked) on.add(el.dataset.vd); else on.delete(el.dataset.vd); draw(); };
     $("#st-ok").onclick = async () => {

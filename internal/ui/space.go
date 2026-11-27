@@ -79,14 +79,90 @@ func (s *Server) spacePlaces(w http.ResponseWriter, r *http.Request) (any, error
 		s.spc.mu.Unlock()
 		out = append(out, p)
 	}
-	add("Macintosh HD", "/")
-	if home, err := os.UserHomeDir(); err == nil {
-		add("Home", home)
+	if !s.Mobile {
+		add("Macintosh HD", "/")
+		if home, err := os.UserHomeDir(); err == nil {
+			add("Home", home)
+		}
+		for _, v := range s.mounted() {
+			add(v.Name, v.Mount)
+		}
 	}
-	for _, v := range s.mounted() {
-		add(v.Name, v.Mount)
+	// The folders added by hand: on the iPad every place is one.
+	for _, pl := range s.places() {
+		if st, err := os.Stat(pl.Path); err == nil && st.IsDir() {
+			add(pl.Name, pl.Path)
+		}
+	}
+	if out == nil {
+		out = []place{}
 	}
 	return out, nil
+}
+
+// A savedPlace is a folder added to the Space tab by hand.
+type savedPlace struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+func (s *Server) places() []savedPlace {
+	var out []savedPlace
+	json.Unmarshal([]byte(s.db.Setting("space.places", "[]")), &out)
+	return out
+}
+
+func (s *Server) savePlaces(list []savedPlace) error {
+	data, _ := json.Marshal(list)
+	return s.db.SetSetting("space.places", string(data))
+}
+
+// AddPlace adds a folder to the Space tab's places, keeping one entry
+// per path. The iPad app calls it for every folder the user granted.
+func (s *Server) AddPlace(name, path string) error {
+	path = filepath.Clean(path)
+	if st, err := os.Stat(path); err != nil || !st.IsDir() {
+		return fmt.Errorf("%s is not a folder Lumpy can read", path)
+	}
+	if name == "" {
+		name = filepath.Base(path)
+	}
+	list := s.places()
+	for i := range list {
+		if list[i].Path == path {
+			list[i].Name = name
+			return s.savePlaces(list)
+		}
+	}
+	return s.savePlaces(append(list, savedPlace{Name: name, Path: path}))
+}
+
+// spaceAddPlace is POST /api/space/places {name, path}.
+func (s *Server) spaceAddPlace(w http.ResponseWriter, r *http.Request) (any, error) {
+	var body savedPlace
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, badRequest("bad request: %v", err)
+	}
+	if err := s.AddPlace(body.Name, body.Path); err != nil {
+		return nil, badRequest("%v", err)
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+// spaceDropPlace is DELETE /api/space/places?path=: the folder is
+// forgotten (nothing on it is touched).
+func (s *Server) spaceDropPlace(w http.ResponseWriter, r *http.Request) (any, error) {
+	path := filepath.Clean(r.URL.Query().Get("path"))
+	var keep []savedPlace
+	for _, pl := range s.places() {
+		if pl.Path != path {
+			keep = append(keep, pl)
+		}
+	}
+	if keep == nil {
+		keep = []savedPlace{}
+	}
+	return map[string]any{"ok": true}, s.savePlaces(keep)
 }
 
 // spaceScan measures a place as a job.
@@ -202,7 +278,9 @@ func (s *Server) spaceTree(w http.ResponseWriter, r *http.Request) (any, error) 
 	}
 	var suspects []space.Suspect
 	home, _ := os.UserHomeDir()
-	if home != "" && at == "" && (root == "/" || root == filepath.Clean(home)) {
+	// The usual places under the home folder when the disk or the home
+	// is measured; folders known by name wherever they sit, always.
+	if at == "" {
 		suspects = space.FindSuspects(sc.tree, root, home)
 	}
 	if suspects == nil {

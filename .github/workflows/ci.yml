@@ -65,3 +65,17 @@ jobs:
         with:
           name: lumpy-macos-universal
           path: dist/Lumpy.app/Contents/Resources/lumpy
+
+  # Lumpy for iPad: the engine bound into a framework and the app built
+  # unsigned, to prove the Swift and the binding compile. Installing it
+  # needs Xcode on a Mac with an Apple ID (see ios/build.sh).
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install golang.org/x/mobile/cmd/gomobile@latest && "$(go env GOPATH)/bin/gomobile" init
+      - run: brew install xcodegen
+      - run: ios/build.sh --archive
