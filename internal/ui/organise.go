@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"unicode/utf16"
 
@@ -252,6 +253,7 @@ func (s *Server) spaceOrganise(w http.ResponseWriter, r *http.Request) (any, err
 		Path string   `json:"path"`
 		Op   string   `json:"op"`
 		Rel  string   `json:"rel"`
+		Rels []string `json:"rels"` // move: several at once
 		To   string   `json:"to"`
 		Tags []string `json:"tags"`
 	}
@@ -261,6 +263,9 @@ func (s *Server) spaceOrganise(w http.ResponseWriter, r *http.Request) (any, err
 	root := filepath.Clean(body.Path)
 	if st, err := os.Stat(root); err != nil || !st.IsDir() {
 		return nil, badRequest("measure the folder first")
+	}
+	if body.Op == "move" && len(body.Rels) > 0 {
+		return s.moveMany(root, body.Rels, body.To)
 	}
 	from, err := insidePlace(root, body.Rel)
 	if err != nil {
@@ -327,6 +332,197 @@ func (s *Server) spaceOrganise(w http.ResponseWriter, r *http.Request) (any, err
 	}
 	out := map[string]any{"ok": true}
 	if changed {
+		if j, err := s.measure(root); err == nil && j != nil {
+			out["job"] = j.ID
+		}
+	}
+	return out, nil
+}
+
+// fileKinds mirrors the UI's SP_KIND: what a file is, from its name.
+var fileKinds = map[string]string{
+	"jpg": "image", "jpeg": "image", "png": "image", "gif": "image", "tif": "image", "tiff": "image", "dng": "image", "dpx": "image", "heic": "image", "cr2": "image", "cr3": "image", "arw": "image", "nef": "image", "raf": "image", "psd": "image", "exr": "image", "webp": "image",
+	"mov": "video", "mp4": "video", "m4v": "video", "mxf": "video", "avi": "video", "mkv": "video", "mts": "video", "m2ts": "video", "braw": "video", "r3d": "video", "ari": "video", "crm": "video", "webm": "video",
+	"wav": "audio", "aif": "audio", "aiff": "audio", "mp3": "audio", "flac": "audio", "m4a": "audio", "caf": "audio", "bwf": "audio",
+	"pdf": "pdf",
+	"doc": "document", "docx": "document", "xls": "document", "xlsx": "document", "key": "document", "pages": "document", "numbers": "document", "txt": "document", "rtf": "document", "md": "document", "csv": "document", "pptx": "document",
+	"prproj": "project", "drp": "project", "drb": "project", "fcpxml": "project", "aep": "project", "xml": "project", "edl": "project", "ale": "project", "otio": "project",
+	"zip": "archive", "dmg": "archive", "pkg": "archive", "iso": "archive", "tar": "archive", "gz": "archive", "7z": "archive", "rar": "archive",
+}
+
+// bundleExts are folders that are really one thing; a walk does not
+// go into them and a move takes them whole.
+var bundleExts = map[string]bool{"app": true, "fcpbundle": true, "fcpcache": true, "photoslibrary": true, "numbers": true, "pages": true, "key": true, "rtfd": true, "bundle": true, "framework": true}
+
+func fileKind(name string) string {
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	if k, ok := fileKinds[ext]; ok {
+		return k
+	}
+	return "other"
+}
+
+type spaceFile struct {
+	Rel   string   `json:"rel"`
+	Size  int64    `json:"size"`
+	Mtime int64    `json:"mtime"`
+	Kind  string   `json:"kind"`
+	Tags  []string `json:"tags,omitempty"`
+}
+
+// spaceFiles is GET /api/space/files?path=&kind=&q=: every file of a
+// kind anywhere in a place, biggest first, so they can be moved
+// together wherever they sit. Hidden files and the insides of
+// bundles are left out; the list stops at a few thousand.
+func (s *Server) spaceFiles(w http.ResponseWriter, r *http.Request) (any, error) {
+	root := filepath.Clean(r.URL.Query().Get("path"))
+	if st, err := os.Stat(root); err != nil || !st.IsDir() {
+		return nil, badRequest("measure the folder first")
+	}
+	kind := r.URL.Query().Get("kind")
+	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	const limit = 4000
+	var files []spaceFile
+	var total int64
+	more := false
+	counts := map[string]int{}
+	filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || p == root {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			if bundleExts[strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		k := fileKind(name)
+		counts[k]++
+		if kind != "" && kind != "all" && k != kind {
+			return nil
+		}
+		if q != "" && !strings.Contains(strings.ToLower(name), q) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, p)
+		total += info.Size()
+		if len(files) >= limit {
+			more = true
+			return nil
+		}
+		files = append(files, spaceFile{Rel: filepath.ToSlash(rel), Size: info.Size(), Mtime: info.ModTime().Unix(), Kind: k, Tags: readTags(p)})
+		return nil
+	})
+	sort.SliceStable(files, func(i, j int) bool { return files[i].Size > files[j].Size })
+	if files == nil {
+		files = []spaceFile{}
+	}
+	return map[string]any{"files": files, "total": total, "more": more, "counts": counts}, nil
+}
+
+type spaceFolder struct {
+	Name     string         `json:"name"`
+	Rel      string         `json:"rel"`
+	Files    int            `json:"files"`
+	Children []*spaceFolder `json:"children,omitempty"`
+}
+
+// spaceFolders is GET /api/space/folders?path=: the folders of a
+// place as a tree, each with how many files sit directly in it, for
+// choosing where things go.
+func (s *Server) spaceFolders(w http.ResponseWriter, r *http.Request) (any, error) {
+	root := filepath.Clean(r.URL.Query().Get("path"))
+	if st, err := os.Stat(root); err != nil || !st.IsDir() {
+		return nil, badRequest("measure the folder first")
+	}
+	var walk func(dir, rel string, depth int) *spaceFolder
+	walk = func(dir, rel string, depth int) *spaceFolder {
+		f := &spaceFolder{Name: filepath.Base(dir), Rel: rel}
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return f
+		}
+		for _, e := range ents {
+			name := e.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if !e.IsDir() || bundleExts[strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))] {
+				f.Files++
+				continue
+			}
+			if depth < 10 {
+				child := rel + "/" + name
+				if rel == "" {
+					child = name
+				}
+				f.Children = append(f.Children, walk(filepath.Join(dir, name), child, depth+1))
+			}
+		}
+		sort.Slice(f.Children, func(i, j int) bool { return natLess(f.Children[i].Name, f.Children[j].Name) })
+		return f
+	}
+	return walk(root, "", 0), nil
+}
+
+// moveMany moves several things into one folder of the place; what
+// could not go is reported by name and the rest still goes.
+func (s *Server) moveMany(root string, rels []string, to string) (any, error) {
+	dir, err := insidePlace(root, to)
+	if err != nil {
+		return nil, err
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return nil, badRequest("choose a folder to move into")
+	}
+	var moved []string
+	var failed []string
+	for _, rel := range rels {
+		from, err := insidePlace(root, rel)
+		if err != nil || from == root {
+			failed = append(failed, filepath.Base(rel)+": outside the place")
+			continue
+		}
+		if dir == from || strings.HasPrefix(dir, from+string(filepath.Separator)) {
+			failed = append(failed, filepath.Base(rel)+": a folder cannot move into itself")
+			continue
+		}
+		if filepath.Dir(from) == dir {
+			continue // already there
+		}
+		dest := filepath.Join(dir, filepath.Base(from))
+		if _, err := os.Stat(dest); err == nil {
+			failed = append(failed, filepath.Base(rel)+": already in that folder")
+			continue
+		}
+		if err := os.Rename(from, dest); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", filepath.Base(rel), err))
+			continue
+		}
+		moved = append(moved, rel)
+	}
+	if moved == nil {
+		moved = []string{}
+	}
+	if failed == nil {
+		failed = []string{}
+	}
+	out := map[string]any{"ok": true, "moved": moved, "failed": failed}
+	if len(moved) > 0 {
 		if j, err := s.measure(root); err == nil && j != nil {
 			out["job"] = j.ID
 		}

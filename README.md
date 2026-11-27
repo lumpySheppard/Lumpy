@@ -726,6 +726,17 @@ set there shows as a dot before the name here. Everything moved or
 renamed is measured again, so the rings stay true. On the iPad
 these row actions are always showing, sized for a finger.
 
+**Move files**, the fourth view, is two Files windows with the
+finding done. On the left, every file of a kind anywhere in the
+place: all the clips, all the pictures, all the PDFs, documents,
+project files or archives, with a name filter on top, each with the
+folder it sits in (click that to see it in Folders). Tick some, or
+**Pick all**, shift-click for a run, and on the right the place's
+folders are a tree: tap the folder they go to and they are there,
+on the same disk, instantly; the **+** beside any folder makes a
+new one inside it first. **Undo** puts the last move back. What is
+ticked can also go to the Trash from the button above.
+
 Beside **Folders**, two more views of the same measurement.
 **Duplicates** finds the same file twice: every file of 1 MB or more
 is compared by length, the ones that share a length are read and

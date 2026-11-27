@@ -106,3 +106,50 @@ func mustJSON(s string) []byte {
 }
 
 func urlQuery(s string) string { return url.QueryEscape(s) }
+
+// All the PDFs anywhere in a place, picked and moved together into one
+// folder; the folder tree offered as destinations.
+func TestMoveManyThroughAPI(t *testing.T) {
+	s, ts, _ := setup(t)
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "Media", "DAY 1"), 0o755)
+	os.MkdirAll(filepath.Join(root, "Paperwork"), 0o755)
+	os.MkdirAll(filepath.Join(root, ".hidden"), 0o755)
+	os.WriteFile(filepath.Join(root, "Media", "DAY 1", "a.mov"), []byte("aaaa"), 0o644)
+	os.WriteFile(filepath.Join(root, "Media", "DAY 1", "callsheet.pdf"), []byte("pp"), 0o644)
+	os.WriteFile(filepath.Join(root, "release.pdf"), []byte("ppp"), 0o644)
+	os.WriteFile(filepath.Join(root, ".hidden", "x.pdf"), []byte("p"), 0o644)
+	q := func(s string) string { return string(mustJSON(s)) }
+	call(t, s, ts, "POST", "/api/space/scan", `{"path":`+q(root)+`}`, nil)
+	waitJobs(t, s, ts)
+	var got struct {
+		Files  []spaceFile    `json:"files"`
+		Counts map[string]int `json:"counts"`
+	}
+	call(t, s, ts, "GET", "/api/space/files?path="+urlQuery(root)+"&kind=pdf", "", &got)
+	if len(got.Files) != 2 || got.Files[0].Rel != "release.pdf" || got.Files[1].Rel != "Media/DAY 1/callsheet.pdf" {
+		t.Fatalf("pdfs: %+v", got.Files)
+	}
+	if got.Counts["video"] != 1 || got.Counts["pdf"] != 2 {
+		t.Fatalf("counts: %v", got.Counts)
+	}
+	var tree spaceFolder
+	call(t, s, ts, "GET", "/api/space/folders?path="+urlQuery(root), "", &tree)
+	if len(tree.Children) != 2 || tree.Children[0].Name != "Media" || tree.Children[0].Children[0].Rel != "Media/DAY 1" || tree.Children[0].Children[0].Files != 2 {
+		t.Fatalf("folders: %+v", tree)
+	}
+	var res struct {
+		Moved  []string `json:"moved"`
+		Failed []string `json:"failed"`
+	}
+	call(t, s, ts, "POST", "/api/space/organise", `{"path":`+q(root)+`,"op":"move","rels":["release.pdf","Media/DAY 1/callsheet.pdf","../etc/passwd"],"to":"Paperwork"}`, &res)
+	if len(res.Moved) != 2 || len(res.Failed) != 1 {
+		t.Fatalf("moved %v failed %v", res.Moved, res.Failed)
+	}
+	for _, n := range []string{"release.pdf", "callsheet.pdf"} {
+		if _, err := os.Stat(filepath.Join(root, "Paperwork", n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitJobs(t, s, ts)
+}

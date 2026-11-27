@@ -3687,7 +3687,7 @@ async function spaceMoveDialog(d, rel) {
   for (const b of document.querySelectorAll("[data-mv]")) b.onclick = async () => { close(); try { await spaceAct("move", rel, b.dataset.mv); toast(`${name} moved`); } catch (e) { toast(e.message, true); } };
 }
 const VD_LABEL = { safe: "safe to clear", check: "look first", critical: "critical", ok: "nothing against it" };
-const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "", thumbs: localGet("space.thumbs", "0") === "1" };
+const SP = { mv: { kind: "video", q: "", files: null, folders: null, open: new Set(), undo: null, mkdirIn: null, busy: false, total: 0, counts: {}, more: false }, places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "", thumbs: localGet("space.thumbs", "0") === "1" };
 async function renderSpace() {
   // A fault in this page must never take the tabs with it.
   try { await renderSpace1(); } catch (e) { console.error(e); $("#main").innerHTML = `<div class="empty"><h2>Space hit a snag</h2><p>${esc(e.message)}</p><p><button class="btn" onclick="SP.at='';SP.data=null;spaceLoad()">Start again</button></p></div>`; }
@@ -3710,11 +3710,11 @@ async function renderSpace1() {
     ${spaceOnly && !SP.places.length ? `<div class="empty">${ICON.pie}<h2>Add a folder to measure</h2><p>Lumpy for iPad measures the folders you grant it from the Files app: On My iPad, a drive on the USB-C port, iCloud Drive, or a folder another app shows there, such as DaVinci Resolve's. Tap <b>Add folder…</b>, choose one, and then <b>Measure</b>.</p></div>` : ""}
     ${SP.busy ? `<div class="empty">${loadingGlyph("")}<h2>Measuring ${esc(place.name || SP.root)}</h2><p id="sp-prog">${bytes(SP.data && SP.data.bytes || 0)} so far · see Activity for the folder it's reading</p></div>`
     : !d ? `<div class="empty">${ICON.pie}<h2>What's taking the room?</h2><p>Lumpy measures every folder on ${esc(place.name || "the disk")} and draws it as rings: the bigger the slice, the more it holds. Click a slice to look inside, hover for its size, tick the things to go and move them to the Trash in one go. Nothing is touched until you say so.</p><p><button class="btn primary" id="sp-scan2">${ICON.play}Measure ${esc(place.name || "")}</button></p></div>`
-    : `<div class="sp-body">
-        <div class="sp-chart" id="sp-chart">${sunburst(d.node)}</div>
+    : `<div class="sp-body ${SP.view === "move" ? "mv" : ""}">
+        ${SP.view === "move" ? "" : `<div class="sp-chart" id="sp-chart">${sunburst(d.node)}</div>`}
         <div class="sp-side">
-          <div class="seg sp-views" id="sp-views">${[["folders", "Folders"], ["dupes", "Duplicates"], ["old", "Not touched in a year"]].map(([v, l]) => `<button data-spv="${v}" class="${SP.view === v ? "on" : ""}">${l}</button>`).join("")}</div>
-          ${SP.view === "dupes" ? spaceDupesHTML() : SP.view === "old" ? spaceOldHTML() : `
+          <div class="seg sp-views" id="sp-views">${[["folders", "Folders"], ["dupes", "Duplicates"], ["old", "Not touched in a year"], ["move", "Move files"]].map(([v, l]) => `<button data-spv="${v}" class="${SP.view === v ? "on" : ""}">${l}</button>`).join("")}</div>
+          ${SP.view === "dupes" ? spaceDupesHTML() : SP.view === "old" ? spaceOldHTML() : SP.view === "move" ? spaceMoveHTML() : `
           <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
           <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span>
             <span class="sp-head-acts"><button class="btn small" id="sp-mkdir" title="A new folder here">${ICON.plus}New folder</button>${(d.node.children || []).some((c) => !c.dir && !c.rest && spPreviewable(c.name)) ? `<div class="seg sp-mode" id="sp-mode" title="Show the pictures and clips here as thumbnails"><button data-spm="list" class="${SP.thumbs ? "" : "on"}">List</button><button data-spm="thumbs" class="${SP.thumbs ? "on" : ""}">Thumbnails</button></div>` : ""}</span></div>
@@ -3784,7 +3784,8 @@ async function renderSpace1() {
   };
   for (const row of document.querySelectorAll("[data-sp-row]")) { row.onmouseenter = () => spHover(row.dataset.spRow); row.onmouseleave = () => spHover(null); row.ondblclick = () => { const c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === row.dataset.spRow); if (c && c.dir) { SP.at = row.dataset.spRow; spaceLoad(); } }; }
   if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
-  for (const b of document.querySelectorAll("[data-spv]")) b.onclick = () => { SP.view = b.dataset.spv; if (SP.view === "dupes" && !SP.dupes) spaceDupesLoad(); if (SP.view === "old" && !SP.old) spaceOldLoad(); renderSpace(); };
+  for (const b of document.querySelectorAll("[data-spv]")) b.onclick = () => { SP.view = b.dataset.spv; if (SP.view === "dupes" && !SP.dupes) spaceDupesLoad(); if (SP.view === "old" && !SP.old) spaceOldLoad(); if (SP.view === "move" && !SP.mv.files) spaceMoveLoad(); renderSpace(); };
+  spaceMoveWire();
   if ($("#sp-dupes-go")) $("#sp-dupes-go").onclick = async () => { try { await api("/api/space/dupes?path=" + encodeURIComponent(SP.root), { method: "POST" }); SP.dupes = { busy: true }; renderSpace(); loadJobs(); } catch (e) { toast(e.message, true); } };
   for (const b of document.querySelectorAll("[data-sp-dkind]")) b.onclick = () => { SP.dkind = b.dataset.spDkind; renderSpace(); };
   if ($("#sp-dfolder")) $("#sp-dfolder").onchange = (e) => { SP.dfolder = e.target.value; renderSpace(); };
@@ -3900,6 +3901,105 @@ function spaceOldHTML() {
     ${od.apps.length ? `<div class="sp-sus" style="margin-bottom:10px"><b>Apps not opened in ${od.days} days</b><div class="sp-list" style="margin-top:6px">${od.apps.map((a) => `<div class="sp-row" data-sp-row="${esc(a.rel)}"><input type="checkbox" class="pick" data-sp-pick="${esc(a.rel)}" ${SP.sel.has(a.rel) ? "checked" : ""}><span class="sp-name">${esc(a.name)}<small class="hint"> · last opened ${when2(a.lastUsed)}</small></span><span></span><span class="sp-size">${bytes(a.bytes)}</span><span class="sp-acts">${native ? `<button class="icon-btn" data-sp-reveal="${esc(a.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("")}</div><p class="hint" style="margin:6px 0 0">From Spotlight's last-used date. Apps it doesn't know about aren't listed.</p></div>` : ""}
     <div class="sp-list">${od.files.map((f) => `<div class="sp-row" data-sp-row="${esc(f.rel)}"><input type="checkbox" class="pick" data-sp-pick="${esc(f.rel)}" ${SP.sel.has(f.rel) ? "checked" : ""}><span class="sp-name" title="${esc(f.rel)}">${esc(f.rel.split("/").pop())}<small class="hint mono"> ${esc(f.rel.includes("/") ? f.rel.slice(0, f.rel.lastIndexOf("/")) : "")}</small></span><span class="hint" style="white-space:nowrap">${when2(Math.max(f.mtime, f.atime))}</span><span class="sp-size">${bytes(f.disk)}</span><span class="sp-acts">${native ? `<button class="icon-btn" data-sp-reveal="${esc(f.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("") || '<div class="hint">Nothing that old.</div>'}</div>`;
 }
+// Move files: two panes, like two Files windows but with the finding
+// done. Left, every file of a kind anywhere in the place (all the
+// clips, all the PDFs), to pick from; right, the place's folders:
+// tap one and the picked files go there. One step back is kept.
+const MV_KINDS = [["all", "Everything"], ["video", "Clips"], ["image", "Pictures"], ["audio", "Audio"], ["pdf", "PDFs"], ["document", "Documents"], ["project", "Project files"], ["archive", "Archives"], ["other", "Other"]];
+async function spaceMoveLoad() {
+  const m = SP.mv;
+  const want = SP.root + "\0" + m.kind + "\0" + m.q;
+  m.loading = want;
+  try {
+    const [f, t] = await Promise.all([api(`/api/space/files?path=${encodeURIComponent(SP.root)}&kind=${m.kind}&q=${encodeURIComponent(m.q)}`), api(`/api/space/folders?path=${encodeURIComponent(SP.root)}`)]);
+    if (m.loading !== want) return;
+    m.files = f.files; m.total = f.total; m.more = f.more; m.counts = f.counts || {}; m.folders = t;
+    if (!m.open.size) for (const c of t.children || []) m.open.add(c.rel);
+  } catch (e) { toast(e.message, true); m.files = m.files || []; m.folders = m.folders || { children: [] }; }
+  renderSpace();
+}
+function spaceMoveHTML() {
+  const m = SP.mv;
+  if (!m.files || !m.folders) return loadingGlyph("Finding every file…");
+  const when2 = (t) => t ? new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
+  const picked = m.files.filter((f) => SP.sel.has(f.rel));
+  const pickedBytes = picked.reduce((t, f) => t + f.size, 0);
+  const all = Object.values(m.counts).reduce((t, n) => t + n, 0);
+  const dir = (rel) => rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  const rows = m.files.map((f) => `<div class="sp-row mv-file ${SP.sel.has(f.rel) ? "picked" : ""}" data-sp-row="${esc(f.rel)}"><input type="checkbox" class="pick" data-sp-pick="${esc(f.rel)}" ${SP.sel.has(f.rel) ? "checked" : ""}><span class="sp-name" title="${esc(f.rel)}">${tagDots(f.tags)}${esc(f.rel.split("/").pop())}<small class="hint mono"> <button class="linkish" data-mv-go="${esc(dir(f.rel))}" title="See it in Folders">${esc(dir(f.rel) || "top of the place")}</button></small></span><span class="hint" style="white-space:nowrap">${when2(f.mtime)}</span><span class="sp-size">${bytes(f.size)}</span><span class="sp-acts">${!spPreviewable(f.rel) ? "" : `<button class="icon-btn" data-sp-peek="${esc(f.rel)}" title="Preview">${ICON.eye}</button>`}${native && !spaceOnly ? `<button class="icon-btn" data-sp-reveal="${esc(f.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("");
+  const tree = (n, depth) => (n.children || []).map((c) => {
+    const open = m.open.has(c.rel), kids = (c.children || []).length;
+    return `<div class="mv-row" style="padding-left:${6 + depth * 18}px" data-mv-row="${esc(c.rel)}">
+      <button class="mv-disc ${kids ? "" : "none"} ${open ? "open" : ""}" data-mv-open="${esc(c.rel)}" ${kids ? "" : "disabled"}>${ICON.right}</button>
+      <button class="mv-name" data-mv-to="${esc(c.rel)}" title="${SP.sel.size ? `Move ${SP.sel.size} here` : esc(c.rel)}">${ICON.folder}<span>${esc(c.name)}</span>${c.files ? `<small class="hint">${c.files}</small>` : ""}</button>
+      <button class="icon-btn mv-mk" data-mv-mk="${esc(c.rel)}" title="New folder inside">${ICON.plus}</button></div>
+      ${m.mkdirIn === c.rel ? mkrow(c.rel, depth + 1) : ""}${open ? tree(c, depth + 1) : ""}`;
+  }).join("");
+  const mkrow = (rel, depth) => `<div class="sp-edit mv-mkrow" style="padding-left:${6 + depth * 18}px"><input class="path-input" id="mv-mk-name" placeholder="New folder name"><button class="btn small primary" id="mv-mk-go">Make</button><button class="btn small" id="mv-mk-cancel">Cancel</button></div>`;
+  return `<div class="mv-panes ${SP.sel.size ? "armed" : ""}">
+    <div class="mv-files">
+      <div class="chips mv-kinds">${MV_KINDS.map(([k, l]) => `<button class="chip ${m.kind === k ? "on" : ""}" data-mv-kind="${k}">${l}<small>${(k === "all" ? all : m.counts[k] || 0).toLocaleString()}</small></button>`).join("")}</div>
+      <div class="mv-tools"><label class="search"><input class="path-input" id="mv-q" value="${esc(m.q)}" placeholder="Filter by name"></label><span class="hint">${m.files.length.toLocaleString()}${m.more ? "+" : ""} files · ${bytes(m.total)}</span><span class="right"><button class="btn small" id="mv-all" ${m.files.length ? "" : "disabled"}>Pick all</button><button class="btn small" id="mv-none" ${SP.sel.size ? "" : "disabled"}>None</button></span></div>
+      <div class="sp-list mv-filelist">${rows || `<div class="hint">No ${(MV_KINDS.find(([k]) => k === m.kind) || ["", "files"])[1].toLowerCase()} ${m.q ? "called that " : ""}in ${esc((SP.places.find((p) => p.path === SP.root) || {}).name || "this place")}.</div>`}</div>
+    </div>
+    <div class="mv-dest">
+      <div class="sp-head"><b>${SP.sel.size ? `${SP.sel.size} picked · ${bytes(pickedBytes)}` : "Where things go"}</b></div>
+      <p class="hint" style="margin:0 0 8px">${m.busy ? "Moving…" : SP.sel.size ? "Tap the folder they go to. Each goes on the same disk, so it is instant." : "Pick files on the left, then tap a folder here. The + makes a folder inside one."}</p>
+      ${m.undo ? `<div class="mv-undo"><span>${m.undo.n} moved to <b>${esc(m.undo.to || "the top")}</b></span><button class="btn small" id="mv-undo">Undo</button></div>` : ""}
+      <div class="mv-tree">
+        <div class="mv-row" data-mv-row=""><span class="mv-disc none"></span><button class="mv-name" data-mv-to="" title="${SP.sel.size ? `Move ${SP.sel.size} to the top` : "The top of the place"}">${ICON.folder}<span>${esc((SP.places.find((p) => p.path === SP.root) || {}).name || "Top")}</span>${m.folders.files ? `<small class="hint">${m.folders.files}</small>` : ""}</button><button class="icon-btn mv-mk" data-mv-mk="" title="New folder at the top">${ICON.plus}</button></div>
+        ${m.mkdirIn === "" ? mkrow("", 1) : ""}
+        ${tree(m.folders, 1)}
+      </div>
+    </div>
+  </div>`;
+}
+function spaceMoveWire() {
+  const m = SP.mv;
+  for (const b of document.querySelectorAll("[data-mv-kind]")) b.onclick = () => { m.kind = b.dataset.mvKind; m.files = null; renderSpace(); spaceMoveLoad(); };
+  const q = $("#mv-q");
+  if (q) { q.oninput = () => { m.q = q.value; clearTimeout(m.qt); m.qt = setTimeout(() => { m.focus = true; spaceMoveLoad(); }, 250); }; if (m.focus) { m.focus = false; q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+  if ($("#mv-all")) $("#mv-all").onclick = () => { for (const f of m.files) SP.sel.add(f.rel); renderSpace(); };
+  if ($("#mv-none")) $("#mv-none").onclick = () => { SP.sel.clear(); renderSpace(); };
+  for (const b of document.querySelectorAll("[data-mv-go]")) b.onclick = (e) => { e.preventDefault(); SP.view = "folders"; SP.at = b.dataset.mvGo; spaceLoad(); };
+  for (const b of document.querySelectorAll("[data-mv-open]")) b.onclick = () => { const r = b.dataset.mvOpen; if (m.open.has(r)) m.open.delete(r); else m.open.add(r); renderSpace(); };
+  for (const b of document.querySelectorAll("[data-mv-to]")) b.onclick = () => { const r = b.dataset.mvTo; if (!SP.sel.size) { if (m.open.has(r)) m.open.delete(r); else m.open.add(r); renderSpace(); return; } spaceMoveTo(r); };
+  for (const b of document.querySelectorAll("[data-mv-mk]")) b.onclick = () => { m.mkdirIn = b.dataset.mvMk; m.open.add(b.dataset.mvMk); renderSpace().then(() => { const i = $("#mv-mk-name"); if (i) i.focus(); }); };
+  if ($("#mv-mk-cancel")) $("#mv-mk-cancel").onclick = () => { m.mkdirIn = null; renderSpace(); };
+  if ($("#mv-mk-go")) { const go = async () => { const to = $("#mv-mk-name").value.trim(); if (!to) return; const inside = m.mkdirIn; m.mkdirIn = null; try { await api("/api/space/organise", { method: "POST", body: { path: SP.root, op: "mkdir", rel: inside, to } }); m.open.add(inside ? inside + "/" + to : to); toast(`${to} made`); } catch (e) { toast(e.message, true); } spaceMoveLoad(); }; $("#mv-mk-go").onclick = go; $("#mv-mk-name").onkeydown = (e) => { if (e.key === "Enter") go(); else if (e.key === "Escape") { m.mkdirIn = null; renderSpace(); } }; }
+  if ($("#mv-undo")) $("#mv-undo").onclick = spaceMoveUndo;
+}
+// spaceMoveTo moves what is picked into one folder of the place; the
+// measurement is redone behind, and the two panes are read again.
+async function spaceMoveTo(to) {
+  const m = SP.mv;
+  const rels = [...SP.sel];
+  const base = (r) => r.split("/").pop();
+  const dir = (r) => r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : "";
+  m.busy = true; renderSpace();
+  try {
+    const r = await api("/api/space/organise", { method: "POST", body: { path: SP.root, op: "move", rels, to } });
+    m.undo = r.moved.length ? { n: r.moved.length, to, back: r.moved.map((f) => ({ now: (to ? to + "/" : "") + base(f), dir: dir(f) })) } : null;
+    SP.sel.clear();
+    if (r.failed.length) toast(r.failed.length === 1 ? r.failed[0] : `${r.failed.length} could not go: ${r.failed[0]}…`, true);
+    else toast(`${r.moved.length} moved to ${to || "the top"}`);
+  } catch (e) { toast(e.message, true); }
+  m.busy = false;
+  await spaceMoveLoad();
+}
+async function spaceMoveUndo() {
+  const m = SP.mv, u = m.undo;
+  if (!u) return;
+  m.undo = null; m.busy = true; renderSpace();
+  const byDir = {};
+  for (const b of u.back) (byDir[b.dir] = byDir[b.dir] || []).push(b.now);
+  try {
+    for (const [dir, rels] of Object.entries(byDir)) await api("/api/space/organise", { method: "POST", body: { path: SP.root, op: "move", rels, to: dir } });
+    toast(`${u.n} put back`);
+  } catch (e) { toast(e.message, true); }
+  m.busy = false;
+  await spaceMoveLoad();
+}
 async function spaceDupesLoad() {
   try { SP.dupes = await api("/api/space/dupes?path=" + encodeURIComponent(SP.root)); } catch (e) { SP.dupes = { ready: false }; }
   renderSpace();
@@ -3912,7 +4012,7 @@ async function spaceLoad() {
   try {
     const r = await api(`/api/space?path=${encodeURIComponent(SP.root)}&at=${encodeURIComponent(SP.at)}&depth=4`);
     if (r.busy) { SP.busy = true; SP.data = { root: SP.root, bytes: r.bytes }; }
-    else { if (SP.busy || !SP.data || SP.data.root !== SP.root || (SP.data.measured && r.measured !== SP.data.measured)) { SP.dupes = null; SP.old = null; } SP.busy = false; SP.data = r; }
+    else { if (SP.busy || !SP.data || SP.data.root !== SP.root || (SP.data.measured && r.measured !== SP.data.measured)) { SP.dupes = null; SP.old = null; SP.mv.files = SP.mv.folders = null; } SP.busy = false; SP.data = r; }
   } catch (e) {
     SP.busy = false; SP.data = null;
     if (!/not measured/.test(e.message)) toast(e.message, true);

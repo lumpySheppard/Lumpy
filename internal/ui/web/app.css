@@ -1346,3 +1346,24 @@ main.map-main { padding: 0; overflow: hidden; }
 :root[data-style="classic"] .tagmenu { border: 1px solid var(--ink); border-radius: 4px; box-shadow: 2px 2px 0 var(--ink); background: var(--paper); }
 /* Touch: the row actions are always there on the iPad. */
 :root.space-only .sp-acts { opacity: 1; } :root.space-only .sp-row { padding: 8px 8px; } :root.space-only .sp-acts .icon-btn { width: 32px; height: 30px; }
+
+/* Move files: the two panes. */
+.sp-body.mv { grid-template-columns: 1fr; }
+.mv-panes { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+@media (max-width: 860px) { .mv-panes { grid-template-columns: 1fr; } }
+.mv-kinds { margin: 0 0 10px; } .mv-kinds .chip { cursor: pointer; font: inherit; font-size: 12px; } .mv-kinds .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.mv-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; } .mv-tools .path-input { width: 200px; } .mv-tools .right { margin-left: auto; display: flex; gap: 6px; }
+.mv-filelist { max-height: calc(100vh - 300px); overflow: auto; } .mv-file.picked { background: var(--accent-soft); }
+.linkish { background: none; border: 0; padding: 0; margin: 0; color: inherit; font: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; } .linkish:hover { color: var(--text); }
+.mv-dest { position: sticky; top: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--panel); max-height: calc(100vh - 140px); overflow: auto; }
+.mv-row { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 0; }
+.mv-disc { width: 20px; height: 24px; background: none; border: 0; padding: 0; color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; transition: transform .12s; } .mv-disc svg { width: 14px; height: 14px; } .mv-disc.open { transform: rotate(90deg); } .mv-disc.none { visibility: hidden; }
+.mv-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; background: none; border: 1px solid transparent; border-radius: 8px; padding: 5px 8px; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.mv-name svg { width: 15px; height: 15px; color: var(--muted); flex: none; } .mv-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .mv-name small { margin-left: auto; padding-left: 8px; }
+.mv-name:hover { background: var(--bg-2); }
+.mv-panes.armed .mv-name { border-color: var(--line); } .mv-panes.armed .mv-name:hover { background: var(--accent-soft); border-color: var(--accent); }
+.mv-mk { opacity: 0; } .mv-row:hover .mv-mk, :root.space-only .mv-mk { opacity: 1; }
+.mv-mkrow { padding: 4px 0 6px; } .mv-mkrow .path-input { width: 180px; }
+.mv-undo { display: flex; align-items: center; gap: 10px; padding: 6px 10px; margin-bottom: 8px; border-radius: 8px; background: var(--bg-2); font-size: 12.5px; } .mv-undo span { flex: 1; }
+:root[data-style="classic"] .mv-dest, :root[data-style="classic"] .mv-name, :root[data-style="classic"] .mv-undo { border-radius: 0; }
+@media (max-width: 860px) { .mv-filelist { max-height: 42vh; } .mv-dest { position: static; max-height: none; } }
