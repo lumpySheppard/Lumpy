@@ -3687,7 +3687,7 @@ async function spaceMoveDialog(d, rel) {
   for (const b of document.querySelectorAll("[data-mv]")) b.onclick = async () => { close(); try { await spaceAct("move", rel, b.dataset.mv); toast(`${name} moved`); } catch (e) { toast(e.message, true); } };
 }
 const VD_LABEL = { safe: "safe to clear", check: "look first", critical: "critical", ok: "nothing against it" };
-const SP = { mv: { kind: "video", q: "", thumbs: localGet("space.mvthumbs", "1") === "1", files: null, folders: null, open: new Set(), undo: null, mkdirIn: null, busy: false, total: 0, counts: {}, more: false }, places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "", thumbs: localGet("space.thumbs", "0") === "1" };
+const SP = { ng: { data: null, busy: false }, mv: { kind: "video", q: "", thumbs: localGet("space.mvthumbs", "1") === "1", files: null, folders: null, open: new Set(), undo: null, mkdirIn: null, busy: false, total: 0, counts: {}, more: false }, places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "", thumbs: localGet("space.thumbs", "0") === "1" };
 async function renderSpace() {
   // A fault in this page must never take the tabs with it.
   try { await renderSpace1(); } catch (e) { console.error(e); $("#main").innerHTML = `<div class="empty"><h2>Space hit a snag</h2><p>${esc(e.message)}</p><p><button class="btn" onclick="SP.at='';SP.data=null;spaceLoad()">Start again</button></p></div>`; }
@@ -3713,11 +3713,11 @@ async function renderSpace1() {
     : `<div class="sp-body ${SP.view === "move" ? "mv" : ""}">
         ${SP.view === "move" ? "" : `<div class="sp-chart" id="sp-chart">${sunburst(d.node)}</div>`}
         <div class="sp-side">
-          <div class="seg sp-views" id="sp-views">${[["folders", "Folders"], ["dupes", "Duplicates"], ["old", "Not touched in a year"], ["move", "Move files"]].map(([v, l]) => `<button data-spv="${v}" class="${SP.view === v ? "on" : ""}">${l}</button>`).join("")}</div>
-          ${SP.view === "dupes" ? spaceDupesHTML() : SP.view === "old" ? spaceOldHTML() : SP.view === "move" ? spaceMoveHTML() : `
+          <div class="seg sp-views" id="sp-views">${[["folders", "Folders"], ["dupes", "Duplicates"], ["old", "Not touched in a year"], ["move", "Move files"], ["negs", "Negatives"]].map(([v, l]) => `<button data-spv="${v}" class="${SP.view === v ? "on" : ""}">${l}</button>`).join("")}</div>
+          ${SP.view === "dupes" ? spaceDupesHTML() : SP.view === "old" ? spaceOldHTML() : SP.view === "move" ? spaceMoveHTML() : SP.view === "negs" ? spaceNegsHTML() : `
           <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
           <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span>
-            <span class="sp-head-acts"><button class="btn small" id="sp-mkdir" title="A new folder here">${ICON.plus}New folder</button>${(d.node.children || []).some((c) => !c.dir && !c.rest && spPreviewable(c.name)) ? `<div class="seg sp-mode" id="sp-mode" title="Show the pictures and clips here as thumbnails"><button data-spm="list" class="${SP.thumbs ? "" : "on"}">List</button><button data-spm="thumbs" class="${SP.thumbs ? "on" : ""}">Thumbnails</button></div>` : ""}</span></div>
+            <span class="sp-head-acts">${(d.node.children || []).filter((c) => !c.dir && !c.rest).length >= 2 ? `<button class="btn small" id="sp-rename-all" title="Rename every file here by a pattern, in the order they were taken or numbered">${ICON.edit}Rename all…</button>` : ""}<button class="btn small" id="sp-mkdir" title="A new folder here">${ICON.plus}New folder</button>${(d.node.children || []).some((c) => !c.dir && !c.rest && spPreviewable(c.name)) ? `<div class="seg sp-mode" id="sp-mode" title="Show the pictures and clips here as thumbnails"><button data-spm="list" class="${SP.thumbs ? "" : "on"}">List</button><button data-spm="thumbs" class="${SP.thumbs ? "on" : ""}">Thumbnails</button></div>` : ""}</span></div>
           ${SP.mkdir ? `<div class="sp-edit" style="margin:0 0 8px"><input class="path-input" id="sp-mkdir-name" placeholder="New folder name"><button class="btn small primary" id="sp-mkdir-go">Make folder</button><button class="btn small" id="sp-mkdir-cancel">Cancel</button></div>` : ""}
           ${!SP.at && place.size && !spaceOnly ? spaceCoverage(d, place) : ""}
           ${(d.suspects || []).length ? `<details class="sp-sus" ${SP.susOpen ? "open" : ""}><summary><b>Usual suspects</b><span class="hint">· ${bytes(d.suspects.reduce((t, x) => t + (x.risk === "keep" ? 0 : x.bytes), 0))} in caches, renders and leftovers that can go</span></summary>
@@ -3759,12 +3759,13 @@ async function renderSpace1() {
   for (const b of document.querySelectorAll("[data-sp-save]")) b.onclick = async () => { const to = (document.querySelector("[data-sp-newname]") || {}).value.trim(); const rel = b.dataset.spSave; SP.editing = null; if (!to || to === rel.split("/").pop()) return renderSpace(); try { await spaceAct("rename", rel, to); } catch (e) { toast(e.message, true); renderSpace(); } };
   const nn = document.querySelector("[data-sp-newname]"); if (nn) nn.onkeydown = (e) => { if (e.key === "Enter") document.querySelector("[data-sp-save]").click(); else if (e.key === "Escape") { SP.editing = null; renderSpace(); } };
   for (const b of document.querySelectorAll("[data-sp-move]")) b.onclick = () => spaceMoveDialog(d, b.dataset.spMove);
+  if ($("#sp-rename-all")) $("#sp-rename-all").onclick = () => spaceRenameAll(d);
   if ($("#sp-mkdir")) $("#sp-mkdir").onclick = () => { SP.mkdir = true; renderSpace().then(() => { const i = $("#sp-mkdir-name"); if (i) i.focus(); }); };
   if ($("#sp-mkdir-cancel")) $("#sp-mkdir-cancel").onclick = () => { SP.mkdir = false; renderSpace(); };
   if ($("#sp-mkdir-go")) { const go = async () => { const to = $("#sp-mkdir-name").value.trim(); if (!to) return; SP.mkdir = false; try { await spaceAct("mkdir", SP.at, to); } catch (e) { toast(e.message, true); renderSpace(); } }; $("#sp-mkdir-go").onclick = go; $("#sp-mkdir-name").onkeydown = (e) => { if (e.key === "Enter") go(); else if (e.key === "Escape") { SP.mkdir = false; renderSpace(); } }; }
   // The tags of what is listed, read once per folder.
   if (d && SP.view === "folders" && (!SP.tags || SP.tagsAt !== SP.root + "\0" + SP.at)) { const at = SP.root + "\0" + SP.at; SP.tagsAt = at; api(`/api/space/tags?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(SP.at)}`).then((t) => { if (SP.tagsAt === at) { SP.tags = t || {}; if (Object.keys(SP.tags).length) renderSpace(); } }).catch(() => {}); }
-  for (const b of document.querySelectorAll("[data-sp-peek]")) b.onclick = () => spacePeek(b.dataset.spPeek, d, SP.view === "move" && SP.mv.files ? SP.mv.files.filter((f) => spPreviewable(f.rel)) : null);
+  for (const b of document.querySelectorAll("[data-sp-peek]")) b.onclick = () => spacePeek(b.dataset.spPeek, d, SP.view === "move" && SP.mv.files ? SP.mv.files.filter((f) => spPreviewable(f.rel)) : SP.view === "negs" && SP.ng.data ? SP.ng.data.pairs.flatMap((p) => [p.negative, ...p.positives]).filter((f) => spPreviewable(f.rel)) : null);
   fillNativeThumbs();
   for (const b of document.querySelectorAll("[data-spm]")) b.onclick = () => { SP.thumbs = b.dataset.spm === "thumbs"; localSet("space.thumbs", SP.thumbs ? "1" : "0"); renderSpace(); };
   // A tile's picture opens the preview; a folder tile opens the folder.
@@ -3785,7 +3786,8 @@ async function renderSpace1() {
   };
   for (const row of document.querySelectorAll("[data-sp-row]")) { row.onmouseenter = () => spHover(row.dataset.spRow); row.onmouseleave = () => spHover(null); row.ondblclick = () => { const c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === row.dataset.spRow); if (c && c.dir) { SP.at = row.dataset.spRow; spaceLoad(); } }; }
   if ($("#sp-trash")) $("#sp-trash").onclick = () => spaceTrash(d);
-  for (const b of document.querySelectorAll("[data-spv]")) b.onclick = () => { SP.view = b.dataset.spv; if (SP.view === "dupes" && !SP.dupes) spaceDupesLoad(); if (SP.view === "old" && !SP.old) spaceOldLoad(); if (SP.view === "move" && !SP.mv.files) spaceMoveLoad(); renderSpace(); };
+  for (const b of document.querySelectorAll("[data-spv]")) b.onclick = () => { SP.view = b.dataset.spv; if (SP.view === "dupes" && !SP.dupes) spaceDupesLoad(); if (SP.view === "old" && !SP.old) spaceOldLoad(); if (SP.view === "move" && !SP.mv.files) spaceMoveLoad(); if (SP.view === "negs" && !SP.ng.data) spaceNegsLoad(); renderSpace(); };
+  spaceNegsWire(d);
   spaceMoveWire();
   if ($("#sp-dupes-go")) $("#sp-dupes-go").onclick = async () => { try { await api("/api/space/dupes?path=" + encodeURIComponent(SP.root), { method: "POST" }); SP.dupes = { busy: true }; renderSpace(); loadJobs(); } catch (e) { toast(e.message, true); } };
   for (const b of document.querySelectorAll("[data-sp-dkind]")) b.onclick = () => { SP.dkind = b.dataset.spDkind; renderSpace(); };
@@ -4047,6 +4049,122 @@ async function spaceMoveUndo() {
   m.busy = false;
   await spaceMoveLoad();
 }
+// Rename all: the files in the folder in view, by a pattern, in the
+// order they were taken or numbered. A picture's files go together
+// (the raw beside the JPEG, the edit elsewhere in the place) and keep
+// their own endings.
+function spaceRenameAll(d) {
+  const st = { pattern: localGet("space.renamePattern", "{date} {nn}"), by: localGet("space.renameBy", "date"), start: 1, partners: true, plan: null, err: "" };
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  const folder = SP.at ? SP.at.split("/").pop() : (SP.places.find((p) => p.path === SP.root) || {}).name || "this folder";
+  let timer;
+  const preview = async () => {
+    try {
+      const r = await api("/api/space/photos/rename", { method: "POST", body: { path: SP.root, rel: SP.at, pattern: st.pattern, by: st.by, start: st.start, partners: st.partners, dry: true } });
+      st.plan = r.plan; st.groups = r.groups; st.err = "";
+    } catch (e) { st.plan = null; st.err = e.message; }
+    drawPlan();
+  };
+  const drawPlan = () => {
+    const box = $("#rn-plan"); if (!box) return;
+    if (st.err) { box.innerHTML = `<div class="alert bad">${esc(st.err)}</div>`; $("#rn-go").disabled = true; return; }
+    if (!st.plan) { box.innerHTML = loadingGlyph(""); return; }
+    const rows = st.plan.slice(0, 60);
+    const here = st.plan.filter((p) => !p.partner).length, there = st.plan.length - here;
+    box.innerHTML = `<p class="hint" style="margin:0 0 6px">${st.groups} pictures · ${here} files here${there ? ` · ${there} elsewhere renamed in step` : ""}${st.plan.length ? "" : " · nothing would change"}</p>
+      <table class="plain rn-table">${rows.map((p) => `<tr class="${p.partner ? "partner" : ""}"><td class="mono">${esc(p.from.split("/").pop())}${p.partner ? `<small class="hint"> in ${esc(p.from.slice(0, p.from.lastIndexOf("/")) || "the top")}</small>` : ""}</td><td class="hint">→</td><td class="mono"><b>${esc(p.to.split("/").pop())}</b></td></tr>`).join("")}</table>${st.plan.length > rows.length ? `<p class="hint">… and ${st.plan.length - rows.length} more</p>` : ""}`;
+    $("#rn-go").disabled = !st.plan.length;
+  };
+  openSheet(`<div class="sheet-head"><div><h2>Rename everything in ${esc(folder)}</h2><div class="sub">Each picture's files take one name: the raw beside the JPEG, the edit or export elsewhere in this place.</div></div><div class="actions"><button class="icon-btn" id="rn-close">${ICON.x}</button></div></div>
+    <div class="sheet-body">
+      <div class="form-row"><label>Pattern</label><input class="path-input" id="rn-pattern" value="${esc(st.pattern)}" spellcheck="false"></div>
+      <div class="chips rn-tokens">${[["{n}", "number"], ["{nn}", "2 places"], ["{nnn}", "3 places"], ["{date}", "date taken"], ["{year}", "year"], ["{month}", "month"], ["{day}", "day"], ["{time}", "time"], ["{name}", "old name"], ["{num}", "old number"]].map(([t, l]) => `<button class="chip" data-rn-tok="${t}" title="${l}">${t}<small>${l}</small></button>`).join("")}</div>
+      <div class="form-row"><label>Order</label><div class="seg" id="rn-by">${[["date", "Date taken"], ["number", "Number in the name"], ["name", "Name"]].map(([v, l]) => `<button data-rn-by="${v}" class="${st.by === v ? "on" : ""}">${l}</button>`).join("")}</div><label style="margin-left:14px">Start at</label><input class="path-input" id="rn-start" type="number" min="0" value="1" style="width:80px"></div>
+      <label class="check-row" style="margin:6px 0 10px"><input type="checkbox" id="rn-partners" checked> Rename these pictures' other files elsewhere in ${esc((SP.places.find((p) => p.path === SP.root) || {}).name || "the place")} too (edits, exports, sidecars with the same name)</label>
+      <div id="rn-plan">${loadingGlyph("")}</div>
+    </div>
+    <div class="sheet-foot"><button class="btn" id="rn-cancel">Cancel</button><button class="btn primary" id="rn-go" disabled>${ICON.edit}Rename</button></div>`);
+  $("#rn-close").onclick = $("#rn-cancel").onclick = close;
+  const again = () => { clearTimeout(timer); timer = setTimeout(preview, 250); };
+  $("#rn-pattern").oninput = (e) => { st.pattern = e.target.value; localSet("space.renamePattern", st.pattern); again(); };
+  $("#rn-start").oninput = (e) => { st.start = +e.target.value || 1; again(); };
+  $("#rn-partners").onchange = (e) => { st.partners = e.target.checked; again(); };
+  for (const b of document.querySelectorAll("[data-rn-by]")) b.onclick = () => { st.by = b.dataset.rnBy; localSet("space.renameBy", st.by); for (const x of document.querySelectorAll("[data-rn-by]")) x.classList.toggle("on", x === b); again(); };
+  for (const b of document.querySelectorAll("[data-rn-tok]")) b.onclick = () => { const i = $("#rn-pattern"); const at = i.selectionStart ?? i.value.length; i.value = i.value.slice(0, at) + b.dataset.rnTok + i.value.slice(i.selectionEnd ?? at); i.focus(); i.setSelectionRange(at + b.dataset.rnTok.length, at + b.dataset.rnTok.length); st.pattern = i.value; localSet("space.renamePattern", st.pattern); again(); };
+  $("#rn-go").onclick = async () => {
+    $("#rn-go").disabled = true;
+    try {
+      const r = await api("/api/space/photos/rename", { method: "POST", body: { path: SP.root, rel: SP.at, pattern: st.pattern, by: st.by, start: st.start, partners: st.partners } });
+      close(); toast(`${r.plan.length} files renamed`);
+      SP.tags = null; SP.mv.files = null; SP.ng.data = null;
+      if (r.job) { SP.data = null; SP.busy = true; renderSpace(); await waitForJob(r.job); SP.busy = false; }
+      spaceLoad();
+    } catch (e) { toast(e.message, true); $("#rn-go").disabled = false; }
+  };
+  preview();
+}
+// Negatives: every picture that exists as more than one file, the
+// original (a scan, a raw, a TIFF) matched to its edits and exports
+// wherever they sit, so the big one can go to the Trash or be made
+// small while the picture stays. The lab's zips, already unpacked,
+// are listed too.
+async function spaceNegsLoad() {
+  SP.ng.busy = true;
+  try { SP.ng.data = await api("/api/space/photos?path=" + encodeURIComponent(SP.root)); } catch (e) { toast(e.message, true); SP.ng.data = { pairs: [], zips: [], negativeBytes: 0, positiveBytes: 0 }; }
+  SP.ng.busy = false;
+  renderSpace();
+}
+function spaceNegsHTML() {
+  const g = SP.ng.data;
+  if (!g) return loadingGlyph(SP.ng.busy ? "Working on the negatives… see Activity" : "Matching negatives to positives…");
+  const dir = (rel) => rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  const picked = g.pairs.filter((p) => SP.sel.has(p.negative.rel));
+  const pickedBytes = picked.reduce((t, p) => t + p.negative.size, 0);
+  const zpicked = g.zips.filter((z) => SP.sel.has(z.rel));
+  const row = (f, cls) => `<div class="sp-row ng-row ${cls}" data-sp-row="${esc(f.rel)}">${cls === "neg" ? `<input type="checkbox" class="pick" data-sp-pick="${esc(f.rel)}" ${SP.sel.has(f.rel) ? "checked" : ""}>` : `<span></span>`}<span class="sp-name" title="${esc(f.rel)}"><span class="ng-pic" ${spPreviewable(f.rel) ? `data-sp-peek="${esc(f.rel)}"` : ""}>${spPreviewable(f.rel) ? spPicHTML(f.rel, 160) : `<span class="sp-glyph">${ICON.file}</span>`}</span><span class="ng-text"><b>${esc(f.rel.split("/").pop())}</b><small class="hint mono"><button class="linkish" data-mv-go="${esc(dir(f.rel))}">${esc(dir(f.rel) || "top")}</button></small></span></span><span class="hint">${cls === "neg" ? "negative" : "positive"}</span><span class="sp-size">${bytes(f.size)}</span><span class="sp-acts">${native && !spaceOnly ? `<button class="icon-btn" data-sp-reveal="${esc(f.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`;
+  return `<div class="sp-head"><b>${g.pairs.length} pictures with a negative and a positive</b><span class="hint">· negatives ${bytes(g.negativeBytes)} · positives ${bytes(g.positiveBytes)}</span>
+      <span class="sp-head-acts"><button class="btn small" id="ng-all" ${g.pairs.length ? "" : "disabled"}>Pick all negatives</button><button class="btn small" id="ng-none" ${SP.sel.size ? "" : "disabled"}>None</button></span></div>
+    <p class="hint" style="margin:0 0 10px">A negative is the file most like the original: a raw or TIFF over a JPEG, a bigger file over a smaller, a folder called scans or originals over one called exports or edits. Its positives share its name, with whatever an app hung on the end. Tick the negatives that can go once the positive is the one you keep, then put them in the Trash, or make each a smaller JPEG in its place (its name and date stay; on a Mac the metadata too).</p>
+    ${picked.length ? `<div class="mv-undo ng-bar"><span><b>${picked.length} negatives · ${bytes(pickedBytes)}</b></span><button class="btn small" id="ng-recompress">${ICON.edit}Make them smaller JPEGs…</button><button class="btn small danger" id="ng-trash">${ICON.trash}${spaceOnly ? "Delete" : "Move to the Trash"}…</button></div>` : ""}
+    <div class="sp-list ng-list">${g.pairs.map((p) => row(p.negative, "neg") + p.positives.map((q) => row(q, "pos")).join("")).join("") || `<div class="hint">No picture here exists twice under one name.</div>`}</div>
+    ${g.zips.length ? `<div class="sp-head" style="margin-top:18px"><b>${g.zips.length} unpacked zip${g.zips.length === 1 ? "" : "s"}</b><span class="hint">· their files are already out, by name</span>${zpicked.length ? `<span class="sp-head-acts"><button class="btn small danger" id="ng-ztrash">${ICON.trash}${spaceOnly ? "Delete" : "Move to the Trash"} ${zpicked.length}…</button></span>` : ""}</div>
+    <div class="sp-list">${g.zips.map((z) => `<div class="sp-row" data-sp-row="${esc(z.rel)}"><input type="checkbox" class="pick" data-sp-pick="${esc(z.rel)}" ${SP.sel.has(z.rel) ? "checked" : ""}><span class="sp-name" title="${esc(z.rel)}">${esc(z.rel.split("/").pop())}<small class="hint mono"> ${esc(dir(z.rel) || "")}</small></span><span class="hint">${z.found} of ${z.entries} files found outside it</span><span class="sp-size">${bytes(z.size)}</span><span class="sp-acts">${native && !spaceOnly ? `<button class="icon-btn" data-sp-reveal="${esc(z.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("")}</div>` : ""}`;
+}
+function spaceNegsWire(d) {
+  const g = SP.ng.data;
+  if (!g || SP.view !== "negs") return;
+  if ($("#ng-all")) $("#ng-all").onclick = () => { for (const p of g.pairs) SP.sel.add(p.negative.rel); renderSpace(); };
+  if ($("#ng-none")) $("#ng-none").onclick = () => { SP.sel.clear(); renderSpace(); };
+  const trash = (keep) => { for (const r of [...SP.sel]) if (!keep.has(r)) SP.sel.delete(r); spaceTrash(d); };
+  if ($("#ng-trash")) $("#ng-trash").onclick = () => trash(new Set(g.pairs.map((p) => p.negative.rel)));
+  if ($("#ng-ztrash")) $("#ng-ztrash").onclick = () => trash(new Set(g.zips.map((z) => z.rel)));
+  if ($("#ng-recompress")) $("#ng-recompress").onclick = () => spaceRecompress(g.pairs.filter((p) => SP.sel.has(p.negative.rel)));
+}
+function spaceRecompress(pairs) {
+  const total = pairs.reduce((t, p) => t + p.negative.size, 0);
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  openSheet(`<div class="sheet-head"><div><h2>Make ${pairs.length} negatives smaller</h2><div class="sub">${bytes(total)} now. Each becomes a JPEG beside the positive, same name, same date; the original goes to the ${spaceOnly ? "bin" : "Trash"}.</div></div><div class="actions"><button class="icon-btn" id="rc-close">${ICON.x}</button></div></div>
+    <div class="sheet-body">
+      <div class="form-row"><label>Quality</label><div class="seg" id="rc-q">${[[92, "Best"], [85, "High"], [75, "Good"]].map(([v, l]) => `<button data-rc-q="${v}" class="${v === 85 ? "on" : ""}">${l} · ${v}</button>`).join("")}</div></div>
+      <div class="form-row"><label>Long side</label><div class="seg" id="rc-edge">${[[0, "Full size"], [6000, "6000 px"], [4000, "4000 px"], [3000, "3000 px"]].map(([v, l]) => `<button data-rc-edge="${v}" class="${v === 0 ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <p class="hint">A 16-bit TIFF scan is a tenth the size as a JPEG at high quality, full size. The picture itself stays as it is; what goes is room for edits you have already made. ${native && !spaceOnly ? "The Mac keeps the metadata and colour profile with it." : "The date stays with it."} One that would not get smaller is left as it is.</p>
+    </div>
+    <div class="sheet-foot"><button class="btn" id="rc-cancel">Cancel</button><button class="btn primary" id="rc-go">${ICON.play}Start</button></div>`, true);
+  let q = 85, edge = 0;
+  $("#rc-close").onclick = $("#rc-cancel").onclick = close;
+  for (const b of document.querySelectorAll("[data-rc-q]")) b.onclick = () => { q = +b.dataset.rcQ; for (const x of document.querySelectorAll("[data-rc-q]")) x.classList.toggle("on", x === b); };
+  for (const b of document.querySelectorAll("[data-rc-edge]")) b.onclick = () => { edge = +b.dataset.rcEdge; for (const x of document.querySelectorAll("[data-rc-edge]")) x.classList.toggle("on", x === b); };
+  $("#rc-go").onclick = async () => {
+    $("#rc-go").disabled = true;
+    try {
+      const r = await api("/api/space/photos/recompress", { method: "POST", body: { path: SP.root, rels: pairs.map((p) => p.negative.rel), quality: q, maxEdge: edge } });
+      close(); SP.sel.clear(); toast(`Recompressing ${pairs.length} · see Activity`); loadJobs();
+      SP.ng.data = null; SP.ng.busy = true; renderSpace();
+      await waitForJob(r.job);
+      SP.mv.files = null; SP.data = null; spaceNegsLoad(); spaceLoad();
+    } catch (e) { toast(e.message, true); $("#rc-go").disabled = false; }
+  };
+}
 async function spaceDupesLoad() {
   try { SP.dupes = await api("/api/space/dupes?path=" + encodeURIComponent(SP.root)); } catch (e) { SP.dupes = { ready: false }; }
   renderSpace();
@@ -4059,7 +4177,7 @@ async function spaceLoad() {
   try {
     const r = await api(`/api/space?path=${encodeURIComponent(SP.root)}&at=${encodeURIComponent(SP.at)}&depth=4`);
     if (r.busy) { SP.busy = true; SP.data = { root: SP.root, bytes: r.bytes }; }
-    else { if (SP.busy || !SP.data || SP.data.root !== SP.root || (SP.data.measured && r.measured !== SP.data.measured)) { SP.dupes = null; SP.old = null; SP.mv.files = SP.mv.folders = null; } SP.busy = false; SP.data = r; }
+    else { if (SP.busy || !SP.data || SP.data.root !== SP.root || (SP.data.measured && r.measured !== SP.data.measured)) { SP.dupes = null; SP.old = null; SP.mv.files = SP.mv.folders = null; SP.ng.data = null; } SP.busy = false; SP.data = r; }
   } catch (e) {
     SP.busy = false; SP.data = null;
     if (!/not measured/.test(e.message)) toast(e.message, true);

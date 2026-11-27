@@ -334,8 +334,12 @@ func (s *Server) spaceTrash(w http.ResponseWriter, r *http.Request) (any, error)
 	var full []string
 	for _, it := range body.Items {
 		it = strings.Trim(it, "/")
-		if it == "" || strings.Contains(it, "..") || (sc.tree.At(it) == nil && sc.bigAt(it) == nil) {
+		if it == "" || strings.Contains(it, "..") {
 			return nil, badRequest("%s is not in the measurement", it)
+		}
+		// Anything in the place: the small files the tree rolled up too.
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(it))); err != nil {
+			return nil, badRequest("%s is no longer there", it)
 		}
 		full = append(full, filepath.Join(root, filepath.FromSlash(it)))
 	}
@@ -419,6 +423,11 @@ func (s *Server) spaceCheck(w http.ResponseWriter, r *http.Request) (any, error)
 		if n == nil {
 			if b := sc.bigAt(rel); b != nil {
 				n = &space.Node{Name: path.Base(rel), Bytes: b.Disk, Len: b.Size, Files: 1}
+			} else if rel != "" && !strings.Contains(rel, "..") {
+				// A small file the tree rolled up: still in the place.
+				if st, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+					n = &space.Node{Name: path.Base(rel), Bytes: st.Size(), Len: st.Size(), Files: 1, Dir: st.IsDir()}
+				}
 			}
 		}
 		if rel == "" || strings.Contains(rel, "..") || n == nil {

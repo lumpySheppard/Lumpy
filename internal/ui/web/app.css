@@ -1369,3 +1369,12 @@ main.map-main { padding: 0; overflow: hidden; }
 @media (max-width: 860px) { .mv-filelist { max-height: 42vh; } .mv-dest { position: static; max-height: none; } }
 .sp-tile-where { display: block; padding: 0 8px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-nopic { display: grid; place-items: center; width: 100%; height: 100%; color: var(--muted); font-size: 12px; background: var(--bg-2); }
+/* Rename all and Negatives. */
+.rn-tokens { margin: 0 0 10px; } .rn-tokens .chip { cursor: pointer; font: inherit; font-size: 12px; font-family: var(--mono); }
+.rn-table { width: 100%; border-collapse: collapse; font-size: 12.5px; } .rn-table td { padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; } .rn-table tr.partner td { color: var(--text-2); } .rn-table td:nth-child(2) { width: 20px; text-align: center; }
+.ng-row.pos { opacity: .85; } .ng-row.pos .sp-name { padding-left: 22px; }
+.ng-row .sp-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ng-pic { flex: none; width: 56px; height: 40px; border-radius: 5px; overflow: hidden; background: var(--bg-2); display: grid; place-items: center; cursor: pointer; } .ng-pic img { width: 100%; height: 100%; object-fit: cover; display: block; } .ng-pic .sp-glyph { color: var(--muted); } .ng-pic svg { width: 18px; height: 18px; }
+.ng-text { display: flex; flex-direction: column; min-width: 0; } .ng-text b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ng-bar { margin-bottom: 10px; } .ng-bar .btn + .btn { margin-left: 6px; }
+.form-row { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; flex-wrap: wrap; } .form-row > label { font-size: 12.5px; color: var(--text-2); min-width: 60px; } .form-row .path-input { flex: 1; min-width: 200px; }

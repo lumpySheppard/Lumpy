@@ -743,6 +743,31 @@ PDFs preview too, first page. On the iPad the pictures come from
 the same renderer the Files app uses, so HEIC, clips, PDFs and raws
 all show.
 
+**Rename all…**, above a folder's list in Folders, renames every
+file there by a pattern, in the order the pictures were taken (EXIF,
+else the file's date), by the number in their names, or by name.
+The pattern's words are `{n}` `{nn}` `{nnn}` for the number, `{date}`
+`{year}` `{month}` `{day}` `{time}` for when the picture was taken,
+`{name}` and `{num}` for the old name and its number; a preview
+shows every old and new name before anything changes. A picture's
+files go together: the raw beside the JPEG, the sidecar, and, when
+asked, its edits and exports anywhere else in the place, each
+keeping its own ending ("-Edit", "_web"), so negative and positive
+stay one name.
+
+**Negatives**, the fifth view, is for film scans and raws. Every
+picture that exists as more than one file is matched up: the one
+most like the original (a raw or TIFF over a JPEG, the bigger file,
+a folder called scans or originals over one called exports or
+edits) is the negative, the rest its positives, wherever they sit,
+with a thumbnail of each. Tick the negatives whose positive is the
+one you keep and either put them in the Trash, or **make them
+smaller JPEGs**: each becomes a JPEG in its place with the same
+name and date (on a Mac the metadata and colour profile too) at a
+quality and long side you choose, the original goes to the Trash,
+and one that would not get smaller is left alone. Underneath, the
+zips a lab sent whose files are already unpacked, ready to go.
+
 Beside **Folders**, two more views of the same measurement.
 **Duplicates** finds the same file twice: every file of 1 MB or more
 is compared by length, the ones that share a length are read and
