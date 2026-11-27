@@ -122,7 +122,7 @@ func makeThumbWidth(ctx context.Context, full string, at float64, width int) ([]
 			return nil, err
 		}
 		return encodeThumb(img, width)
-	case ".heic", ".cr3", ".raf", ".psd", ".exr", ".webp":
+	case ".heic", ".cr3", ".raf", ".psd", ".exr", ".webp", ".pdf":
 		return sipsThumb(ctx, full, width)
 	}
 	if !videoExts[ext] {

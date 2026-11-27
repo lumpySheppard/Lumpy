@@ -3687,7 +3687,7 @@ async function spaceMoveDialog(d, rel) {
   for (const b of document.querySelectorAll("[data-mv]")) b.onclick = async () => { close(); try { await spaceAct("move", rel, b.dataset.mv); toast(`${name} moved`); } catch (e) { toast(e.message, true); } };
 }
 const VD_LABEL = { safe: "safe to clear", check: "look first", critical: "critical", ok: "nothing against it" };
-const SP = { mv: { kind: "video", q: "", files: null, folders: null, open: new Set(), undo: null, mkdirIn: null, busy: false, total: 0, counts: {}, more: false }, places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "", thumbs: localGet("space.thumbs", "0") === "1" };
+const SP = { mv: { kind: "video", q: "", thumbs: localGet("space.mvthumbs", "1") === "1", files: null, folders: null, open: new Set(), undo: null, mkdirIn: null, busy: false, total: 0, counts: {}, more: false }, places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "", thumbs: localGet("space.thumbs", "0") === "1" };
 async function renderSpace() {
   // A fault in this page must never take the tabs with it.
   try { await renderSpace1(); } catch (e) { console.error(e); $("#main").innerHTML = `<div class="empty"><h2>Space hit a snag</h2><p>${esc(e.message)}</p><p><button class="btn" onclick="SP.at='';SP.data=null;spaceLoad()">Start again</button></p></div>`; }
@@ -3764,13 +3764,14 @@ async function renderSpace1() {
   if ($("#sp-mkdir-go")) { const go = async () => { const to = $("#sp-mkdir-name").value.trim(); if (!to) return; SP.mkdir = false; try { await spaceAct("mkdir", SP.at, to); } catch (e) { toast(e.message, true); renderSpace(); } }; $("#sp-mkdir-go").onclick = go; $("#sp-mkdir-name").onkeydown = (e) => { if (e.key === "Enter") go(); else if (e.key === "Escape") { SP.mkdir = false; renderSpace(); } }; }
   // The tags of what is listed, read once per folder.
   if (d && SP.view === "folders" && (!SP.tags || SP.tagsAt !== SP.root + "\0" + SP.at)) { const at = SP.root + "\0" + SP.at; SP.tagsAt = at; api(`/api/space/tags?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(SP.at)}`).then((t) => { if (SP.tagsAt === at) { SP.tags = t || {}; if (Object.keys(SP.tags).length) renderSpace(); } }).catch(() => {}); }
-  for (const b of document.querySelectorAll("[data-sp-peek]")) b.onclick = () => spacePeek(b.dataset.spPeek, d);
+  for (const b of document.querySelectorAll("[data-sp-peek]")) b.onclick = () => spacePeek(b.dataset.spPeek, d, SP.view === "move" && SP.mv.files ? SP.mv.files.filter((f) => spPreviewable(f.rel)) : null);
+  fillNativeThumbs();
   for (const b of document.querySelectorAll("[data-spm]")) b.onclick = () => { SP.thumbs = b.dataset.spm === "thumbs"; localSet("space.thumbs", SP.thumbs ? "1" : "0"); renderSpace(); };
   // A tile's picture opens the preview; a folder tile opens the folder.
   for (const t of document.querySelectorAll(".sp-tile")) {
     const rel = t.dataset.spRow, c = (d.node.children || []).find((x) => (SP.at ? SP.at + "/" + x.name : x.name) === rel);
     const pic = t.querySelector(".sp-pic");
-    if (pic) pic.onclick = () => { if (c && c.dir) { SP.at = rel; spaceLoad(); } else if (c && spPreviewable(c.name)) spacePeek(rel, d); };
+    if (pic && !pic.dataset.spPeek) pic.onclick = () => { if (c && c.dir) { SP.at = rel; spaceLoad(); } else if (c && spPreviewable(c.name)) spacePeek(rel, d); };
   }
   // A tick with shift held ticks (or clears) everything from the last
   // tick to this one, in the order shown.
@@ -3815,7 +3816,7 @@ function spaceTilesHTML(d) {
   const rest = (d.node.children || []).find((c) => c.rest);
   return `<div class="sp-tiles">${kids.map((c) => {
     const rel = SP.at ? SP.at + "/" + c.name : c.name;
-    const pic = !c.dir && spPreviewable(c.name) ? `<img loading="lazy" src="/api/space/thumb?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(rel)}&w=320&t=${encodeURIComponent(token)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'), { className: 'sp-nopic', textContent: 'no preview' }))">` : `<span class="sp-glyph">${c.dir ? ICON.folder : ICON.file}</span>`;
+    const pic = !c.dir && spPreviewable(c.name) ? spPicHTML(rel, 320) : `<span class="sp-glyph">${c.dir ? ICON.folder : ICON.file}</span>`;
     const vd = d.verdicts && d.verdicts[c.name];
     return `<div class="sp-tile ${SP.sel.has(rel) ? "picked" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" title="${esc(c.name)}">
       <div class="sp-pic">${pic}</div>
@@ -3824,29 +3825,70 @@ function spaceTilesHTML(d) {
       <span class="sp-acts">${c.dir ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}<button class="icon-btn" data-sp-tag="${esc(rel)}" title="Tag colour">${ICON.tag}</button><button class="icon-btn" data-sp-edit="${esc(rel)}" title="Rename">${ICON.edit}</button><button class="icon-btn" data-sp-move="${esc(rel)}" title="Move to another folder here">${ICON.folder}</button>${native && !spaceOnly ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`;
   }).join("")}</div>${rest ? `<div class="hint" style="margin-top:8px">${rest.rest.toLocaleString()} smaller items · ${bytes(rest.bytes)}</div>` : ""}`;
 }
-function spPreviewable(name) { const k = SP_KIND[(name.split(".").pop() || "").toLowerCase()]; return k === "image" || k === "video"; }
+function spPreviewable(name) { const e = (name.split(".").pop() || "").toLowerCase(), k = SP_KIND[e]; return k === "image" || k === "video" || e === "pdf"; }
+// Pictures of files: the engine renders them on the Mac; on the iPad
+// the app does, through the same renderer the Files app uses, so
+// HEIC, clips, PDFs and raws all show. Native ones are filled in
+// after the page is drawn, a few at a time, and remembered.
+const nativeThumbs = spaceOnly && !!native;
+const NT = { have: new Map(), queue: [], running: 0 };
+function spPicHTML(rel, w, alt) {
+  const fallback = `this.replaceWith(Object.assign(document.createElement('span'), { className: 'sp-nopic', textContent: 'no preview' }))`;
+  if (!nativeThumbs) return `<img loading="lazy" src="/api/space/thumb?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(rel)}&w=${w}&t=${encodeURIComponent(token)}" alt="${alt || ""}" onerror="${fallback}">`;
+  const key = SP.root + "\0" + rel + "\0" + w, had = NT.have.get(key);
+  if (had === null) return `<span class="sp-nopic">no preview</span>`;
+  return `<img data-nthumb="${esc(rel)}" data-w="${w}" ${had ? `src="${had}"` : ""} alt="${alt || ""}">`;
+}
+function nativeThumb(rel, w) {
+  const key = SP.root + "\0" + rel + "\0" + w;
+  if (NT.have.has(key)) return Promise.resolve(NT.have.get(key));
+  return nativeCall("thumb", { path: SP.root.replace(/\/$/, "") + "/" + rel, w }).then((u) => { if (NT.have.size > 400) NT.have.clear(); NT.have.set(key, u || null); return u || null; });
+}
+function fillNativeThumbs() {
+  if (!nativeThumbs) return;
+  for (const img of document.querySelectorAll("img[data-nthumb]:not([src]):not([data-asked])")) {
+    img.dataset.asked = "1";
+    NT.queue.push(img);
+  }
+  const next = () => {
+    if (NT.running >= 3 || !NT.queue.length) return;
+    const img = NT.queue.shift();
+    if (!document.contains(img)) return next();
+    NT.running++;
+    nativeThumb(img.dataset.nthumb, +img.dataset.w).then((u) => { if (u) img.src = u; else img.replaceWith(Object.assign(document.createElement("span"), { className: "sp-nopic", textContent: "no preview" })); }).catch(() => {}).finally(() => { NT.running--; next(); });
+  };
+  next(); next(); next();
+}
 // spacePeek shows one file large, with the others in the same folder a
 // key press away. A file Lumpy can't render says why.
-function spacePeek(rel, d) {
+function spacePeek(rel, d, files) {
   const here = SP.at ? SP.at + "/" : "";
-  const list = (d.node.children || []).filter((c) => !c.dir && !c.rest && spPreviewable(c.name)).map((c) => here + c.name);
+  const list = files ? files.map((f) => f.rel) : (d.node.children || []).filter((c) => !c.dir && !c.rest && spPreviewable(c.name)).map((c) => here + c.name);
   let i = Math.max(0, list.indexOf(rel));
   const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; document.removeEventListener("keydown", keys); };
   const keys = (e) => { if (e.key === "Escape") close(); else if (e.key === "ArrowRight" && i < list.length - 1) { i++; draw(); } else if (e.key === "ArrowLeft" && i > 0) { i--; draw(); } };
   document.addEventListener("keydown", keys);
+  let tx = null;
+  const swipe = { start: (e) => { tx = e.touches[0].clientX; }, end: (e) => { if (tx === null) return; const dx = e.changedTouches[0].clientX - tx; tx = null; if (dx < -60 && i < list.length - 1) { i++; draw(); } else if (dx > 60 && i > 0) { i--; draw(); } } };
   const draw = async () => {
-    const p = list[i], c = (d.node.children || []).find((x) => here + x.name === p) || {};
+    const p = list[i], c = files ? (files.find((f) => f.rel === p) || {}) : ((d.node.children || []).find((x) => here + x.name === p) || {});
+    if (c.size && !c.bytes) c.bytes = c.size;
     const src = `/api/space/thumb?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(p)}&w=1600&t=${token}`;
-    openSheet(`<div class="sheet-head"><div><h2>${esc(p.split("/").pop())}</h2><div class="sub">${bytes(c.bytes || 0)} · ${i + 1} of ${list.length} in this folder · ← → to step through</div></div><div class="actions">${native ? `<button class="btn small" data-sp-reveal="${esc(p)}">${ICON.reveal}Show in Finder</button>` : ""}<button class="icon-btn" id="pk-prev" ${i ? "" : "disabled"}>${ICON.back}</button><button class="icon-btn" id="pk-next" ${i < list.length - 1 ? "" : "disabled"}>${ICON.right}</button><button class="icon-btn" id="pk-close">${ICON.x}</button></div></div>
+    openSheet(`<div class="sheet-head"><div><h2>${esc(p.split("/").pop())}</h2><div class="sub">${bytes(c.bytes || 0)} · ${i + 1} of ${list.length} ${files ? "listed" : "in this folder"} · ← → to step through</div></div><div class="actions">${native ? `<button class="btn small" data-sp-reveal="${esc(p)}">${ICON.reveal}Show in Finder</button>` : ""}<button class="icon-btn" id="pk-prev" ${i ? "" : "disabled"}>${ICON.back}</button><button class="icon-btn" id="pk-next" ${i < list.length - 1 ? "" : "disabled"}>${ICON.right}</button><button class="icon-btn" id="pk-close">${ICON.x}</button></div></div>
       <div class="sheet-body peek"><div class="peek-box">${loadingGlyph("Rendering…")}</div></div>`, true);
     $("#pk-close").onclick = close;
+    const bx = $(".peek-box"); if (bx) { bx.ontouchstart = swipe.start; bx.ontouchend = swipe.end; }
     $("#pk-prev").onclick = () => { if (i > 0) { i--; draw(); } };
     $("#pk-next").onclick = () => { if (i < list.length - 1) { i++; draw(); } };
     for (const b of document.querySelectorAll(".sheet [data-sp-reveal]")) b.onclick = () => nativeCall("reveal", { path: SP.root.replace(/\/$/, "") + "/" + b.dataset.spReveal });
     try {
-      const res = await fetch(src, { headers: { "X-Lumpy-Token": token } });
-      if (!res.ok) { let why = res.statusText; try { why = (await res.json()).error || why; } catch {} throw new Error(why); }
-      const url = URL.createObjectURL(await res.blob());
+      let url;
+      if (nativeThumbs) { url = await nativeThumb(p, 1600); if (!url) throw new Error("the iPad has no preview for this file"); }
+      else {
+        const res = await fetch(src, { headers: { "X-Lumpy-Token": token } });
+        if (!res.ok) { let why = res.statusText; try { why = (await res.json()).error || why; } catch {} throw new Error(why); }
+        url = URL.createObjectURL(await res.blob());
+      }
       const box = $(".peek-box"); if (box) box.innerHTML = `<img src="${url}" alt="">`;
     } catch (e) { const box = $(".peek-box"); if (box) box.innerHTML = `<div class="empty">${ICON.warn}<h2>No preview</h2><p>${esc(e.message)}</p><p class="hint">If this is a DPX or DNG Lumpy should read, tell the developer which camera or app wrote it.</p></div>`; }
   };
@@ -3939,8 +3981,12 @@ function spaceMoveHTML() {
   return `<div class="mv-panes ${SP.sel.size ? "armed" : ""}">
     <div class="mv-files">
       <div class="chips mv-kinds">${MV_KINDS.map(([k, l]) => `<button class="chip ${m.kind === k ? "on" : ""}" data-mv-kind="${k}">${l}<small>${(k === "all" ? all : m.counts[k] || 0).toLocaleString()}</small></button>`).join("")}</div>
-      <div class="mv-tools"><label class="search"><input class="path-input" id="mv-q" value="${esc(m.q)}" placeholder="Filter by name"></label><span class="hint">${m.files.length.toLocaleString()}${m.more ? "+" : ""} files · ${bytes(m.total)}</span><span class="right"><button class="btn small" id="mv-all" ${m.files.length ? "" : "disabled"}>Pick all</button><button class="btn small" id="mv-none" ${SP.sel.size ? "" : "disabled"}>None</button></span></div>
-      <div class="sp-list mv-filelist">${rows || `<div class="hint">No ${(MV_KINDS.find(([k]) => k === m.kind) || ["", "files"])[1].toLowerCase()} ${m.q ? "called that " : ""}in ${esc((SP.places.find((p) => p.path === SP.root) || {}).name || "this place")}.</div>`}</div>
+      <div class="mv-tools"><label class="search"><input class="path-input" id="mv-q" value="${esc(m.q)}" placeholder="Filter by name"></label><span class="hint">${m.files.length.toLocaleString()}${m.more ? "+" : ""} files · ${bytes(m.total)}</span><span class="right"><div class="seg sp-mode" title="Show the files as thumbnails"><button data-mvm="list" class="${m.thumbs ? "" : "on"}">List</button><button data-mvm="thumbs" class="${m.thumbs ? "on" : ""}">Thumbnails</button></div><button class="btn small" id="mv-all" ${m.files.length ? "" : "disabled"}>Pick all</button><button class="btn small" id="mv-none" ${SP.sel.size ? "" : "disabled"}>None</button></span></div>
+      ${m.thumbs && m.files.length ? `<div class="mv-filelist"><div class="sp-tiles">${m.files.map((f) => `<div class="sp-tile ${SP.sel.has(f.rel) ? "picked" : ""}" data-sp-row="${esc(f.rel)}" title="${esc(f.rel)}">
+        <div class="sp-pic" ${spPreviewable(f.rel) ? `data-sp-peek="${esc(f.rel)}"` : ""}>${spPreviewable(f.rel) ? spPicHTML(f.rel, 320) : `<span class="sp-glyph">${ICON.file}</span>`}</div>
+        <label class="sp-tile-foot"><input type="checkbox" class="pick" data-sp-pick="${esc(f.rel)}" ${SP.sel.has(f.rel) ? "checked" : ""}><span class="sp-tile-name">${tagDots(f.tags)}${esc(f.rel.split("/").pop())}</span><span class="sp-size">${bytes(f.size)}</span></label>
+        <small class="hint mono sp-tile-where"><button class="linkish" data-mv-go="${esc(dir(f.rel))}" title="See it in Folders">${esc(dir(f.rel) || "top")}</button></small>
+        <span class="sp-acts">${native && !spaceOnly ? `<button class="icon-btn" data-sp-reveal="${esc(f.rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`).join("")}</div></div>` : `<div class="sp-list mv-filelist">${rows || `<div class="hint">No ${(MV_KINDS.find(([k]) => k === m.kind) || ["", "files"])[1].toLowerCase()} ${m.q ? "called that " : ""}in ${esc((SP.places.find((p) => p.path === SP.root) || {}).name || "this place")}.</div>`}</div>`}
     </div>
     <div class="mv-dest">
       <div class="sp-head"><b>${SP.sel.size ? `${SP.sel.size} picked · ${bytes(pickedBytes)}` : "Where things go"}</b></div>
@@ -3956,6 +4002,7 @@ function spaceMoveHTML() {
 }
 function spaceMoveWire() {
   const m = SP.mv;
+  for (const b of document.querySelectorAll("[data-mvm]")) b.onclick = () => { m.thumbs = b.dataset.mvm === "thumbs"; localSet("space.mvthumbs", m.thumbs ? "1" : "0"); renderSpace(); };
   for (const b of document.querySelectorAll("[data-mv-kind]")) b.onclick = () => { m.kind = b.dataset.mvKind; m.files = null; renderSpace(); spaceMoveLoad(); };
   const q = $("#mv-q");
   if (q) { q.oninput = () => { m.q = q.value; clearTimeout(m.qt); m.qt = setTimeout(() => { m.focus = true; spaceMoveLoad(); }, 250); }; if (m.focus) { m.focus = false; q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }

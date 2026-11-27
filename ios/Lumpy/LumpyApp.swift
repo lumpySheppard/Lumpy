@@ -5,6 +5,7 @@
 // the page is the same one the Mac app shows, in Space-only mode.
 
 import SwiftUI
+import QuickLookThumbnailing
 import UniformTypeIdentifiers
 import WebKit
 import Mobile
@@ -132,6 +133,19 @@ struct WebView: UIViewRepresentable {
             case "open":
                 if let s = body["url"] as? String, let u = URL(string: s) { UIApplication.shared.open(u) }
                 resolve(id, true)
+            case "thumb":
+                // A picture of the file, the way the Files app would
+                // draw it: stills, HEIC, a frame of a clip, a PDF's
+                // first page, raws. Comes back as a data URL.
+                guard let p = body["path"] as? String else { resolve(id, nil); return }
+                let w = CGFloat((body["w"] as? Int) ?? 320)
+                let req = QLThumbnailGenerator.Request(fileAt: URL(fileURLWithPath: p), size: CGSize(width: w, height: w), scale: 1, representationTypes: .thumbnail)
+                QLThumbnailGenerator.shared.generateBestRepresentation(for: req) { rep, _ in
+                    let data = rep?.uiImage.jpegData(compressionQuality: 0.82)
+                    DispatchQueue.main.async {
+                        self.resolve(id, data.map { "data:image/jpeg;base64," + $0.base64EncodedString() })
+                    }
+                }
             default:
                 resolve(id, nil)
             }

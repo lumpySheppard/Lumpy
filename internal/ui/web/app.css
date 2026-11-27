@@ -1367,3 +1367,5 @@ main.map-main { padding: 0; overflow: hidden; }
 .mv-undo { display: flex; align-items: center; gap: 10px; padding: 6px 10px; margin-bottom: 8px; border-radius: 8px; background: var(--bg-2); font-size: 12.5px; } .mv-undo span { flex: 1; }
 :root[data-style="classic"] .mv-dest, :root[data-style="classic"] .mv-name, :root[data-style="classic"] .mv-undo { border-radius: 0; }
 @media (max-width: 860px) { .mv-filelist { max-height: 42vh; } .mv-dest { position: static; max-height: none; } }
+.sp-tile-where { display: block; padding: 0 8px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-nopic { display: grid; place-items: center; width: 100%; height: 100%; color: var(--muted); font-size: 12px; background: var(--bg-2); }

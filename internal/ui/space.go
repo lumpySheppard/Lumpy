@@ -778,9 +778,8 @@ func (s *Server) spaceThumb(w http.ResponseWriter, r *http.Request) (any, error)
 	if sc == nil || sc.tree == nil || rel == "" || strings.Contains(rel, "..") {
 		return nil, badRequest("measure it first")
 	}
-	if sc.tree.At(rel) == nil && sc.bigAt(rel) == nil {
-		return nil, httpError{http.StatusNotFound, "not in the measurement"}
-	}
+	// Anything in the place, not only what the tree kept apart: the
+	// Move files list shows the small ones too.
 	full := filepath.Join(root, filepath.FromSlash(rel))
 	st, err := os.Stat(full)
 	if err != nil {

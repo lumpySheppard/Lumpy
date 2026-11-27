@@ -33,7 +33,7 @@ targets:
           NSAllowsLocalNetworking: true
     settings:
       base:
-        MARKETING_VERSION: "0.7.34"
+        MARKETING_VERSION: "0.7.35"
         TARGETED_DEVICE_FAMILY: "2"
         SWIFT_VERSION: "5.9"
         PRODUCT_BUNDLE_IDENTIFIER: com.lumpy.ipad

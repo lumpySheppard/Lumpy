@@ -735,7 +735,13 @@ folder it sits in (click that to see it in Folders). Tick some, or
 folders are a tree: tap the folder they go to and they are there,
 on the same disk, instantly; the **+** beside any folder makes a
 new one inside it first. **Undo** puts the last move back. What is
-ticked can also go to the Trash from the button above.
+ticked can also go to the Trash from the button above. The list
+shows as thumbnails by default (**List / Thumbnails** switches), and
+a tap on any picture opens the preview inside Lumpy, with ← → or a
+swipe to step through everything listed, so no other app has to open.
+PDFs preview too, first page. On the iPad the pictures come from
+the same renderer the Files app uses, so HEIC, clips, PDFs and raws
+all show.
 
 Beside **Folders**, two more views of the same measurement.
 **Duplicates** finds the same file twice: every file of 1 MB or more
