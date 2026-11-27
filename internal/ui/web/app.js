@@ -3631,6 +3631,61 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.tab ==
 // Like DaisyDisk: measure a disk, see it as rings, drill in, put the
 // big things in the Trash. The measurement lives on the server; the
 // page asks for the rings around the folder in view.
+// Finder's tag colours, as the Finder draws them.
+const TAG_COLOURS = { Red: "#ff5257", Orange: "#f7a23b", Yellow: "#f7ce46", Green: "#5bd36b", Blue: "#3f8cff", Purple: "#b465f0", Gray: "#9a9aa0" };
+const tagDots = (tags) => (tags || []).map((t) => `<i class="tagdot" style="background:${TAG_COLOURS[t] || "var(--muted)"}" title="${esc(t)}"></i>`).join("");
+// spaceAct is one organising change inside the measured place: the
+// rings are measured again afterwards where things moved.
+async function spaceAct(op, rel, to, tags) {
+  const r = await api("/api/space/organise", { method: "POST", body: { path: SP.root, op, rel, to, tags } });
+  if (r.job) { SP.data = null; SP.busy = true; await renderSpace(); await waitForJob(r.job); SP.busy = false; SP.data = null; }
+  SP.tags = null;
+  await spaceLoad();
+}
+// spaceTagMenu offers the Finder's colours for one item.
+function spaceTagMenu(rel, current, anchor) {
+  const names = Object.keys(TAG_COLOURS);
+  const have = new Set(current || []);
+  const pop = document.createElement("div");
+  pop.className = "tagmenu";
+  pop.innerHTML = names.map((n) => `<button data-tag="${n}" class="${have.has(n) ? "on" : ""}"><i class="tagdot" style="background:${TAG_COLOURS[n]}"></i>${n}</button>`).join("") + `<button data-tag="" class="${have.size ? "" : "on"}"><i class="tagdot none"></i>No tag</button>`;
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.min(window.innerWidth - 170, r.left) + "px"; pop.style.top = (r.bottom + 4) + "px";
+  document.body.appendChild(pop);
+  // Above the button when there is no room below it.
+  if (r.bottom + 4 + pop.offsetHeight > window.innerHeight) pop.style.top = Math.max(8, r.top - 4 - pop.offsetHeight) + "px";
+  const close = () => { pop.remove(); document.removeEventListener("pointerdown", away, true); };
+  const away = (e) => { if (!pop.contains(e.target)) close(); };
+  setTimeout(() => document.addEventListener("pointerdown", away, true), 0);
+  for (const b of pop.querySelectorAll("[data-tag]")) b.onclick = async () => {
+    const n = b.dataset.tag;
+    let tags = [...have].filter((t) => !(t in TAG_COLOURS) || t === n);
+    if (n && !have.has(n)) tags = [n, ...tags.filter((t) => !(t in TAG_COLOURS))];
+    else if (n && have.has(n)) tags = tags.filter((t) => t !== n);
+    else if (!n) tags = [];
+    close();
+    try { await spaceAct("tag", rel, "", tags); } catch (e) { toast(e.message, true); }
+  };
+}
+// spaceMoveDialog picks a folder in the measured place to move into.
+async function spaceMoveDialog(d, rel) {
+  const name = rel.split("/").pop();
+  const folders = [];
+  // The whole place's folders, not just the ones in view.
+  let tree = d.node, top = SP.at;
+  try { tree = (await api(`/api/space?path=${encodeURIComponent(SP.root)}&at=&depth=8`)).node; top = ""; } catch {}
+  const walk = (n, p) => { for (const c of n.children || []) { if (!c.dir || c.rest) continue; const cp = p ? p + "/" + c.name : c.name; if (cp === rel || cp.startsWith(rel + "/")) continue; folders.push(cp); walk(c, cp); } };
+  walk(tree, top);
+  folders.sort((a, b) => a.localeCompare(b));
+  const parent = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  openSheet(`<div class="sheet-head"><h2>Move ${esc(name)}</h2><div class="actions"><button class="icon-btn" id="mv-close">${ICON.x}</button></div></div>
+    <div class="sheet-body" style="padding-top:12px"><p class="hint">Into which folder of ${esc((SP.places.find((p) => p.path === SP.root) || {}).name || "this place")}? It moves on the same disk, so it is instant.</p>
+      <div class="sp-list mv-list">${[""].concat(folders).filter((f) => f !== parent).map((f) => `<button class="sp-row mv-row" data-mv="${esc(f)}"><span class="pickcell">${ICON.folder}</span><span class="sp-name">${esc(f || "(top of the place)")}</span></button>`).join("") || `<p class="hint">No other folder here yet. Make one first.</p>`}</div>
+    </div><div class="sheet-foot"><button class="btn" id="mv-cancel">Cancel</button></div>`, true);
+  const close = () => { $("#sheet").hidden = true; $("#scrim").hidden = true; };
+  $("#mv-close").onclick = $("#mv-cancel").onclick = close;
+  for (const b of document.querySelectorAll("[data-mv]")) b.onclick = async () => { close(); try { await spaceAct("move", rel, b.dataset.mv); toast(`${name} moved`); } catch (e) { toast(e.message, true); } };
+}
 const VD_LABEL = { safe: "safe to clear", check: "look first", critical: "critical", ok: "nothing against it" };
 const SP = { places: null, root: localGet("space.root", ""), at: "", data: null, busy: false, hover: null, sel: new Set(), err: "", susOpen: true, view: "folders", dupes: null, old: null, dkind: "", dfolder: "", thumbs: localGet("space.thumbs", "0") === "1" };
 async function renderSpace() {
@@ -3662,7 +3717,8 @@ async function renderSpace1() {
           ${SP.view === "dupes" ? spaceDupesHTML() : SP.view === "old" ? spaceOldHTML() : `
           <div class="crumbs"><button class="crumb" data-sp-go="">${esc(place.name || SP.root)}</button>${crumbs.map((c, i) => `<span class="hint">›</span><button class="crumb" data-sp-go="${esc(crumbs.slice(0, i + 1).join("/"))}">${esc(c)}</button>`).join("")}</div>
           <div class="sp-head"><b>${bytes(d.node.bytes)}</b><span class="hint">· ${d.node.files.toLocaleString()} files · ${d.total ? Math.round((d.node.bytes / d.total) * 100) : 0}% of what was measured</span>
-            ${(d.node.children || []).some((c) => !c.dir && !c.rest && spPreviewable(c.name)) ? `<div class="seg sp-mode" id="sp-mode" title="Show the pictures and clips here as thumbnails"><button data-spm="list" class="${SP.thumbs ? "" : "on"}">List</button><button data-spm="thumbs" class="${SP.thumbs ? "on" : ""}">Thumbnails</button></div>` : ""}</div>
+            <span class="sp-head-acts"><button class="btn small" id="sp-mkdir" title="A new folder here">${ICON.plus}New folder</button>${(d.node.children || []).some((c) => !c.dir && !c.rest && spPreviewable(c.name)) ? `<div class="seg sp-mode" id="sp-mode" title="Show the pictures and clips here as thumbnails"><button data-spm="list" class="${SP.thumbs ? "" : "on"}">List</button><button data-spm="thumbs" class="${SP.thumbs ? "on" : ""}">Thumbnails</button></div>` : ""}</span></div>
+          ${SP.mkdir ? `<div class="sp-edit" style="margin:0 0 8px"><input class="path-input" id="sp-mkdir-name" placeholder="New folder name"><button class="btn small primary" id="sp-mkdir-go">Make folder</button><button class="btn small" id="sp-mkdir-cancel">Cancel</button></div>` : ""}
           ${!SP.at && place.size && !spaceOnly ? spaceCoverage(d, place) : ""}
           ${(d.suspects || []).length ? `<details class="sp-sus" ${SP.susOpen ? "open" : ""}><summary><b>Usual suspects</b><span class="hint">· ${bytes(d.suspects.reduce((t, x) => t + (x.risk === "keep" ? 0 : x.bytes), 0))} in caches, renders and leftovers that can go</span></summary>
             <div class="sp-list" style="margin-top:6px">${d.suspects.map((x) => `<div class="sp-row sus ${x.risk}" data-sp-row="${esc(x.rel)}" title="${esc(x.note)}">
@@ -3674,10 +3730,10 @@ async function renderSpace1() {
             <p class="hint" style="margin:6px 0 2px">${spaceOnly ? "Safe to clear means the app makes it again. Close the app first." : "Safe to clear means the app makes it again. Quit the app first. The Trash itself can only be emptied from the Finder."}</p></details>` : ""}
           ${SP.thumbs ? spaceTilesHTML(d) : `<div class="sp-list">${(d.node.children || []).map((c, i) => { const rel = SP.at ? SP.at + "/" + c.name : c.name; const pct = d.node.bytes ? (c.bytes / d.node.bytes) * 100 : 0; return `<div class="sp-row ${c.rest ? "rest" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" style="--sc:${c.rest ? "var(--muted)" : spColor(i, 0)}">
               ${c.rest ? '<span class="pickcell"></span>' : `<input type="checkbox" class="pick" data-sp-pick="${esc(rel)}" ${SP.sel.has(rel) ? "checked" : ""}>`}
-              <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : esc(c.name)}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}${d.copies && d.copies[c.name] ? ` <span class="badge ok" title="A file of this name and size is on ${d.copies[c.name]} logged drive${d.copies[c.name] === 1 ? "" : "s"}; check one before letting this go">${ICON.check}on ${d.copies[c.name]} drive${d.copies[c.name] === 1 ? "" : "s"}</span>` : ""}${d.verdicts && d.verdicts[c.name] ? ` <span class="vd ${d.verdicts[c.name].level}" title="${esc(d.verdicts[c.name].why)}">${VD_LABEL[d.verdicts[c.name].level]}</span>` : ""}</span>
+              <span class="sp-name" title="${esc(c.name)}">${c.rest ? `${c.rest.toLocaleString()} smaller items` : (SP.editing === rel ? `<span class="sp-edit"><input class="path-input" data-sp-newname="${esc(rel)}" value="${esc(c.name)}"><button class="btn small primary" data-sp-save="${esc(rel)}">Save</button><button class="btn small" data-sp-cancel>Cancel</button></span>` : tagDots(SP.tags && SP.tags[c.name]) + esc(c.name))}${c.error ? ` <span class="badge warn" title="${esc(c.error)}">${ICON.warn}</span>` : ""}${d.copies && d.copies[c.name] ? ` <span class="badge ok" title="A file of this name and size is on ${d.copies[c.name]} logged drive${d.copies[c.name] === 1 ? "" : "s"}; check one before letting this go">${ICON.check}on ${d.copies[c.name]} drive${d.copies[c.name] === 1 ? "" : "s"}</span>` : ""}${d.verdicts && d.verdicts[c.name] ? ` <span class="vd ${d.verdicts[c.name].level}" title="${esc(d.verdicts[c.name].why)}">${VD_LABEL[d.verdicts[c.name].level]}</span>` : ""}</span>
               <span class="sp-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
               <span class="sp-size">${bytes(c.bytes)}</span>
-              <span class="sp-acts">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${!c.dir && !c.rest && spPreviewable(c.name) ? `<button class="icon-btn" data-sp-peek="${esc(rel)}" title="Preview">${ICON.eye}</button>` : ""}${native && !c.rest ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>`}
+              <span class="sp-acts wide">${c.dir && !c.rest ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${!c.dir && !c.rest && spPreviewable(c.name) ? `<button class="icon-btn" data-sp-peek="${esc(rel)}" title="Preview">${ICON.eye}</button>` : ""}${!c.rest ? `<button class="icon-btn" data-sp-tag="${esc(rel)}" title="Tag colour">${ICON.tag}</button><button class="icon-btn" data-sp-edit="${esc(rel)}" title="Rename">${ICON.edit}</button><button class="icon-btn" data-sp-move="${esc(rel)}" title="Move to another folder here">${ICON.folder}</button>` : ""}${native && !c.rest && !spaceOnly ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`; }).join("") || '<div class="hint">Empty.</div>'}</div>`}
           <p class="hint" style="margin-top:10px">Sizes are what files take on disk. Each folder keeps its ${60} biggest items apart and rolls the rest into "smaller items". ${spaceOnly ? "The rest of the iPad, other apps and the system, is out of any app's reach; Settings › General › iPad Storage shows it." : "The Mac's own disk also holds system files, snapshots and purgeable space that no app can measure; what Finder says is used can be more than this."}</p>`}
         </div></div>`}
   </div>`;
@@ -3697,6 +3753,17 @@ async function renderSpace1() {
   for (const b of document.querySelectorAll("[data-sp-go]")) b.onclick = () => { SP.at = b.dataset.spGo; spaceLoad(); };
   for (const b of document.querySelectorAll("[data-sp-open]")) b.onclick = () => { SP.at = b.dataset.spOpen; spaceLoad(); };
   for (const b of document.querySelectorAll("[data-sp-reveal]")) b.onclick = () => nativeCall("reveal", { path: SP.root.replace(/\/$/, "") + "/" + b.dataset.spReveal });
+  for (const b of document.querySelectorAll("[data-sp-tag]")) b.onclick = (e) => { e.stopPropagation(); spaceTagMenu(b.dataset.spTag, SP.tags && SP.tags[b.dataset.spTag.split("/").pop()], b); };
+  for (const b of document.querySelectorAll("[data-sp-edit]")) b.onclick = () => { SP.editing = b.dataset.spEdit; renderSpace().then(() => { const i = document.querySelector("[data-sp-newname]"); if (i) { i.focus(); const dot = i.value.lastIndexOf("."); i.setSelectionRange(0, dot > 0 ? dot : i.value.length); } }); };
+  for (const b of document.querySelectorAll("[data-sp-cancel]")) b.onclick = () => { SP.editing = null; renderSpace(); };
+  for (const b of document.querySelectorAll("[data-sp-save]")) b.onclick = async () => { const to = (document.querySelector("[data-sp-newname]") || {}).value.trim(); const rel = b.dataset.spSave; SP.editing = null; if (!to || to === rel.split("/").pop()) return renderSpace(); try { await spaceAct("rename", rel, to); } catch (e) { toast(e.message, true); renderSpace(); } };
+  const nn = document.querySelector("[data-sp-newname]"); if (nn) nn.onkeydown = (e) => { if (e.key === "Enter") document.querySelector("[data-sp-save]").click(); else if (e.key === "Escape") { SP.editing = null; renderSpace(); } };
+  for (const b of document.querySelectorAll("[data-sp-move]")) b.onclick = () => spaceMoveDialog(d, b.dataset.spMove);
+  if ($("#sp-mkdir")) $("#sp-mkdir").onclick = () => { SP.mkdir = true; renderSpace().then(() => { const i = $("#sp-mkdir-name"); if (i) i.focus(); }); };
+  if ($("#sp-mkdir-cancel")) $("#sp-mkdir-cancel").onclick = () => { SP.mkdir = false; renderSpace(); };
+  if ($("#sp-mkdir-go")) { const go = async () => { const to = $("#sp-mkdir-name").value.trim(); if (!to) return; SP.mkdir = false; try { await spaceAct("mkdir", SP.at, to); } catch (e) { toast(e.message, true); renderSpace(); } }; $("#sp-mkdir-go").onclick = go; $("#sp-mkdir-name").onkeydown = (e) => { if (e.key === "Enter") go(); else if (e.key === "Escape") { SP.mkdir = false; renderSpace(); } }; }
+  // The tags of what is listed, read once per folder.
+  if (d && SP.view === "folders" && (!SP.tags || SP.tagsAt !== SP.root + "\0" + SP.at)) { const at = SP.root + "\0" + SP.at; SP.tagsAt = at; api(`/api/space/tags?path=${encodeURIComponent(SP.root)}&rel=${encodeURIComponent(SP.at)}`).then((t) => { if (SP.tagsAt === at) { SP.tags = t || {}; if (Object.keys(SP.tags).length) renderSpace(); } }).catch(() => {}); }
   for (const b of document.querySelectorAll("[data-sp-peek]")) b.onclick = () => spacePeek(b.dataset.spPeek, d);
   for (const b of document.querySelectorAll("[data-spm]")) b.onclick = () => { SP.thumbs = b.dataset.spm === "thumbs"; localSet("space.thumbs", SP.thumbs ? "1" : "0"); renderSpace(); };
   // A tile's picture opens the preview; a folder tile opens the folder.
@@ -3751,9 +3818,9 @@ function spaceTilesHTML(d) {
     const vd = d.verdicts && d.verdicts[c.name];
     return `<div class="sp-tile ${SP.sel.has(rel) ? "picked" : ""} ${SP.hover === rel ? "hot" : ""}" data-sp-row="${esc(rel)}" title="${esc(c.name)}">
       <div class="sp-pic">${pic}</div>
-      <label class="sp-tile-foot"><input type="checkbox" class="pick" data-sp-pick="${esc(rel)}" ${SP.sel.has(rel) ? "checked" : ""}><span class="sp-tile-name">${esc(c.name)}</span><span class="sp-size">${bytes(c.bytes)}</span></label>
+      <label class="sp-tile-foot"><input type="checkbox" class="pick" data-sp-pick="${esc(rel)}" ${SP.sel.has(rel) ? "checked" : ""}><span class="sp-tile-name">${tagDots(SP.tags && SP.tags[c.name])}${esc(c.name)}</span><span class="sp-size">${bytes(c.bytes)}</span></label>
       ${vd && vd.level !== "check" ? `<span class="vd ${vd.level}" title="${esc(vd.why)}">${VD_LABEL[vd.level]}</span>` : ""}
-      <span class="sp-acts">${c.dir ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}${native ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`;
+      <span class="sp-acts">${c.dir ? `<button class="icon-btn" data-sp-open="${esc(rel)}" title="Look inside">${ICON.right}</button>` : ""}<button class="icon-btn" data-sp-tag="${esc(rel)}" title="Tag colour">${ICON.tag}</button><button class="icon-btn" data-sp-edit="${esc(rel)}" title="Rename">${ICON.edit}</button><button class="icon-btn" data-sp-move="${esc(rel)}" title="Move to another folder here">${ICON.folder}</button>${native && !spaceOnly ? `<button class="icon-btn" data-sp-reveal="${esc(rel)}" title="Show in Finder">${ICON.reveal}</button>` : ""}</span></div>`;
   }).join("")}</div>${rest ? `<div class="hint" style="margin-top:8px">${rest.rest.toLocaleString()} smaller items · ${bytes(rest.bytes)}</div>` : ""}`;
 }
 function spPreviewable(name) { const k = SP_KIND[(name.split(".").pop() || "").toLowerCase()]; return k === "image" || k === "video"; }

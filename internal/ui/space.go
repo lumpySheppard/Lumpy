@@ -165,7 +165,7 @@ func (s *Server) spaceDropPlace(w http.ResponseWriter, r *http.Request) (any, er
 	return map[string]any{"ok": true}, s.savePlaces(keep)
 }
 
-// spaceScan measures a place as a job.
+// spaceStart measures a place as a job.
 func (s *Server) spaceStart(w http.ResponseWriter, r *http.Request) (any, error) {
 	var body struct {
 		Path string `json:"path"`
@@ -178,13 +178,23 @@ func (s *Server) spaceStart(w http.ResponseWriter, r *http.Request) (any, error)
 	if err != nil || !st.IsDir() {
 		return nil, badRequest("choose a folder or disk to measure")
 	}
+	j, err := s.measure(root)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"job": j.ID}, nil
+}
+
+// measure starts measuring a place, or returns the measurement already
+// under way.
+func (s *Server) measure(root string) (*Job, error) {
 	s.spc.mu.Lock()
 	if s.spc.scans == nil {
 		s.spc.scans = map[string]*spaceScan{}
 	}
 	if sc := s.spc.scans[root]; sc != nil && sc.tree == nil {
 		s.spc.mu.Unlock()
-		return map[string]any{"job": sc.job}, nil // already measuring
+		return s.jobs.Get(sc.job), nil // already measuring
 	}
 	sc := &spaceScan{root: root, prog: &space.Progress{}}
 	s.spc.scans[root] = sc
@@ -228,7 +238,7 @@ func (s *Server) spaceStart(w http.ResponseWriter, r *http.Request) (any, error)
 		return nil
 	})
 	sc.job = j.ID
-	return map[string]any{"job": j.ID}, nil
+	return j, nil
 }
 
 func fmtInt(n int64) string {

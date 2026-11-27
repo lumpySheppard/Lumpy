@@ -303,6 +303,8 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/space/places", s.spaceAddPlace)
 	api("DELETE /api/space/places", s.spaceDropPlace)
 	api("POST /api/space/scan", s.spaceStart)
+	api("GET /api/space/tags", s.spaceTags)
+	api("POST /api/space/organise", s.spaceOrganise)
 	api("GET /api/space", s.spaceTree)
 	api("POST /api/space/trash", s.spaceTrash)
 	api("POST /api/space/check", s.spaceCheck)

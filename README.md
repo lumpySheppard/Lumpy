@@ -715,6 +715,17 @@ and what to clear is a glance rather than a name. Click a thumbnail
 for the full preview, with ← → through the folder. In either view a
 tick with shift held ticks everything from the last tick to that one.
 
+The Folders view also organises, so a tidy is more than deleting:
+**New folder** above the list makes one in the folder in view; each
+row (and each tile) has **Rename**, **Move to…** (a folder picker of
+the whole measured place, an instant move on the same disk) and a
+**Tag colour** menu of the Finder's seven colours. Tags are the
+Finder's own, in the attribute it reads and writes, so a red clip
+tagged in Lumpy is red in the Finder and the Files app, and a tag
+set there shows as a dot before the name here. Everything moved or
+renamed is measured again, so the rings stay true. On the iPad
+these row actions are always showing, sized for a finger.
+
 Beside **Folders**, two more views of the same measurement.
 **Duplicates** finds the same file twice: every file of 1 MB or more
 is compared by length, the ones that share a length are read and
